@@ -12,9 +12,20 @@ BUILDDIR := /build/
 OSDRV_ENV = CHIP_ARCH=CV181X \
 CVIARCH=CV181X \
 SDK_VER=musl_riscv64 \
+CROSS_COMPILE_MUSL_RISCV64=/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl- \
 CONFIG_ARCH=riscv \
 CONFIG_CROSS_COMPILE_KERNEL="/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-" \
 CONFIG_CP_EXT_WIRELESS=y
+
+SENSOR_ENV = CONFIG_SENSOR_GCORE_GC2083=y \
+CONFIG_SENSOR_GCORE_GC4653=y \
+CONFIG_SENSOR_OV_OS04A10=y \
+CONFIG_SENSOR_OV_OV2685=y \
+CONFIG_SENSOR_OV_OV5647=y \
+CONFIG_SENSOR_SMS_SC035GS=y \
+CONFIG_SENSOR_LONTIUM_LT6911=y
+
+MIDDLEWARE_ENV = $(OSDRV_ENV) $(SENSOR_ENV)
 
 ifndef BOARD
 $(error $(red)BOARD is not set$(reset))
@@ -41,6 +52,14 @@ $(info $(blue)Packages: $(_PACKAGES)$(reset))
 
 NPROCS := $(shell nproc)
 
+
+define copy_header_action
+	@cp -r $(BUILDDIR)/osdrv/interdrv/include/chip/cv181x/uapi/linux/* ${1}/linux/
+	@cp -r $(BUILDDIR)/osdrv/interdrv/include/common/uapi/linux/* ${1}/linux/
+	@cp $(BUILDDIR)/kernel/drivers/staging/android/uapi/ion.h ${1}/linux/
+	@cp $(BUILDDIR)/kernel/drivers/staging/android/uapi/ion_cvitek.h ${1}/linux/
+	@cp $(BUILDDIR)/kernel/include/uapi/linux/dma-buf.h ${1}/linux/
+endef
 
 $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
@@ -110,6 +129,46 @@ osdrv: $(BUILDDIR)/osdrv-compile-stamp
 osdrv-clean:
 	@rm -rf $(BUILDDIR)/osdrv
 	@rm -f $(BUILDDIR)/osdrv-*-stamp
+
+
+$(BUILDDIR)/middleware-prepare-checkout-stamp:
+	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
+	@mkdir -p $(BUILDDIR)
+	@git clone -b sg200x-dev --depth 22 --recursive https://github.com/sophgo/cvi_mpi.git /build/middleware
+	@cd $(BUILDDIR)/middleware && git checkout ebaaf1b
+	@git clone -b sg200x-dev --depth 11 --recursive https://github.com/sophgo/SensorSupportList.git /build/middleware/component/isp
+	@cd $(BUILDDIR)/middleware/component/isp && git checkout 7e900fc
+	@touch $@
+
+$(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/middleware-prepare-checkout-stamp
+	@echo "$(COLOUR_GREEN)Patching Middleware for $(BOARD)$(END_COLOUR)"
+	mkdir -pv $(BUILDDIR)/kernel/riscv/usr/include/linux/
+	$(call copy_header_action, $(BUILDDIR)/kernel/riscv/usr/include)
+	@$(foreach file, $(wildcard /configs/common/patches/middleware/*.patch), cd $(BUILDDIR)/middleware && git apply --ignore-whitespace $(file);)
+	@$(foreach file, $(wildcard /configs/$(BOARD)/patches/middleware/*.patch), cd $(BUILDDIR)/middleware && git apply --ignore-whitespace $(file);)
+	sed -i 's|$$(ROOT_DIR)/../host-tools|/host-tools|g' $(BUILDDIR)/middleware/Makefile.param
+	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/Makefile.param
+	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/Makefile
+	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/common/Makefile
+	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/sample/common/Makefile
+	@touch $@
+
+$(BUILDDIR)/middleware-prepare-configure-stamp: $(BUILDDIR)/middleware-prepare-patch-stamp
+	@echo "$(COLOUR_GREEN)Configuring Middleware for $(BOARD)$(END_COLOUR)"
+	@touch $@
+
+$(BUILDDIR)/middleware-compile-stamp: $(BUILDDIR)/middleware-prepare-configure-stamp
+	@echo "$(COLOUR_GREEN)Building Middleware for $(BOARD)$(END_COLOUR)"
+	@cd $(BUILDDIR)/middleware && $(MIDDLEWARE_ENV) $(MAKE) KERNEL_DIR=$(BUILDDIR)/kernel all
+	@mkdir -pv $(BUILDDIR)/middleware/install/system/
+	@cd $(BUILDDIR)/middleware && $(MIDDLEWARE_ENV) $(MAKE) KERNEL_DIR=$(BUILDDIR)/kernel install DESTDIR=$(BUILDDIR)/middleware/install/system
+	@touch $@
+
+middleware: $(BUILDDIR)/middleware-compile-stamp
+
+middleware-clean:
+	@rm -rf $(BUILDDIR)/middleware
+	@rm -f $(BUILDDIR)/middleware-*-stamp
 
 
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
@@ -237,7 +296,10 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-compile-stamp $(addon-targets)
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-compile-stamp $(BUILDDIR)/middleware-compile-stamp $(addon-targets)
+	@echo "$(COLOUR_GREEN)Copying Middleware files for installation on $(BOARD)$(END_COLOUR)"
+	@mkdir -pv /rootfs/mnt/system/
+	@rsync -avpPxH $(BUILDDIR)/middleware/install/system/ /rootfs/mnt/system/
 	@echo "$(COLOUR_GREEN)Copying Ko files for installation on $(BOARD)$(END_COLOUR)"
 	@mkdir -pv /rootfs/mnt/system/ko/
 	@cp -p $(BUILDDIR)/osdrv/ko/*.ko /rootfs/mnt/system/ko/
@@ -303,6 +365,6 @@ image-clean:
 image-clean-customize:
 	@rm -f $(BUILDDIR)/image-customize-stamp
 
-clean: opensbi-clean uboot-clean linux-clean osdrv-clean fsbl-clean
+clean: opensbi-clean uboot-clean linux-clean osdrv-clean middleware-clean fsbl-clean
 
-.PHONY: image clean opensbi uboot linux osdrv fsbl fsbl-clean uboot-clean linux-clean opensbi-clean
+.PHONY: image clean opensbi uboot linux osdrv middleware fsbl fsbl-clean uboot-clean linux-clean opensbi-clean
