@@ -9,6 +9,13 @@ reset:=$(shell tput sgr0)
 
 BUILDDIR := /build/
 
+OSDRV_ENV = CHIP_ARCH=CV181X \
+CVIARCH=CV181X \
+SDK_VER=musl_riscv64 \
+CONFIG_ARCH=riscv \
+CONFIG_CROSS_COMPILE_KERNEL="/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-" \
+CONFIG_CP_EXT_WIRELESS=y
+
 ifndef BOARD
 $(error $(red)BOARD is not set$(reset))
 endif
@@ -74,6 +81,35 @@ linux-clean:
 	@rm -rf $(BUILDDIR)/kernel
 	@rm -f $(BUILDDIR)/linux-*-stamp
 	@rm -f $(BUILDDIR)/linux-*.deb
+
+
+$(BUILDDIR)/osdrv-prepare-checkout-stamp:
+	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
+	@mkdir -p $(BUILDDIR)
+	@git clone -b sg200x-dev --depth 11 https://github.com/sophgo/osdrv.git /build/osdrv
+	@cd $(BUILDDIR)/osdrv && git checkout 28215f2
+	@touch $@
+
+$(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp
+	@echo "$(COLOUR_GREEN)Patching OSdrv for $(BOARD)$(END_COLOUR)"
+	@$(foreach file, $(wildcard /configs/common/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
+	@$(foreach file, $(wildcard /configs/$(BOARD)/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
+	@touch $@
+
+$(BUILDDIR)/osdrv-prepare-configure-stamp: $(BUILDDIR)/osdrv-prepare-patch-stamp
+	@echo "$(COLOUR_GREEN)Configuring OSdrv for $(BOARD)$(END_COLOUR)"
+	@touch $@
+
+$(BUILDDIR)/osdrv-compile-stamp: $(BUILDDIR)/osdrv-prepare-configure-stamp
+	@echo "$(COLOUR_GREEN)Building OSdrv for $(BOARD)$(END_COLOUR)"
+	@cd $(BUILDDIR)/osdrv && $(OSDRV_ENV) $(MAKE) KERNEL_DIR=$(BUILDDIR)/kernel INSTALL_DIR=$(BUILDDIR)/osdrv/ko all
+	@touch $@
+
+osdrv: $(BUILDDIR)/osdrv-compile-stamp
+
+osdrv-clean:
+	@rm -rf $(BUILDDIR)/osdrv
+	@rm -f $(BUILDDIR)/osdrv-*-stamp
 
 
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
@@ -201,7 +237,17 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(addon-targets)
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-compile-stamp $(addon-targets)
+	@echo "$(COLOUR_GREEN)Copying Ko files for installation on $(BOARD)$(END_COLOUR)"
+	@mkdir -pv /rootfs/mnt/system/ko/
+	@cp -p $(BUILDDIR)/osdrv/ko/*.ko /rootfs/mnt/system/ko/
+	@rm -f /rootfs/mnt/system/ko/soph_clock_cooling.ko
+	@rm -f /rootfs/mnt/system/ko/soph_pwm.ko
+	@rm -f /rootfs/mnt/system/ko/soph_rtc.ko
+	@rm -f /rootfs/mnt/system/ko/soph_saradc.ko
+	@rm -f /rootfs/mnt/system/ko/soph_wdt.ko
+	@mkdir -pv /rootfs/mnt/system/ko/3rd/
+	@cp -p $(BUILDDIR)/osdrv/ko/3rd/*.ko /rootfs/mnt/system/ko/3rd/
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
 	@cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/ 
 	@cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
@@ -257,6 +303,6 @@ image-clean:
 image-clean-customize:
 	@rm -f $(BUILDDIR)/image-customize-stamp
 
-clean: opensbi-clean uboot-clean linux-clean fsbl-clean
+clean: opensbi-clean uboot-clean linux-clean osdrv-clean fsbl-clean
 
-.PHONY: image clean opensbi uboot linux fsbl fsbl-clean uboot-clean linux-clean opensbi-clean
+.PHONY: image clean opensbi uboot linux osdrv fsbl fsbl-clean uboot-clean linux-clean opensbi-clean
