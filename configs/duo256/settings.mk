@@ -8,4 +8,6 @@ PARTITION_FILE=partition_sd.xml
 STORAGE_TYPE=sd
 
 PACKAGES += " duo-pinmux"
+
+IMAGE_ADDITIONS += "load-systemko"
 #IMAGE_ADDITIONS += "aic8800-firmware"
