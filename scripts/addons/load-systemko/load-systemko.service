@@ -1,0 +1,11 @@
+[Unit]
+Description=Load System Modules
+Before=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=sh /etc/init.d/load-systemko.sh start
+
+[Install]
+WantedBy=multi-user.target
