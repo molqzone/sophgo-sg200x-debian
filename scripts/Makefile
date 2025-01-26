@@ -27,6 +27,19 @@ CONFIG_SENSOR_LONTIUM_LT6911=y
 
 MIDDLEWARE_ENV = $(OSDRV_ENV) $(SENSOR_ENV)
 
+KO_DIRS = drivers/i2c \
+drivers/input/touchscreen \
+drivers/media/usb/gspca \
+drivers/net/usb \
+drivers/net/wireless \
+drivers/pwm \
+drivers/rtc \
+drivers/spi \
+drivers/video/backlight \
+fs/efivarfs \
+net/ipv4 \
+net/wireless
+
 ifndef BOARD
 $(error $(red)BOARD is not set$(reset))
 endif
@@ -61,6 +74,11 @@ define copy_header_action
 	@cp $(BUILDDIR)/kernel/include/uapi/linux/dma-buf.h ${1}/linux/
 endef
 
+define copy_ko_action
+	@mkdir -p $(BUILDDIR)/osdrv/ko
+	$(foreach kodir, $(KO_DIRS), find ${1}/lib/modules/*/kernel/$(kodir) -name '*.ko' -exec cp -f {} $(BUILDDIR)/osdrv/ko/ \; ;)
+endef
+
 $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
@@ -91,6 +109,7 @@ $(BUILDDIR)/linux-compile-stamp: $(BUILDDIR)/linux-prepare-configure-stamp
 	@sed -i 's/packagename=linux-image.*/packagename=linux-image-$(BOARD)/' $(BUILDDIR)/kernel/scripts/package/mkdebian
 	@sed -i 's/packagename=linux-image-$$version/packagename=linux-image-$(BOARD)-$$version/' $(BUILDDIR)/kernel/scripts/package/builddeb
 	@cd $(BUILDDIR)/kernel && KCFLAGS=-Wno-attribute-alias ARCH=riscv CROSS_COMPILE="/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-" KDEB_SOURCENAME=linux-$(BOARD) $(MAKE) -j$(NPROCS) O=$(BUILDDIR)/kernel/ bindeb-pkg
+	@cd $(BUILDDIR)/kernel && KCFLAGS=-Wno-attribute-alias ARCH=riscv CROSS_COMPILE="/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-" KDEB_SOURCENAME=linux-$(BOARD) $(MAKE) -j$(NPROCS) O=$(BUILDDIR)/kernel/ modules_install INSTALL_MOD_PATH=$(BUILDDIR)/kernel/modules headers_install INSTALL_HDR_PATH=$(BUILDDIR)/kernel/riscv/usr
 	@cp $(BUILDDIR)/*.deb /output/
 	@touch $@
 
@@ -109,8 +128,9 @@ $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@cd $(BUILDDIR)/osdrv && git checkout 28215f2
 	@touch $@
 
-$(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp
+$(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp $(BUILDDIR)/linux-compile-stamp
 	@echo "$(COLOUR_GREEN)Patching OSdrv for $(BOARD)$(END_COLOUR)"
+	$(call copy_ko_action, $(BUILDDIR)/kernel/modules)
 	@$(foreach file, $(wildcard /configs/common/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
 	@$(foreach file, $(wildcard /configs/$(BOARD)/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
 	@touch $@
@@ -124,7 +144,27 @@ $(BUILDDIR)/osdrv-compile-stamp: $(BUILDDIR)/osdrv-prepare-configure-stamp
 	@cd $(BUILDDIR)/osdrv && $(OSDRV_ENV) $(MAKE) KERNEL_DIR=$(BUILDDIR)/kernel INSTALL_DIR=$(BUILDDIR)/osdrv/ko all
 	@touch $@
 
-osdrv: $(BUILDDIR)/osdrv-compile-stamp
+$(BUILDDIR)/osdrv-package-stamp: $(BUILDDIR)/osdrv-compile-stamp
+	@echo "$(COLOUR_GREEN)Packaging OSdrv for $(BOARD)$(END_COLOUR)"
+	@$(eval KERNELRELEASE=$(shell basename $(BUILDDIR)/kernel/debian/linux-headers/usr/share/doc/linux-headers-* | cut -d '-' -f 3-))
+	@mkdir -p $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)
+	@cp -r /builder/deb/cvitek-osdrv/* $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/
+	@mkdir -pv $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/
+	@cp -p $(BUILDDIR)/osdrv/ko/*.ko $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/
+	@rm -f $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/$(CHIP)_clock_cooling.ko
+	@rm -f $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/$(CHIP)_pwm.ko
+	@rm -f $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/$(CHIP)_rtc.ko
+	@rm -f $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/$(CHIP)_saradc.ko
+	@rm -f $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/$(CHIP)_wdt.ko
+	@mkdir -pv $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/3rd/
+	@cp -p $(BUILDDIR)/osdrv/ko/3rd/*.ko $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/3rd/
+	@sed -i 's/Version: 1.0.0/Version: $(OSDRVVERSION)-$(KERNELRELEASE)/' $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/DEBIAN/control
+	@sed -i 's/Package: cvitek-osdrv/Package: cvitek-osdrv-$(BOARD)/' $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/DEBIAN/control
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)
+	@cp $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE).deb /output/
+	@touch $@
+
+osdrv: $(BUILDDIR)/osdrv-package-stamp
 
 osdrv-clean:
 	@rm -rf $(BUILDDIR)/osdrv
@@ -140,7 +180,7 @@ $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@cd $(BUILDDIR)/middleware/component/isp && git checkout 7e900fc
 	@touch $@
 
-$(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/middleware-prepare-checkout-stamp
+$(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/middleware-prepare-checkout-stamp $(BUILDDIR)/osdrv-compile-stamp
 	@echo "$(COLOUR_GREEN)Patching Middleware for $(BOARD)$(END_COLOUR)"
 	mkdir -pv $(BUILDDIR)/kernel/riscv/usr/include/linux/
 	$(call copy_header_action, $(BUILDDIR)/kernel/riscv/usr/include)
@@ -168,7 +208,19 @@ $(BUILDDIR)/middleware-compile-stamp: $(BUILDDIR)/middleware-prepare-configure-s
 	@cd $(BUILDDIR)/middleware && $(MIDDLEWARE_ENV) $(MAKE) KERNEL_DIR=$(BUILDDIR)/kernel install DESTDIR=$(BUILDDIR)/middleware/install/system
 	@touch $@
 
-middleware: $(BUILDDIR)/middleware-compile-stamp
+$(BUILDDIR)/middleware-package-stamp: $(BUILDDIR)/middleware-compile-stamp
+	@echo "$(COLOUR_GREEN)Packaging Middleware for $(BOARD)$(END_COLOUR)"
+	@mkdir -p $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)
+	@cp -r /builder/deb/cvitek-middleware/* $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/
+	@mkdir -pv $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/mnt/system/
+	@rsync -avpPxH $(BUILDDIR)/middleware/install/system/ $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/mnt/system/
+	@sed -i 's/Version: 1.0.0/Version: $(MIDDLEWAREVERSION)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
+	@sed -i 's/Package: cvitek-middleware/Package: cvitek-middleware-$(BOARD)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)
+	@cp $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION).deb /output/
+	@touch $@
+
+middleware: $(BUILDDIR)/middleware-package-stamp
 
 middleware-clean:
 	@rm -rf $(BUILDDIR)/middleware
@@ -300,22 +352,11 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-compile-stamp $(BUILDDIR)/middleware-compile-stamp $(addon-targets)
-	@echo "$(COLOUR_GREEN)Copying Middleware files for installation on $(BOARD)$(END_COLOUR)"
-	@mkdir -pv /rootfs/mnt/system/
-	@rsync -avpPxH $(BUILDDIR)/middleware/install/system/ /rootfs/mnt/system/
-	@echo "$(COLOUR_GREEN)Copying Ko files for installation on $(BOARD)$(END_COLOUR)"
-	@mkdir -pv /rootfs/mnt/system/ko/
-	@cp -p $(BUILDDIR)/osdrv/ko/*.ko /rootfs/mnt/system/ko/
-	@rm -f /rootfs/mnt/system/ko/soph_clock_cooling.ko
-	@rm -f /rootfs/mnt/system/ko/soph_pwm.ko
-	@rm -f /rootfs/mnt/system/ko/soph_rtc.ko
-	@rm -f /rootfs/mnt/system/ko/soph_saradc.ko
-	@rm -f /rootfs/mnt/system/ko/soph_wdt.ko
-	@mkdir -pv /rootfs/mnt/system/ko/3rd/
-	@cp -p $(BUILDDIR)/osdrv/ko/3rd/*.ko /rootfs/mnt/system/ko/3rd/
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(addon-targets)
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
 	@cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/ 
+	@cp /output/cvitek-osdrv-$(BOARD)-*.deb /rootfs/tmp/install/
+	@cp /output/cvitek-middleware-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp /output/linux-headers-*.deb /rootfs/tmp/install/
 	@cp /output/linux-libc-dev*.deb /rootfs/tmp/install/
