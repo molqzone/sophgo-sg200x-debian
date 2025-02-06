@@ -4,6 +4,14 @@ if [ "$1" = "start" ]
 then
 	KERNELRELEASE=$(uname -r)
 
+	rmmod hynitron_touch
+	rmmod spi_gpio
+	rmmod spi_bitbang
+	rmmod i2c_gpio
+	rmmod i2c_algo_bit
+	rmmod cvitek_remoteproc
+	rmmod cvitek_mailbox
+
 	. /etc/profile
 	printf "load kernel module: "
 	cd /mnt/system/ko/${KERNELRELEASE}/
