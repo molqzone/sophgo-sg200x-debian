@@ -1,0 +1,39 @@
+From ec315c37ceb367f261c928d2b1b3aa1e8305480f Mon Sep 17 00:00:00 2001
+From: builder <builder@host.local>
+Date: Sat, 1 Mar 2025 16:40:13 +0000
+Subject: [PATCH] sample: vdec/venc: add -latomic
+
+---
+ sample/vdec/Makefile | 2 +-
+ sample/venc/Makefile | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sample/vdec/Makefile b/sample/vdec/Makefile
+index c889325..4193aa1 100644
+--- a/sample/vdec/Makefile
++++ b/sample/vdec/Makefile
+@@ -39,7 +39,7 @@ LIBS += -lnanomsg
+ endif
+ 
+ EXTRA_CFLAGS = $(DEFS) $(INCS)
+-EXTRA_LDFLAGS = $(LIBS) -lini -lm -lpthread
++EXTRA_LDFLAGS = $(LIBS) -lini -lm -lpthread -latomic
+ 
+ 
+ EXTRA_LDFLAGS_WITH_ASAN = -Wl,-Bdynamic $(LIBS) -lini -lm -lpthread
+diff --git a/sample/venc/Makefile b/sample/venc/Makefile
+index b112818..5907c21 100644
+--- a/sample/venc/Makefile
++++ b/sample/venc/Makefile
+@@ -46,7 +46,7 @@ LIBS += -lnanomsg
+ endif
+ 
+ EXTRA_CFLAGS = $(INCS) $(DEFS)
+-EXTRA_LDFLAGS = $(LIBS) -lini -lpthread
++EXTRA_LDFLAGS = $(LIBS) -lini -lpthread -latomic
+ 
+ EXTRA_LDFLAGS_WITH_ASAN = -Wl,-Bdynamic $(LIBS) -lini -lpthread
+ 
+-- 
+2.47.2
+
