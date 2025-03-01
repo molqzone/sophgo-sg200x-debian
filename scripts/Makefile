@@ -227,6 +227,32 @@ middleware-clean:
 	@rm -f $(BUILDDIR)/middleware-*-stamp
 
 
+$(BUILDDIR)/vcodec-firmware-prepare-checkout-stamp:
+	@echo "$(COLOUR_GREEN)Checking out vcodec-firmware for $(BOARD)$(END_COLOUR)"
+	@mkdir -p $(BUILDDIR)/vcodec-firmware
+	@cd $(BUILDDIR)/vcodec-firmware && wget -N https://github.com/sophgo/ramdisk/raw/8bf2a7446007a2ce02aba56622303a7a5906f91c/rootfs/common_musl_riscv64/usr/share/fw_vcodec/coda980.bin
+	@cd $(BUILDDIR)/vcodec-firmware && wget -N https://github.com/sophgo/ramdisk/raw/8bf2a7446007a2ce02aba56622303a7a5906f91c/rootfs/common_musl_riscv64/usr/share/fw_vcodec/monet.bin
+	@touch $@
+
+$(BUILDDIR)/vcodec-firmware-package-stamp: $(BUILDDIR)/vcodec-firmware-prepare-checkout-stamp
+	@echo "$(COLOUR_GREEN)Packaging vcodec-firmware for $(BOARD)$(END_COLOUR)"
+	@mkdir -p $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)
+	@cp -r /builder/deb/firmware-vcodec-cv181x/* $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/
+	@mkdir -pv $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/usr/share/fw_vcodec/
+	@rsync -avpPxH $(BUILDDIR)/vcodec-firmware/ $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/usr/share/fw_vcodec/
+	@sed -i 's/Version: 1.0.0/Version: $(MIDDLEWAREVERSION)/' $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/DEBIAN/control
+	@sed -i 's/Package: firmware-vcodec-cv181x/Package: firmware-vcodec-$(CHIP)/' $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/DEBIAN/control
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)
+	@cp $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION).deb /output/
+	@touch $@
+
+vcodec-firmware: $(BUILDDIR)/vcodec-firmware-package-stamp
+
+vcodec-firmware-clean:
+	@rm -rf $(BUILDDIR)/vcodec-firmware
+	@rm -f $(BUILDDIR)/vcodec-firmware-*-stamp
+
+
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
@@ -352,11 +378,12 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(addon-targets)
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(BUILDDIR)/vcodec-firmware-package-stamp $(addon-targets)
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
 	@cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/ 
 	@cp /output/cvitek-osdrv-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp /output/cvitek-middleware-$(BOARD)-*.deb /rootfs/tmp/install/
+	@cp /output/firmware-vcodec-$(CHIP)-*.deb /rootfs/tmp/install/
 	@cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp /output/linux-headers-*.deb /rootfs/tmp/install/
 	@cp /output/linux-libc-dev*.deb /rootfs/tmp/install/
