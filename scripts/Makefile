@@ -151,6 +151,10 @@ $(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/middleware-prepare-check
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/Makefile
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/component/isp/common/Makefile
 	sed -i 's|^include $$(BUILD_PATH)/.config|-include $$(BUILD_PATH)/.config|g' $(BUILDDIR)/middleware/sample/common/Makefile
+	[ -e $(BUILDDIR)/middleware/sample/mipi_tx ] || sed -i 's|cp -f sample/mipi_tx/sample_dsi|#cp -f sample/mipi_tx/sample_dsi|g' $(BUILDDIR)/middleware/Makefile
+	[ -e $(BUILDDIR)/middleware/sample/cipher ] || sed -i 's|cp -f sample/cipher/sample_cipher|#cp -f sample/cipher/sample_cipher|g' $(BUILDDIR)/middleware/Makefile
+	[ -e $(BUILDDIR)/middleware/sample/cvg ] || sed -i 's|cp -f sample/cvg/sample_cvg|#cp -f sample/cvg/sample_cvg|g' $(BUILDDIR)/middleware/Makefile
+	sed -i 's|@cp -f modules/venc/vc_lib/bin/|#@cp -f modules/venc/vc_lib/bin/|g' $(BUILDDIR)/middleware/Makefile
 	@touch $@
 
 $(BUILDDIR)/middleware-prepare-configure-stamp: $(BUILDDIR)/middleware-prepare-patch-stamp
