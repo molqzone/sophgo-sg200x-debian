@@ -1,0 +1,35 @@
+From 6822f93acacc7eab351bfb4d6195be51899ed1a6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=9F=90=E6=9D=B0=E5=90=8C=E5=AD=A6?= <1220627966@qq.com>
+Date: Mon, 27 May 2024 19:38:37 -0700
+Subject: [PATCH] Fix the problem of GC4653 color anomaly
+
+---
+ sample/common/sample_common_sensor.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sample/common/sample_common_sensor.c b/sample/common/sample_common_sensor.c
+index 4e4e237..db9cad5 100644
+--- a/sample/common/sample_common_sensor.c
++++ b/sample/common/sample_common_sensor.c
+@@ -745,6 +745,9 @@ CVI_S32 SAMPLE_COMM_SNS_GetDevAttr(SAMPLE_SNS_TYPE_E enSnsType, VI_DEV_ATTR_S *p
+ 	case GCORE_GC1084_SLAVE2_MIPI_1M_30FPS_10BIT:
+ 	case GCORE_GC4653_MIPI_4M_30FPS_10BIT:
+ 	case GCORE_GC4653_SLAVE_MIPI_4M_30FPS_10BIT:
++		pstViDevAttr->enBayerFormat = BAYER_FORMAT_RG;
++		// pstViDevAttr->enBayerFormat = BAYER_FORMAT_GB;
++		break;
+ 		// omnivision
+ 	case OV_OS04A10_MIPI_4M_1440P_30FPS_12BIT:
+ 	case OV_OS04A10_MIPI_4M_1440P_30FPS_10BIT_WDR2TO1:
+@@ -1036,6 +1039,8 @@ CVI_S32 SAMPLE_COMM_SNS_GetIspAttrBySns(SAMPLE_SNS_TYPE_E enSnsType, ISP_PUB_ATT
+ 	case GCORE_GC1084_SLAVE2_MIPI_1M_30FPS_10BIT:
+ 	case GCORE_GC4653_MIPI_4M_30FPS_10BIT:
+ 	case GCORE_GC4653_SLAVE_MIPI_4M_30FPS_10BIT:
++		pstPubAttr->enBayer = BAYER_RGGB;
++		break;
+ 		// omnivision
+ 	case OV_OS04A10_MIPI_4M_1440P_30FPS_12BIT:
+ 	case OV_OS04A10_MIPI_4M_1440P_30FPS_10BIT_WDR2TO1:
+-- 
+2.34.1
+
