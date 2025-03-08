@@ -43,6 +43,10 @@
         /delete-property/ mute-gpio-r;
 };
 
+&mipi_rx {
+        snsr-reset = <&porte 1 GPIO_ACTIVE_LOW>;
+};
+
 &soc_thermal_0 {
 	cooling-maps {
 		map0 {
