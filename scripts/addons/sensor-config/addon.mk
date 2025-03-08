@@ -24,7 +24,7 @@ $(BUILDDIR)/sensor-config-package-stamp:
 $(BUILDDIR)/sensor-config-stamp: $(BUILDDIR)/sensor-config-package-stamp
 	@echo "$(COLOUR_GREEN)Installing sensor-config for $(BOARD)$(END_COLOUR)"
 	@mkdir -pv /rootfs/boot/
-	@[ "$(BOARD)" = "licheervnano" ] || @touch /rootfs/boot/epsilon
+	@[ "$(BOARD)" = "licheervnano" ] || touch /rootfs/boot/epsilon
 	@mkdir -pv /rootfs/mnt/cfg/param/
 	@mkdir -pv /rootfs/mnt/data/
 	@if [ "$(BOARD)" = "licheervnano" ]; then \
