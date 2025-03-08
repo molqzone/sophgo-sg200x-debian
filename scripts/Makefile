@@ -178,6 +178,9 @@ $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@cd $(BUILDDIR)/middleware && git checkout ebaaf1b
 	@git clone -b sg200x-dev --depth 11 --recursive https://github.com/sophgo/SensorSupportList.git /build/middleware/component/isp
 	@cd $(BUILDDIR)/middleware/component/isp && git checkout 7e900fc
+	@mkdir -p $(BUILDDIR)/middleware/sample/test_mmf
+	@git clone -b maixcdk --depth 11 --recursive https://github.com/scpcom/ireader $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x
+	@cd $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x && git checkout 06cf95b
 	@touch $@
 
 $(BUILDDIR)/middleware-prepare-patch-stamp: $(BUILDDIR)/middleware-prepare-checkout-stamp $(BUILDDIR)/osdrv-compile-stamp
