@@ -1,0 +1,57 @@
+#!/bin/sh
+
+if [ "$1" = "start" ]
+then
+	. /etc/profile
+	printf "copy sensor config file: "
+	if [ -e /boot/alpha ]
+	then
+		if [ ! -e /mnt/data/sensor_cfg.ini ]
+		then
+			cp /mnt/data/sensor_cfg.ini.alpha /mnt/data/sensor_cfg.ini
+		fi
+		if [ $(cat /mnt/data/sensor_cfg.ini | wc -l) -eq 0 ]
+		then
+			cp /mnt/data/sensor_cfg.ini.beta /mnt/data/sensor_cfg.ini
+		fi
+		# MIPI RX 4N PINMUX MCLK0
+		devmem 0x0300116C 32 0x5
+		# MIPI RX 0N PINMUX MIPIP RX 0N
+		devmem 0x0300118C 32 0x3
+		echo " alpha "
+	elif [ -e /boot/epsilon ]
+	then
+		if [ ! -e /mnt/data/sensor_cfg.ini ]
+		then
+			cp /mnt/data/sensor_cfg.ini.alpha /mnt/data/sensor_cfg.ini
+		fi
+		if [ $(cat /mnt/data/sensor_cfg.ini | wc -l) -eq 0 ]
+		then
+			cp /mnt/data/sensor_cfg.ini.beta /mnt/data/sensor_cfg.ini
+		fi
+		# MIPI RX 4N PINMUX no change
+		#
+		# MIPI RX 0N PINMUX no change
+		#
+		echo " epsilon "
+	else
+		if [ ! -e /mnt/data/sensor_cfg.ini ]
+		then
+			cp /mnt/data/sensor_cfg.ini.beta /mnt/data/sensor_cfg.ini
+		fi
+		if [ $(cat /mnt/data/sensor_cfg.ini | wc -l) -eq 0 ]
+		then
+			cp /mnt/data/sensor_cfg.ini.beta /mnt/data/sensor_cfg.ini
+		fi
+		# MIPI RX 4N PINMUX MIPI RX 4N
+		devmem 0x0300116C 32 0x3
+		# MIPI RX 0N PINMUX MCLK1
+		devmem 0x0300118C 32 0x5
+		echo -n " beta "
+	fi
+	if [ -e /boot/kvmtest ]
+	then
+		cp /mnt/data/sensor_cfg.ini.LT /mnt/data/sensor_cfg.ini
+	fi
+	echo "OK"
+fi
