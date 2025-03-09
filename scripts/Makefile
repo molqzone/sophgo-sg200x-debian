@@ -9,6 +9,8 @@ reset:=$(shell tput sgr0)
 
 BUILDDIR := /build/
 
+DEB_ARCH = riscv64
+
 OSDRV_ENV = CHIP_ARCH=CV181X \
 CVIARCH=CV181X \
 SDK_VER=musl_riscv64 \
@@ -159,9 +161,9 @@ $(BUILDDIR)/osdrv-package-stamp: $(BUILDDIR)/osdrv-compile-stamp
 	@mkdir -pv $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/3rd/
 	@cp -p $(BUILDDIR)/osdrv/ko/3rd/*.ko $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/mnt/system/ko/$(KERNELRELEASE)/3rd/
 	@sed -i 's/Version: 1.0.0/Version: $(OSDRVVERSION)-$(KERNELRELEASE)/' $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/DEBIAN/control
-	@sed -i 's/Package: cvitek-osdrv/Package: cvitek-osdrv-$(BOARD)/' $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/DEBIAN/control
-	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)
-	@cp $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE).deb /output/
+	@sed -i 's/Package: cvitek-osdrv/Package: cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/' $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)/DEBIAN/control
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-osdrv-$(BOARD)-$(KERNELRELEASE) cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)_$(OSDRVVERSION)-$(KERNELRELEASE)_$(DEB_ARCH).deb
+	@cp $(BUILDDIR)/package/cvitek-osdrv-$(BOARD)-$(KERNELRELEASE)_$(OSDRVVERSION)-$(KERNELRELEASE)_$(DEB_ARCH).deb /output/
 	@touch $@
 
 osdrv: $(BUILDDIR)/osdrv-package-stamp
@@ -221,8 +223,8 @@ $(BUILDDIR)/middleware-package-stamp: $(BUILDDIR)/middleware-compile-stamp
 	@rsync -avpPxH $(BUILDDIR)/middleware/install/system/ $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/mnt/system/
 	@sed -i 's/Version: 1.0.0/Version: $(MIDDLEWAREVERSION)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
 	@sed -i 's/Package: cvitek-middleware/Package: cvitek-middleware-$(BOARD)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
-	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)
-	@cp $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION).deb /output/
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION) $(BUILDDIR)/package/cvitek-middleware-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb
+	@cp $(BUILDDIR)/package/cvitek-middleware-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /output/
 	@touch $@
 
 middleware: $(BUILDDIR)/middleware-package-stamp
@@ -247,8 +249,8 @@ $(BUILDDIR)/vcodec-firmware-package-stamp: $(BUILDDIR)/vcodec-firmware-prepare-c
 	@rsync -avpPxH $(BUILDDIR)/vcodec-firmware/ $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/usr/share/fw_vcodec/
 	@sed -i 's/Version: 1.0.0/Version: $(MIDDLEWAREVERSION)/' $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/DEBIAN/control
 	@sed -i 's/Package: firmware-vcodec-cv181x/Package: firmware-vcodec-$(CHIP)/' $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)/DEBIAN/control
-	@cd $(BUILDDIR)/package/ && dpkg-deb --build firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION)
-	@cp $(BUILDDIR)/package/firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION).deb /output/
+	@cd $(BUILDDIR)/package/ && dpkg-deb --build firmware-vcodec-$(CHIP)-$(MIDDLEWAREVERSION) firmware-vcodec-$(CHIP)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb
+	@cp $(BUILDDIR)/package/firmware-vcodec-$(CHIP)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /output/
 	@touch $@
 
 vcodec-firmware: $(BUILDDIR)/vcodec-firmware-package-stamp
@@ -387,9 +389,9 @@ $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl
 	@[ -e /rootfs/usr/bin/devmem ] || ln -s busybox /rootfs/usr/bin/devmem
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
 	@cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/ 
-	@cp /output/cvitek-osdrv-$(BOARD)-*.deb /rootfs/tmp/install/
-	@cp /output/cvitek-middleware-$(BOARD)-*.deb /rootfs/tmp/install/
-	@cp /output/firmware-vcodec-$(CHIP)-*.deb /rootfs/tmp/install/
+	@cp /output/cvitek-osdrv-*$(BOARD)*.deb /rootfs/tmp/install/
+	@cp /output/cvitek-middleware-*$(BOARD)*.deb /rootfs/tmp/install/
+	@cp /output/firmware-vcodec-$(CHIP)*.deb /rootfs/tmp/install/
 	@cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp /output/linux-headers-*.deb /rootfs/tmp/install/
 	@cp /output/linux-libc-dev*.deb /rootfs/tmp/install/
