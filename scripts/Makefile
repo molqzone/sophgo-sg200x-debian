@@ -11,6 +11,8 @@ BUILDDIR := /build/
 
 DEB_ARCH = riscv64
 
+GIT_CLONE_OPTS = --shallow-since=2020-03-12
+
 OSDRV_ENV = CHIP_ARCH=CV181X \
 CVIARCH=CV181X \
 SDK_VER=musl_riscv64 \
@@ -84,7 +86,7 @@ endef
 $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b sg200x-dev --depth 7 https://github.com/sophgo/linux_5.10.git /build/kernel
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) https://github.com/sophgo/linux_5.10.git /build/kernel
 	@cd $(BUILDDIR)/kernel && git checkout e6ead53
 	@touch $@
 
@@ -126,7 +128,7 @@ linux-clean:
 $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b sg200x-dev --depth 11 https://github.com/sophgo/osdrv.git /build/osdrv
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) https://github.com/sophgo/osdrv.git /build/osdrv
 	@cd $(BUILDDIR)/osdrv && git checkout 28215f2
 	@touch $@
 
@@ -176,12 +178,12 @@ osdrv-clean:
 $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b sg200x-dev --depth 22 --recursive https://github.com/sophgo/cvi_mpi.git /build/middleware
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) --recursive https://github.com/sophgo/cvi_mpi.git /build/middleware
 	@cd $(BUILDDIR)/middleware && git checkout ebaaf1b
-	@git clone -b sg200x-dev --depth 11 --recursive https://github.com/sophgo/SensorSupportList.git /build/middleware/component/isp
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) --recursive https://github.com/sophgo/SensorSupportList.git /build/middleware/component/isp
 	@cd $(BUILDDIR)/middleware/component/isp && git checkout 7e900fc
 	@mkdir -p $(BUILDDIR)/middleware/sample/test_mmf
-	@git clone -b maixcdk --depth 11 --recursive https://github.com/scpcom/ireader $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x
+	@git clone -b maixcdk $(GIT_CLONE_OPTS) --recursive https://github.com/scpcom/ireader $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x
 	@cd $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x && git checkout 06cf95b
 	@touch $@
 
@@ -263,7 +265,7 @@ vcodec-firmware-clean:
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone --depth 11 https://github.com/sophgo/u-boot-2021.10.git $(BUILDDIR)/u-boot
+	@git clone $(GIT_CLONE_OPTS) https://github.com/sophgo/u-boot-2021.10.git $(BUILDDIR)/u-boot
 	@cd $(BUILDDIR)/u-boot && git checkout 4a21b6b
 	@touch $@
 
@@ -306,7 +308,7 @@ uboot-clean:
 $(BUILDDIR)/opensbi-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OpenSBI for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b sg200x-dev --depth 11 https://github.com/sophgo/opensbi.git $(BUILDDIR)/opensbi
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) https://github.com/sophgo/opensbi.git $(BUILDDIR)/opensbi
 	@cd $(BUILDDIR)/opensbi && git checkout 216793f
 #	git clone https://github.com/riscv-software-src/opensbi.git $(BUILDDIR)/opensbi
 #	@cd $(BUILDDIR)/opensbi && git checkout a2b255b
@@ -335,7 +337,7 @@ opensbi-clean:
 $(BUILDDIR)/fsbl-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out FSBL for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b sg200x-dev --depth 11 https://github.com/sophgo/fsbl.git $(BUILDDIR)/fsbl
+	@git clone -b sg200x-dev $(GIT_CLONE_OPTS) https://github.com/sophgo/fsbl.git $(BUILDDIR)/fsbl
 	@cd $(BUILDDIR)/fsbl && git checkout 2039113
 	@touch $@
 
