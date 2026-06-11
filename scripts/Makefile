@@ -21,6 +21,10 @@ CONFIG_ARCH=riscv \
 CONFIG_CROSS_COMPILE_KERNEL="/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-" \
 CONFIG_CP_EXT_WIRELESS=y
 
+ifneq ($(findstring # CONFIG_FB is not set,$(shell cat /configs/$(BOARD)/linux/defconfig 2>/dev/null)),)
+OSDRV_ENV += CONFIG_NO_FB=1
+endif
+
 SENSOR_ENV = CONFIG_SENSOR_GCORE_GC2083=y \
 CONFIG_SENSOR_GCORE_GC4653=y \
 CONFIG_SENSOR_OV_OS04A10=y \
@@ -390,13 +394,41 @@ $(BUILDDIR)/image-prepare-stamp:
 $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(BUILDDIR)/vcodec-firmware-package-stamp $(addon-targets)
 	@[ -e /rootfs/usr/bin/devmem ] || ln -s busybox /rootfs/usr/bin/devmem
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
-	@cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/ 
-	@cp /output/cvitek-osdrv-*$(BOARD)*.deb /rootfs/tmp/install/
-	@cp /output/cvitek-middleware-*$(BOARD)*.deb /rootfs/tmp/install/
-	@cp /output/firmware-vcodec-$(CHIP)*.deb /rootfs/tmp/install/
-	@cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
-	@cp /output/linux-headers-*.deb /rootfs/tmp/install/
-	@cp /output/linux-libc-dev*.deb /rootfs/tmp/install/
+	@if ls /output/cvitek-fsbl-$(BOARD)-*.deb >/dev/null 2>&1; then \
+		cp /output/cvitek-fsbl-$(BOARD)-*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION).deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/cvitek-osdrv-*$(BOARD)*.deb >/dev/null 2>&1; then \
+		cp /output/cvitek-osdrv-*$(BOARD)*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/package/cvitek-osdrv-*$(BOARD)*.deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/cvitek-middleware-*$(BOARD)*.deb >/dev/null 2>&1; then \
+		cp /output/cvitek-middleware-*$(BOARD)*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/package/cvitek-middleware-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/firmware-vcodec-$(CHIP)*.deb >/dev/null 2>&1; then \
+		cp /output/firmware-vcodec-$(CHIP)*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/package/firmware-vcodec-$(CHIP)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/linux-image-$(BOARD)-*.deb >/dev/null 2>&1; then \
+		cp /output/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/linux-headers-*.deb >/dev/null 2>&1; then \
+		cp /output/linux-headers-*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/linux-headers-*.deb /rootfs/tmp/install/; \
+	fi
+	@if ls /output/linux-libc-dev*.deb >/dev/null 2>&1; then \
+		cp /output/linux-libc-dev*.deb /rootfs/tmp/install/; \
+	else \
+		cp $(BUILDDIR)/linux-libc-dev*.deb /rootfs/tmp/install/; \
+	fi
 	@touch $@
 
 
