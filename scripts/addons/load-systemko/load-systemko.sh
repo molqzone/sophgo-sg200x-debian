@@ -23,12 +23,14 @@ then
 	insmod cv181x_vi.ko
 	insmod cv181x_vpss.ko
 	insmod cv181x_dwa.ko
-	insmod cv181x_vo.ko
+	# Headless MaixCAM route: do not load VO by default.
+	# insmod cv181x_vo.ko
 #	insmod cv181x_mipi_tx.ko
 	insmod cv181x_rgn.ko
 #	insmod cv181x_wdt.ko
 #	insmod cv181x_clock_cooling.ko
-	insmod cv181x_tpu.ko
+	# Current scope excludes the TPU/NPU path.
+	# insmod cv181x_tpu.ko
 	insmod cv181x_vcodec.ko
 	insmod cv181x_jpeg.ko
 	insmod cvi_vc_driver.ko MaxVencChnNum=9 MaxVdecChnNum=9

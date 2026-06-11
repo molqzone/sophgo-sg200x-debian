@@ -24,6 +24,10 @@
         status = "okay";
 };
 
+&mipi_tx {
+	status = "disabled";
+};
+
 
 &i2c4 {
         statuc = "okay";
@@ -34,7 +38,7 @@
 		interrupt-parent = <&porte>;
                 irq-gpios= <&porte 3 0>;
                 reset-gpios = <&porte 4 0>;
-                status = "okay";
+                status = "disabled";
         };
 };
 
