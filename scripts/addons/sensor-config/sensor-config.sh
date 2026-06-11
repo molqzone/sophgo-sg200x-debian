@@ -2,7 +2,6 @@
 
 if [ "$1" = "start" ]
 then
-	. /etc/profile
 	printf "copy sensor config file: "
 	if [ -e /boot/alpha ]
 	then

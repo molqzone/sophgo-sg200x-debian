@@ -2,6 +2,9 @@ FROM debian:sid as builder
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot \
+    && printf 'deb http://snapshot.debian.org/archive/debian/20260518T000000Z sid main\n' > /etc/apt/sources.list
+
 RUN apt-get update \
     && apt-get install -y eatmydata \
     && eatmydata apt-get install -y --no-install-recommends \

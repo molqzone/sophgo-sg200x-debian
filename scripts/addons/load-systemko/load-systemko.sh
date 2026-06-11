@@ -4,15 +4,14 @@ if [ "$1" = "start" ]
 then
 	KERNELRELEASE=$(uname -r)
 
-	rmmod hynitron_touch
-	rmmod spi_gpio
-	rmmod spi_bitbang
-	rmmod i2c_gpio
-	rmmod i2c_algo_bit
-	rmmod cvitek_remoteproc
-	rmmod cvitek_mailbox
+	rmmod hynitron_touch 2>/dev/null || true
+	rmmod spi_gpio 2>/dev/null || true
+	rmmod spi_bitbang 2>/dev/null || true
+	rmmod i2c_gpio 2>/dev/null || true
+	rmmod i2c_algo_bit 2>/dev/null || true
+	rmmod cvitek_remoteproc 2>/dev/null || true
+	rmmod cvitek_mailbox 2>/dev/null || true
 
-	. /etc/profile
 	printf "load kernel module: "
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
