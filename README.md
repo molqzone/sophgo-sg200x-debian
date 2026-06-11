@@ -81,7 +81,7 @@ The images are based on the vendor 5.10 kernel, but exclude the following driver
 
 (this is mainly due to compatibility reasons with the glibc version in debian and musl version used in the vendor images)
 
-The images, by default, do not allocate any memory for the ION heap, as they are unused in this image, so you get the full memory of each device
+The board images reserve a board-specific amount of ION memory for the vendor multimedia stack. Headless configurations can reduce this carveout, but camera/ISP/RTSP features still depend on it.
 
 ### Ardunio/Freertos Support
 The images also include the remoteproc and mailbox drivers so you can load up ardunio/freertos images on the small C906 core. 

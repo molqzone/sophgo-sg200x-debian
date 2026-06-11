@@ -36,10 +36,12 @@ then
 	insmod cvi_vc_driver.ko MaxVencChnNum=9 MaxVdecChnNum=9
 #	insmod cv181x_rtc.ko
 	insmod cv181x_ive.ko
-	insmod cv181x_mon.ko
+	# Monitoring helpers are not needed for the headless camera route.
+	# insmod cv181x_mon.ko
 #	insmod cv181x_pwm.ko
 #	insmod cv181x_saradc.ko
-	insmod cvi_wiegand.ko
+	# Wiegand is unrelated to the MaixCAM runtime profile.
+	# insmod cvi_wiegand.ko
 	echo "OK"
 	exit 0
 fi

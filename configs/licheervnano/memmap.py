@@ -40,7 +40,9 @@ class MemoryMap:
     # =================
     # Multimedia buffer. Used by u-boot/kernel/FreeRTOS
     # =================
-    ION_SIZE = 63 * SIZE_1M
+    # Headless camera route still needs ISP/video buffers, but 63 MiB is excessive
+    # for this 256 MiB board. Keep a conservative carveout for camera/RTSP.
+    ION_SIZE = 32 * SIZE_1M
     H26X_BITSTREAM_SIZE = 2 * SIZE_1M
     H26X_ENC_BUFF_SIZE = 0
     ISP_MEM_BASE_SIZE = 20 * SIZE_1M
@@ -56,9 +58,8 @@ class MemoryMap:
 
     assert ISP_MEM_BASE_ADDR + ISP_MEM_BASE_SIZE <= ION_ADDR + ION_SIZE
 
-    # Boot logo is after the ION buffer
-    # Framebuffer uses boot logo's reserved memory
-    BOOTLOGO_SIZE = 5632 * SIZE_1K
+    # Headless default: do not reserve a framebuffer/bootlogo carveout.
+    BOOTLOGO_SIZE = 0
     BOOTLOGO_ADDR = ION_ADDR - BOOTLOGO_SIZE
     FRAMEBUFFER_SIZE = BOOTLOGO_SIZE
     FRAMEBUFFER_ADDR = BOOTLOGO_ADDR

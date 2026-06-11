@@ -28,7 +28,6 @@
 	status = "disabled";
 };
 
-
 &i2c4 {
         statuc = "okay";
         gt9xx: gt9xx@14 {
@@ -43,7 +42,7 @@
 };
 
 &dac {
-        status = "okay";
+        status = "disabled";
         /delete-property/ mute-gpio-r;
 };
 
@@ -69,6 +68,9 @@
 
 	/delete-node/ wifi_pin;
 	/delete-node/ bt_pin;
+	/delete-node/ sound_adc;
+	/delete-node/ sound_dac;
+	/delete-node/ sound_PDM;
 
         gpio-keys {
                 compatible = "gpio-keys";
@@ -142,4 +144,3 @@
 	};
 #endif
 };
-
