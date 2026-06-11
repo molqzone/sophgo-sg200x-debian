@@ -51,6 +51,10 @@ if [ "$STORAGETYPE" = "sd" ]; then
 EOF
 fi
 
+cat >> /etc/fstab <<EOF
+/swapfile       swap            swap    defaults                  0       0
+EOF
+
 
 
 #regenerate SSH keys on first boot
@@ -63,6 +67,8 @@ Before=ssh.service
 Type=oneshot
 ExecStartPre=-/usr/sbin/parted -s -f /dev/mmcblk0 resizepart 2 100%
 ExecStartPre=-/usr/sbin/resize2fs /dev/mmcblk0p2
+ExecStartPre=-/bin/sh -c "if [ ! -e /swapfile ]; then fallocate -l 1024M /swapfile && chmod 600 /swapfile && mkswap /swapfile; fi"
+ExecStartPre=-/sbin/swapon /swapfile
 ExecStartPre=-/bin/dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096
 ExecStartPre=-/bin/sh -c "/bin/rm -f -v /etc/ssh/ssh_host_*_key*"
 ExecStart=/usr/bin/ssh-keygen -A -v
@@ -78,7 +84,16 @@ fi
 
 cat /etc/systemd/system/finalize-image.service
 
-apt install -y -f /tmp/install/*.deb
+apt install -y --allow-downgrades -f /tmp/install/*.deb
+
+systemctl enable fake-hwclock-load.service fake-hwclock-save.timer || true
+
+# Convenience developer tools setup requested for the image profile.
+if [ -e /usr/lib/python3.13/EXTERNALLY-MANAGED ]; then
+  mv /usr/lib/python3.13/EXTERNALLY-MANAGED /usr/lib/python3.13/EXTERNALLY-MANAGED.bk || true
+fi
+ln -sf /usr/bin/python3 /usr/bin/python
+curl -sS https://bootstrap.pypa.io/get-pip.py | python3
 
 
 # change device tree

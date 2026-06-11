@@ -1131,7 +1131,7 @@ index 0000000..db370d0
 +	priv.vb_conf.u32MaxPoolCnt ++;
 +
 +#ifndef KVM_MMF
-+	if (ion_total_mem > 0 && ion_total_mem < 40 * 1024 * 1024) {
++	if (ion_total_mem <= 0 || ion_total_mem < 40 * 1024 * 1024) {
 +		priv.vb_vo_id = VB_INVALID_POOLID;
 +		priv.vb_user_id = VB_INVALID_POOLID;
 +	} else {
@@ -1142,7 +1142,7 @@ index 0000000..db370d0
 +		priv.vb_conf.u32MaxPoolCnt ++;
 +
 +		priv.vb_user_id = priv.vb_conf.u32MaxPoolCnt;
-+		priv.vb_conf.astCommPool[priv.vb_user_id].u32BlkSize = ALIGN(2560, DEFAULT_ALIGN) * ALIGN(1440, DEFAULT_ALIGN) * 3 / 2;
++		priv.vb_conf.astCommPool[priv.vb_user_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3 / 2;
 +		priv.vb_conf.astCommPool[priv.vb_user_id].u32BlkCnt = 2;
 +		priv.vb_conf.astCommPool[priv.vb_user_id].enRemapMode = VB_REMAP_MODE_CACHED;
 +		priv.vb_conf.u32MaxPoolCnt ++;
@@ -1158,7 +1158,7 @@ index 0000000..db370d0
 +
 +	printf("ion heap total size: %llu KiB\n", ion_total_mem / 1024);
 +	if (priv.vb_max_pool_cnt < priv.vb_conf.u32MaxPoolCnt) {
-+		if (ion_total_mem > 0 && ion_total_mem < 40 * 1024 * 1024) {
++		if (ion_total_mem <= 0 || ion_total_mem < 40 * 1024 * 1024) {
 +			priv.vb_max_pool_cnt = 2;
 +		} else if (ion_total_mem > 0 && ion_total_mem < 64 * 1024 * 1024) {
 +			priv.vb_max_pool_cnt = 4;
@@ -1169,7 +1169,7 @@ index 0000000..db370d0
 +
 +	g_priv.enc_h26x_enable = (priv.vb_max_pool_cnt > priv.vb_conf.u32MaxPoolCnt) ? 1 : 0;
 +	if (g_priv.enc_h26x_enable) {
-+		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkSize = ALIGN(2560, DEFAULT_ALIGN) * ALIGN(1440, DEFAULT_ALIGN) * 3 / 2;
++		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3 / 2;
 +		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkCnt = 1;
 +		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].enRemapMode = VB_REMAP_MODE_CACHED;
 +		priv.vb_conf.u32MaxPoolCnt ++;
@@ -1177,7 +1177,7 @@ index 0000000..db370d0
 +
 +	g_priv.enc_jpg_enable = (priv.vb_max_pool_cnt > priv.vb_conf.u32MaxPoolCnt) ? 1 : 0;
 +	if (g_priv.enc_jpg_enable) {
-+		priv.vb_conf.astCommPool[priv.vb_enc_jpeg_id].u32BlkSize = ALIGN(2560, DEFAULT_ALIGN) * ALIGN(1440, DEFAULT_ALIGN) * 3 / 2;
++		priv.vb_conf.astCommPool[priv.vb_enc_jpeg_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3 / 2;
 +		priv.vb_conf.astCommPool[priv.vb_enc_jpeg_id].u32BlkCnt = 1;
 +		priv.vb_conf.astCommPool[priv.vb_enc_jpeg_id].enRemapMode = VB_REMAP_MODE_CACHED;
 +		priv.vb_conf.u32MaxPoolCnt ++;
@@ -1188,7 +1188,7 @@ index 0000000..db370d0
 +#ifndef KVM_MMF
 +	g_priv.dec_h26x_enable = (priv.vb_max_pool_cnt > priv.vb_conf.u32MaxPoolCnt) ? 1 : 0;
 +	if (g_priv.dec_h26x_enable) {
-+		priv.vb_conf.astCommPool[priv.vb_dec_h26x_id].u32BlkSize = ALIGN(2560, DEFAULT_ALIGN) * ALIGN(1440, DEFAULT_ALIGN) * 3;
++		priv.vb_conf.astCommPool[priv.vb_dec_h26x_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3;
 +		priv.vb_conf.astCommPool[priv.vb_dec_h26x_id].u32BlkCnt = 1;
 +		priv.vb_conf.astCommPool[priv.vb_dec_h26x_id].enRemapMode = VB_REMAP_MODE_CACHED;
 +		priv.vb_conf.u32MaxPoolCnt ++;
@@ -1196,7 +1196,7 @@ index 0000000..db370d0
 +
 +	g_priv.dec_jpg_enable = (priv.vb_max_pool_cnt > priv.vb_conf.u32MaxPoolCnt) ? 1 : 0;
 +	if (g_priv.dec_jpg_enable) {
-+		priv.vb_conf.astCommPool[priv.vb_dec_jpeg_id].u32BlkSize = ALIGN(2560, DEFAULT_ALIGN) * ALIGN(1440, DEFAULT_ALIGN) * 3;
++		priv.vb_conf.astCommPool[priv.vb_dec_jpeg_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3;
 +		priv.vb_conf.astCommPool[priv.vb_dec_jpeg_id].u32BlkCnt = 1;
 +		priv.vb_conf.astCommPool[priv.vb_dec_jpeg_id].enRemapMode = VB_REMAP_MODE_CACHED;
 +		priv.vb_conf.u32MaxPoolCnt ++;
@@ -1322,7 +1322,7 @@ index 0000000..db370d0
 +
 +	if (fd == NULL) {
 +		fprintf(stderr, "Error opening file %s\n", path);
-+		return 0;
++		return -1;
 +	}
 +
 +	memset(val, 0, 128);
@@ -10007,7 +10007,7 @@ new file mode 100644
 index 0000000..9c63827
 --- /dev/null
 +++ b/sample/test_mmf/sample_vio.c
-@@ -0,0 +1,3079 @@
+@@ -0,0 +1,3080 @@
 +#include <stdint.h>
 +#include <string.h>
 +#include <stdbool.h>
@@ -12441,12 +12441,13 @@ index 0000000..9c63827
 +		return 0;
 +	}
 +
-+	int img_w = 2560, img_h = 1440, img_fps = 30, fit = 0, img_fmt = PIXEL_FORMAT_NV21;
++	int img_w = 1280, img_h = 720, img_fps = 30, fit = 0, img_fmt = PIXEL_FORMAT_NV21;
 +	(void)fit;
 +	int ch = 0;
-+	mmf_vi_get_max_size(&img_w, &img_h);
++	int sensor_w = 0, sensor_h = 0;
++	mmf_vi_get_max_size(&sensor_w, &sensor_h);
 +	char *sensor_name = mmf_get_sensor_name();
-+	printf("sensor %s max size %dx%d\n", sensor_name, img_w, img_h);
++	printf("sensor %s max size %dx%d\n", sensor_name, sensor_w, sensor_h);
 +	if (!strcmp(sensor_name, "lt6911")) {
 +		img_w = 1280; img_h = 720; img_fps = 60;
 +	}
@@ -13286,4 +13287,3 @@ index 0000000..dd7cbad
 +}
 -- 
 2.34.1
-

@@ -40,9 +40,9 @@ class MemoryMap:
     # =================
     # Multimedia buffer. Used by u-boot/kernel/FreeRTOS
     # =================
-    # Headless camera route still needs ISP/video buffers, but 63 MiB is excessive
-    # for this 256 MiB board. Keep a conservative carveout for camera/RTSP.
-    ION_SIZE = 32 * SIZE_1M
+    # Headless camera route is using 720p-oriented middleware defaults, but
+    # the vendor ISP path still needs some headroom above the 22 MiB floor.
+    ION_SIZE = 28 * SIZE_1M
     H26X_BITSTREAM_SIZE = 2 * SIZE_1M
     H26X_ENC_BUFF_SIZE = 0
     ISP_MEM_BASE_SIZE = 20 * SIZE_1M
