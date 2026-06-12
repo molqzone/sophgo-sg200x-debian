@@ -37,10 +37,12 @@ MIDDLEWARE_ENV = $(OSDRV_ENV) $(SENSOR_ENV)
 
 KO_DIRS = drivers/i2c \
 drivers/input/touchscreen \
+drivers/mailbox \
 drivers/media/usb/gspca \
 drivers/net/usb \
 drivers/net/wireless \
 drivers/pwm \
+drivers/remoteproc \
 drivers/rtc \
 drivers/spi \
 drivers/video/backlight \
@@ -227,6 +229,10 @@ $(BUILDDIR)/middleware-package-stamp: $(BUILDDIR)/middleware-compile-stamp
 	@cp -r /builder/deb/cvitek-middleware/* $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/
 	@mkdir -pv $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/mnt/system/
 	@rsync -avpPxH $(BUILDDIR)/middleware/install/system/ $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/mnt/system/
+	@mkdir -pv $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/usr/include/
+	@mkdir -pv $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/usr/lib/
+	@cp -p $(BUILDDIR)/middleware/sample/test_mmf/maix_mmf.h $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/usr/include/
+	@cp -p $(BUILDDIR)/middleware/sample/test_mmf/maix_mmf/release.linux/libmaix_mmf.a $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/usr/lib/
 	@sed -i 's/Version: 1.0.0/Version: $(MIDDLEWAREVERSION)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
 	@sed -i 's/Package: cvitek-middleware/Package: cvitek-middleware-$(BOARD)/' $(BUILDDIR)/package/cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION)/DEBIAN/control
 	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-middleware-$(BOARD)-$(MIDDLEWAREVERSION) $(BUILDDIR)/package/cvitek-middleware-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb

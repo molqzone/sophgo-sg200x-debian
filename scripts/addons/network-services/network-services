@@ -1,0 +1,61 @@
+#!/bin/sh
+set -eu
+
+usage() {
+	echo "Usage: network-services <enable|disable|status>" >&2
+	exit 2
+}
+
+[ "$#" -eq 1 ] || usage
+
+cmd=$1
+primary_units="NetworkManager.service"
+optional_units="wpa_supplicant.service avahi-daemon.service systemd-networkd.service networking.service"
+
+have_unit() {
+	unit=$1
+	systemctl list-unit-files "$unit" >/dev/null 2>&1
+}
+
+set_unit_state() {
+	action=$1
+	unit=$2
+	have_unit "$unit" || return 0
+	case "$action" in
+		enable) systemctl unmask "$unit" >/dev/null 2>&1 || true; systemctl enable --now "$unit" ;;
+		disable) systemctl disable --now "$unit" ;;
+		*) return 2 ;;
+	esac
+}
+
+show_status() {
+	nmcli general status 2>/dev/null || true
+	nmcli radio 2>/dev/null || true
+	for unit in $primary_units $optional_units; do
+		have_unit "$unit" || continue
+		systemctl status "$unit" --no-pager || true
+	done
+}
+
+case "$cmd" in
+	enable)
+		for unit in $primary_units; do
+			set_unit_state enable "$unit"
+		done
+		nmcli networking on 2>/dev/null || true
+		nmcli radio all on 2>/dev/null || true
+		;;
+	disable)
+		nmcli networking off 2>/dev/null || true
+		nmcli radio all off 2>/dev/null || true
+		for unit in $optional_units $primary_units; do
+			set_unit_state disable "$unit"
+		done
+		;;
+	status)
+		show_status
+		;;
+	*)
+		usage
+		;;
+esac
