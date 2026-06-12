@@ -265,6 +265,20 @@ $(BUILDDIR)/vcodec-firmware-package-stamp: $(BUILDDIR)/vcodec-firmware-prepare-c
 	@cp $(BUILDDIR)/package/firmware-vcodec-$(CHIP)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /output/
 	@touch $@
 
+$(BUILDDIR)/network-services-stamp:
+	@echo "$(COLOUR_GREEN)Installing network-services helper for $(BOARD)$(END_COLOUR)"
+	@mkdir -p /rootfs/usr/bin/
+	@cp -a addons/network-services/network-services /rootfs/usr/bin/
+	@chmod +x /rootfs/usr/bin/network-services
+	@touch $@
+
+$(BUILDDIR)/time-sync-stamp:
+	@echo "$(COLOUR_GREEN)Installing time-sync helper for $(BOARD)$(END_COLOUR)"
+	@mkdir -p /rootfs/usr/bin/
+	@cp -a addons/time-sync/time-sync /rootfs/usr/bin/
+	@chmod +x /rootfs/usr/bin/time-sync
+	@touch $@
+
 vcodec-firmware: $(BUILDDIR)/vcodec-firmware-package-stamp
 
 vcodec-firmware-clean:

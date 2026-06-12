@@ -9,6 +9,9 @@ usage() {
 [ "$#" -eq 1 ] || usage
 
 cmd=$1
+
+# This image is built around NetworkManager. Avoid enabling competing network
+# stacks by default; just turn them off when disabling the network stack.
 primary_units="NetworkManager.service"
 optional_units="wpa_supplicant.service avahi-daemon.service systemd-networkd.service networking.service"
 
