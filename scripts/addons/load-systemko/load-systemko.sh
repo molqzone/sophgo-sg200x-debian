@@ -16,8 +16,11 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
 	insmod cv181x_base.ko
-	insmod cvitek-mailbox.ko
-	insmod cvitek_remoteproc.ko
+	# The current CVITEK mailbox/remoteproc stack is kept packaged for manual
+	# RTOS experiments, but it is not safe enough for the default Linux boot
+	# path. Auto-loading it here corrupts later userspace bring-up on this board.
+	# insmod cvitek-mailbox.ko
+	# insmod cvitek_remoteproc.ko
 	insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
