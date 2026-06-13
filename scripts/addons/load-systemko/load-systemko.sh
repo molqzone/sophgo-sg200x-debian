@@ -16,7 +16,7 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
 	insmod cv181x_base.ko
-	insmod cvitek_mailbox.ko
+	insmod cvitek-mailbox.ko
 	insmod cvitek_remoteproc.ko
 	insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko

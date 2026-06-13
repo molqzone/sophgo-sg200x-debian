@@ -1,0 +1,20 @@
+[Unit]
+Description=Direct Root Shell on ttyGS0
+After=usb-gadget-acm.service
+Requires=usb-gadget-acm.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=-/bin/sh
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/ttyGS0
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=0
+
+[Install]
+WantedBy=multi-user.target

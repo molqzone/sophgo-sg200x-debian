@@ -4,6 +4,7 @@ $(BUILDDIR)/load-systemko-stamp:
 	@cp -a addons/load-systemko/load-systemko.sh /rootfs/etc/init.d/
 	@chmod +x /rootfs/etc/init.d/load-systemko.sh
 	@cp -a addons/load-systemko/load-systemko*.service /rootfs/etc/systemd/system/
+	@chmod 0644 /rootfs/etc/systemd/system/load-systemko*.service
 	@mkdir -p /rootfs/tmp/install/
 	@echo " load-systemko" >> /rootfs/tmp/install/systemd-enable
 	@touch $@

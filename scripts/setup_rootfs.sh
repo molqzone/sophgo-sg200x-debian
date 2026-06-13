@@ -51,12 +51,6 @@ if [ "$STORAGETYPE" = "sd" ]; then
 EOF
 fi
 
-cat >> /etc/fstab <<EOF
-/swapfile       swap            swap    defaults                  0       0
-EOF
-
-
-
 #regenerate SSH keys on first boot
 cat > /etc/systemd/system/finalize-image.service <<EOF
 [Unit]
@@ -68,8 +62,9 @@ Type=oneshot
 ExecStartPre=-/usr/sbin/parted -s -f /dev/mmcblk0 resizepart 2 100%
 ExecStartPre=-/usr/sbin/resize2fs /dev/mmcblk0p2
 ExecStartPre=-/bin/sh -c "if [ ! -e /swapfile ]; then fallocate -l 1024M /swapfile && chmod 600 /swapfile && mkswap /swapfile; fi"
+ExecStartPre=-/bin/sh -c "grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab"
 ExecStartPre=-/sbin/swapon /swapfile
-ExecStartPre=-/bin/dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096
+ExecStartPre=-/bin/sh -c "if [ -e /dev/hwrng ]; then dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096; fi"
 ExecStartPre=-/bin/sh -c "/bin/rm -f -v /etc/ssh/ssh_host_*_key*"
 ExecStart=/usr/bin/ssh-keygen -A -v
 ExecStartPost=/bin/systemctl disable finalize-image
@@ -142,6 +137,10 @@ cat /boot/extlinux/extlinux.conf
 # Set hostname
 cat /tmp/install/hostname > /etc/hostname
 
+# Keep PAM and cron from warning about a missing locale file.
+mkdir -p /etc/default
+printf 'LANG=C.UTF-8\n' > /etc/default/locale
+
 # 
 cat >> /etc/hosts << EOF
 127.0.0.1      ${HOSTNAME} 
@@ -154,6 +153,34 @@ systemctl enable finalize-image.service
 if [ -f /tmp/install/systemd-enable ]; then
   systemctl enable `cat /tmp/install/systemd-enable`
 fi
+
+# This image is managed by NetworkManager; disable the legacy ifupdown service
+# to avoid competing for the same Ethernet device names during boot.
+systemctl disable networking.service 2>/dev/null || true
+
+# Avoid autofs4-related boot noise on systems that do not use binfmt_misc
+# automounting and do not ship the autofs kernel module.
+systemctl mask proc-sys-fs-binfmt_misc.automount 2>/dev/null || true
+
+# This embedded image does not benefit from periodic ext4 online scrub cleanup.
+systemctl disable e2scrub_reap.service e2scrub_all.timer 2>/dev/null || true
+
+# Mark /etc and /var as updated in the image so systemd does not rerun one-shot
+# maintenance jobs such as ldconfig on every boot.
+touch /etc/.updated /var/.updated
+
+# The vendor kernel used on this board does not expose the sysrq tunable in the
+# location expected by newer Debian defaults, so drop those writes entirely.
+sed -i '/^kernel\.sysrq[[:space:]]*=.*/d' /etc/sysctl.conf 2>/dev/null || true
+rm -f /etc/sysctl.d/10-magic-sysrq.conf
+
+# Prevent udev/modprobe from auto-loading modules that are either unused in the
+# headless profile or explicitly loaded later from /mnt/system/ko.
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/maixcam-blacklist.conf <<EOF
+blacklist cvitek_mailbox
+blacklist pwm_cvitek
+EOF
 
 # Update source list 
 

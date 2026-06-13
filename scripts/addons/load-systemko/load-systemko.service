@@ -1,6 +1,5 @@
 [Unit]
 Description=Load System Modules
-Before=network.target
 StartLimitIntervalSec=0
 
 [Service]
