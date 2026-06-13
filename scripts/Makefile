@@ -458,7 +458,9 @@ $(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/li
 	@echo $(BOARD) > /rootfs/tmp/install/hostname
 	@echo $(BOARD) > /rootfs/tmp/install/board
 	@echo $(STORAGE_TYPE) > /rootfs/tmp/install/storage
-	@cp -v /usr/bin/qemu-riscv64-static /rootfs/tmp/install/
+	@sh -ec 'qemu_bin=/usr/bin/qemu-riscv64-static; \
+		if [ ! -x "$${qemu_bin}" ]; then qemu_bin=/usr/bin/qemu-riscv64; fi; \
+		cp -v "$${qemu_bin}" /rootfs/tmp/install/qemu-riscv64-static'
 	@cp -v /builder/setup_rootfs.sh /rootfs/tmp/install/
 	@cp -v $(BUILDDIR)/public-key.asc /rootfs/tmp/install/
 	@chroot /rootfs/ /tmp/install/qemu-riscv64-static /bin/sh /tmp/install/setup_rootfs.sh
