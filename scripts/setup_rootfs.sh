@@ -183,6 +183,11 @@ mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/maixcam-blacklist.conf <<EOF
 blacklist cvitek_mailbox
 blacklist cvitek_remoteproc
+blacklist aic8800_bsp
+blacklist aic8800_fdrv
+blacklist aic8800_btlpm
+blacklist autofs4
+install autofs4 /bin/true
 blacklist adc_cvitek
 blacklist rtc_cvitek
 blacklist pwm_cvitek

@@ -16,11 +16,16 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
 	insmod cv181x_base.ko
-	# The current CVITEK mailbox/remoteproc stack is kept packaged for manual
-	# RTOS experiments, but it is not safe enough for the default Linux boot
-	# path. Auto-loading it here corrupts later userspace bring-up on this board.
-	# insmod cvitek-mailbox.ko
-	# insmod cvitek_remoteproc.ko
+	# Keep the RTOS path available, but load it from the packaged module set here
+	# instead of relying on early auto-loading from /lib/modules.
+	insmod cvitek-mailbox.ko
+	insmod cvitek_remoteproc.ko
+	# Load the Wi-Fi stack from the same packaged module set to avoid stale
+	# auto-loaded copies from /lib/modules racing ahead of boot service order.
+	modprobe cfg80211 2>/dev/null || true
+	modprobe mac80211 2>/dev/null || true
+	[ -f aic8800_bsp.ko ] && insmod aic8800_bsp.ko
+	[ -f aic8800_fdrv.ko ] && insmod aic8800_fdrv.ko
 	insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko

@@ -285,6 +285,10 @@ CONFIG_VLAN_8021Q_MVRP=y
 CONFIG_6LOWPAN=m
 CONFIG_NETLINK_DIAG=y
 CONFIG_CFG80211=m
+# The vendor cfg80211 stack on this 5.10 tree rejects current signed regdb
+# payloads even though the database format version matches. Rely on permissive
+# built-in/custom rules instead of hard failing regulatory.db parsing.
+# CONFIG_CFG80211_REQUIRE_SIGNED_REGDB is not set
 CONFIG_MAC80211=m
 CONFIG_MAC80211_LEDS=y
 CONFIG_RFKILL=y

@@ -6,7 +6,10 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=-/bin/bash --login
+Environment=HOME=/root
+Environment=TERM=vt100
+Environment=PS1=root@licheervnano:\w\\# 
+ExecStart=-/bin/bash --noprofile --norc -i
 StandardInput=tty
 StandardOutput=tty
 StandardError=tty

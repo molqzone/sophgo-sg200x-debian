@@ -1,5 +1,10 @@
 [Unit]
 Description=Load System Modules
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target
+Before=NetworkManager.service
+Before=wpa_supplicant.service
 StartLimitIntervalSec=0
 
 [Service]

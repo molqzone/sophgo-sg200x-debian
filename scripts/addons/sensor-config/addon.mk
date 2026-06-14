@@ -19,11 +19,7 @@ $(BUILDDIR)/sensor-config-package-stamp:
 	@cd $(BUILDDIR)/package/ && dpkg-deb --build sensor-config-$(BOARD)-$(MIDDLEWAREVERSION) sensor-config-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb
 	@cp $(BUILDDIR)/package/sensor-config-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /output/
 	@mkdir -p /rootfs/tmp/install/
-	@if ls /output/sensor-config-*.deb >/dev/null 2>&1; then \
-		cp /output/sensor-config-*.deb /rootfs/tmp/install/; \
-	else \
-		cp $(BUILDDIR)/package/sensor-config-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /rootfs/tmp/install/; \
-	fi
+	@cp $(BUILDDIR)/package/sensor-config-$(BOARD)_$(MIDDLEWAREVERSION)_$(DEB_ARCH).deb /rootfs/tmp/install/
 	@touch $@
 
 $(BUILDDIR)/sensor-config-stamp: $(BUILDDIR)/sensor-config-package-stamp

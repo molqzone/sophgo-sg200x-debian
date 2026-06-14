@@ -18,7 +18,7 @@ PRODUCT_ADB="ADB"
 ADBD_PATH=/usr/bin/
 SERIAL="0123456789"
 MSC_FILE=$3
-CVI_DIR=/tmp/usb
+CVI_DIR=/sys/kernel/config
 CVI_GADGET=$CVI_DIR/usb_gadget/cvitek
 CVI_FUNC=$CVI_GADGET/functions
 FUNC_NUM=0
@@ -145,12 +145,11 @@ res_check() {
 }
 
 probe() {
-  if [ ! -d $CVI_DIR ]; then
-    mkdir $CVI_DIR
-  fi
   if [ ! -d $CVI_DIR/usb_gadget ]; then
-    # Enale USB ConfigFS
-    mount none $CVI_DIR -t configfs
+    mount none $CVI_DIR -t configfs 2>/dev/null || true
+  fi
+  if [ ! -d $CVI_GADGET ]; then
+    mkdir -p $CVI_DIR/usb_gadget
     # Create gadget dev
     mkdir $CVI_GADGET
     # Set the VID and PID
@@ -255,8 +254,8 @@ stop() {
   fi
   find $CVI_GADGET/configs/ -name "*.usb*" | xargs rm -f
   rmdir $CVI_GADGET/configs/c.*/strings/0x409/
-  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d)
-  if [ -n tmp_dirs ]; then
+  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d 2>/dev/null || true)
+  if [ -n "$tmp_dirs" ]; then
     echo "remove os_desc!"
     rm -rf $CVI_GADGET/os_desc/c.*/
     find $CVI_GADGET/functions/ -name Icons | xargs rmdir
@@ -266,8 +265,6 @@ stop() {
   rmdir $CVI_GADGET/functions/*
   rmdir $CVI_GADGET/strings/0x409/
   rmdir $CVI_GADGET
-  umount $CVI_DIR
-  rmdir $CVI_DIR
 }
 
 case "$1" in
