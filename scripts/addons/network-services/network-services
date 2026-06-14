@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-	echo "Usage: network-services <enable|disable|status>" >&2
+	echo "Usage: network-services <enable|disable|status|boot-disable>" >&2
 	exit 2
 }
 
@@ -41,6 +41,13 @@ show_status() {
 }
 
 case "$cmd" in
+	boot-disable)
+		nmcli networking off 2>/dev/null || true
+		nmcli radio all off 2>/dev/null || true
+		for unit in $optional_units $primary_units; do
+			set_unit_state disable "$unit"
+		done
+		;;
 	enable)
 		for unit in $primary_units; do
 			set_unit_state enable "$unit"
