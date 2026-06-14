@@ -41,20 +41,11 @@
         };
 };
 
+
 &dac {
         status = "disabled";
         /delete-property/ mute-gpio-r;
 };
-
-#ifndef __UBOOT__
-&saradc {
-	status = "disabled";
-};
-
-&rtc {
-	status = "disabled";
-};
-#endif
 
 &ethernet0 {
 	status = "disabled";
@@ -79,6 +70,9 @@
 
 / {
         model = "LicheeRv Nano";
+
+	/delete-node/ saradc;
+	/delete-node/ rtc;
 
 	/delete-node/ wifi_pin;
 	/delete-node/ bt_pin;
