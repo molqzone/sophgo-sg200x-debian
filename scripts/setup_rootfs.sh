@@ -161,6 +161,7 @@ systemctl disable networking.service 2>/dev/null || true
 # Avoid autofs4-related boot noise on systems that do not use binfmt_misc
 # automounting and do not ship the autofs kernel module.
 systemctl mask proc-sys-fs-binfmt_misc.automount 2>/dev/null || true
+systemctl mask proc-sys-fs-binfmt_misc.mount 2>/dev/null || true
 systemctl mask systemd-binfmt.service 2>/dev/null || true
 
 # This embedded image does not benefit from periodic ext4 online scrub cleanup.
@@ -173,13 +174,17 @@ touch /etc/.updated /var/.updated
 # The vendor kernel used on this board does not expose the sysrq tunable in the
 # location expected by newer Debian defaults, so drop those writes entirely.
 sed -i '/^kernel\.sysrq[[:space:]]*=.*/d' /etc/sysctl.conf 2>/dev/null || true
-rm -f /etc/sysctl.d/10-magic-sysrq.conf
+find /etc/sysctl.d /usr/lib/sysctl.d /lib/sysctl.d -maxdepth 1 -type f -name '*.conf' -exec sed -i '/^kernel\.sysrq[[:space:]]*=.*/d' {} + 2>/dev/null || true
+rm -f /etc/sysctl.d/10-magic-sysrq.conf /usr/lib/sysctl.d/10-magic-sysrq.conf /lib/sysctl.d/10-magic-sysrq.conf
 
 # Prevent udev/modprobe from auto-loading modules that are either unused in the
 # headless profile or explicitly loaded later from /mnt/system/ko.
 mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/maixcam-blacklist.conf <<EOF
 blacklist cvitek_mailbox
+blacklist cvitek_remoteproc
+blacklist adc_cvitek
+blacklist rtc_cvitek
 blacklist pwm_cvitek
 EOF
 
