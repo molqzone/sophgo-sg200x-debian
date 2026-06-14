@@ -46,6 +46,7 @@
         /delete-property/ mute-gpio-r;
 };
 
+#ifndef __UBOOT__
 &saradc {
 	status = "disabled";
 };
@@ -53,6 +54,7 @@
 &rtc {
 	status = "disabled";
 };
+#endif
 
 &ethernet0 {
 	status = "disabled";
