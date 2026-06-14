@@ -1,6 +1,5 @@
 [Unit]
 Description=RNDIS USB Gadget Support
-After=network.target
 Before=usb-gadget.service
 Conflicts=usb-gadget-acm.service
 Conflicts=usb-switch.service

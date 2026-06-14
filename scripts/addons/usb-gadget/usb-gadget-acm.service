@@ -1,6 +1,5 @@
 [Unit]
 Description=ACM USB Gadget Support
-After=network.target
 Before=usb-gadget.service
 Conflicts=usb-gadget-rndis.service
 Conflicts=usb-switch.service
