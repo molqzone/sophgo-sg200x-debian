@@ -16,10 +16,9 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
 	insmod cv181x_base.ko
-	# Keep the RTOS path available, but load it from the packaged module set here
-	# instead of relying on early auto-loading from /lib/modules.
-	insmod cvitek-mailbox.ko
-	insmod cvitek_remoteproc.ko
+	# The vendor RTOS path already exposes rtos_cmdqu on the mailbox block.
+	# Do not also load the out-of-tree mailbox/remoteproc stack by default,
+	# otherwise both paths compete for the same IRQ/register range.
 	# Load the Wi-Fi stack from the same packaged module set to avoid stale
 	# auto-loaded copies from /lib/modules racing ahead of boot service order.
 	modprobe cfg80211 2>/dev/null || true
