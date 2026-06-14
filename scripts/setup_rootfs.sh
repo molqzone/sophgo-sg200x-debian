@@ -161,6 +161,7 @@ systemctl disable networking.service 2>/dev/null || true
 # Avoid autofs4-related boot noise on systems that do not use binfmt_misc
 # automounting and do not ship the autofs kernel module.
 systemctl mask proc-sys-fs-binfmt_misc.automount 2>/dev/null || true
+systemctl mask systemd-binfmt.service 2>/dev/null || true
 
 # This embedded image does not benefit from periodic ext4 online scrub cleanup.
 systemctl disable e2scrub_reap.service e2scrub_all.timer 2>/dev/null || true
