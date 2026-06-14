@@ -46,6 +46,14 @@
         /delete-property/ mute-gpio-r;
 };
 
+&saradc {
+	status = "disabled";
+};
+
+&rtc {
+	status = "disabled";
+};
+
 &mipi_rx {
         snsr-reset = <&porte 1 GPIO_ACTIVE_LOW>;
 };
