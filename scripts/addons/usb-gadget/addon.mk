@@ -3,6 +3,8 @@ $(BUILDDIR)/usb-gadget-stamp:
 	@mkdir -p /rootfs/usr/sbin /rootfs/etc/systemd/system/ /rootfs/etc/network/interfaces.d/
 	@cp -a addons/usb-gadget/run_usb.sh /rootfs/usr/sbin/
 	@chmod +x /rootfs/usr/sbin/run_usb.sh
+	@cp -a addons/usb-gadget/usb-shell-wrapper /rootfs/usr/local/bin/
+	@chmod +x /rootfs/usr/local/bin/usb-shell-wrapper
 	@cp -a addons/usb-gadget/usb-gadget*.service /rootfs/etc/systemd/system/
 	@cp -a addons/usb-gadget/usb-shell.service /rootfs/etc/systemd/system/
 	@chmod 0644 /rootfs/etc/systemd/system/usb-gadget*.service /rootfs/etc/systemd/system/usb-shell.service
