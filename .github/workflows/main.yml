@@ -13,9 +13,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image_repo: ${{ steps.image-repo.outputs.value }}
     steps:
         - name: checkout
           uses: actions/checkout@v4
+        - name: Compute lower-case image repo
+          id: image-repo
+          run: echo "value=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sophgo-sg200x-debian" >> "$GITHUB_OUTPUT"
         - uses: dorny/paths-filter@v3
           id: filter
           with:
@@ -36,7 +41,7 @@ jobs:
           id: meta
           uses: docker/metadata-action@v5
           with:
-            images: ghcr.io/${{ github.repository_owner }}/sophgo-sg200x-debian
+            images: ${{ steps.image-repo.outputs.value }}
 
         - name: Build and push Docker image
           if: (github.event_name != 'pull_request' && steps.filter.outputs.src == 'true') || startsWith(github.event.ref, 'refs/tags/v')
@@ -70,7 +75,7 @@ jobs:
       - name: Build Images
         uses: addnab/docker-run-action@v3
         with:
-          image: ghcr.io/${{ github.repository_owner }}/sophgo-sg200x-debian:${{ github.ref_name }}
+          image: ${{ needs.build-docker-image.outputs.image_repo }}:${{ github.ref_name }}
           options: --privileged -v ${{ github.workspace }}/images/:/output -v ${{ github.workspace }}/configs/:/configs/
           run: |
             make BOARD=${{ matrix.boards }} STORAGE_TYPE=${{ matrix.storage }} image
