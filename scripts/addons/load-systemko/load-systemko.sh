@@ -16,15 +16,14 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	insmod cv181x_sys.ko
 	insmod cv181x_base.ko
-	# The vendor RTOS path already exposes rtos_cmdqu on the mailbox block.
-	# Do not also load the out-of-tree mailbox/remoteproc stack by default,
-	# otherwise both paths compete for the same IRQ/register range.
 	# Load the Wi-Fi stack from the same packaged module set to avoid stale
 	# auto-loaded copies from /lib/modules racing ahead of boot service order.
 	modprobe cfg80211 2>/dev/null || true
 	modprobe mac80211 2>/dev/null || true
 	[ -f aic8800_bsp.ko ] && insmod aic8800_bsp.ko
 	[ -f aic8800_fdrv.ko ] && insmod aic8800_fdrv.ko
+	insmod cvitek-mailbox.ko
+	insmod cvitek_remoteproc.ko
 	insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
