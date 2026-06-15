@@ -22,8 +22,6 @@ then
 	modprobe mac80211 2>/dev/null || true
 	[ -f aic8800_bsp.ko ] && insmod aic8800_bsp.ko
 	[ -f aic8800_fdrv.ko ] && insmod aic8800_fdrv.ko
-	insmod cvitek-mailbox.ko
-	insmod cvitek_remoteproc.ko
 	insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
