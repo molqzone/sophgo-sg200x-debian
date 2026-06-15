@@ -1,0 +1,104 @@
+#!/bin/sh
+set -eu
+
+KERNELRELEASE=$(uname -r)
+KO_DIR=/mnt/system/ko/${KERNELRELEASE}
+BLACKLIST=/etc/modprobe.d/maixcam-blacklist.conf
+
+usage() {
+	echo "Usage: rtos-mode <cmdqu|remoteproc|status>" >&2
+	exit 2
+}
+
+stop_media_chain() {
+	for m in \
+		cv181x_ive \
+		cvi_vc_driver \
+		cv181x_jpeg \
+		cv181x_vcodec \
+		cv181x_rgn \
+		cv181x_dwa \
+		cv181x_vpss \
+		cv181x_vi \
+		snsr_i2c \
+		cvi_mipi_rx \
+		cv181x_fast_image \
+		cv181x_rtos_cmdqu \
+		cvitek_remoteproc \
+		cvitek_mailbox
+	do
+		rmmod "$m" 2>/dev/null || true
+	done
+}
+
+set_cmdqu_blacklist() {
+	sed -i '/^blacklist cvitek_mailbox$/d;/^blacklist cvitek_remoteproc$/d' "$BLACKLIST" 2>/dev/null || true
+	grep -q '^blacklist cvitek_mailbox$' "$BLACKLIST" 2>/dev/null || echo 'blacklist cvitek_mailbox' >> "$BLACKLIST"
+	grep -q '^blacklist cvitek_remoteproc$' "$BLACKLIST" 2>/dev/null || echo 'blacklist cvitek_remoteproc' >> "$BLACKLIST"
+}
+
+clear_cmdqu_blacklist() {
+	sed -i '/^blacklist cvitek_mailbox$/d;/^blacklist cvitek_remoteproc$/d' "$BLACKLIST" 2>/dev/null || true
+}
+
+start_cmdqu() {
+	stop_media_chain
+	set_cmdqu_blacklist
+	sh /etc/init.d/load-systemko.sh start
+}
+
+start_remoteproc() {
+	stop_media_chain
+	clear_cmdqu_blacklist
+	[ -f /lib/firmware/c906-mcu.elf ] || {
+		echo "Missing /lib/firmware/c906-mcu.elf" >&2
+		exit 1
+	}
+	insmod "$KO_DIR/cvitek-mailbox.ko"
+	insmod "$KO_DIR/cvitek_remoteproc.ko"
+	modprobe virtio_rpmsg_bus 2>/dev/null || true
+	modprobe rpmsg_ctrl 2>/dev/null || true
+	modprobe rpmsg_char 2>/dev/null || true
+	modprobe rpmsg_tty 2>/dev/null || true
+	for rproc in /sys/class/remoteproc/remoteproc*; do
+		[ -e "$rproc/firmware" ] || continue
+		name=$(cat "$rproc/name" 2>/dev/null || true)
+		case "$name" in
+			cv181x-c906_1)
+				: ;;
+			*)
+				continue
+				;;
+		esac
+		echo c906-mcu.elf > "$rproc/firmware"
+		echo start > "$rproc/state"
+	done
+}
+
+show_status() {
+	lsmod | grep -E 'rtos_cmdqu|remoteproc|mailbox|rpmsg' || true
+	for rproc in /sys/class/remoteproc/remoteproc*; do
+		[ -e "$rproc" ] || continue
+		echo "[$rproc]"
+		cat "$rproc/name" 2>/dev/null || true
+		cat "$rproc/state" 2>/dev/null || true
+		cat "$rproc/firmware" 2>/dev/null || true
+	done
+}
+
+[ $# -eq 1 ] || usage
+
+case "$1" in
+	cmdqu)
+		start_cmdqu
+		;;
+	remoteproc)
+		start_remoteproc
+		;;
+	status)
+		show_status
+		;;
+	*)
+		usage
+		;;
+esac
