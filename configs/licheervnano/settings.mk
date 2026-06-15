@@ -10,6 +10,7 @@ STORAGE_TYPE=sd
 PACKAGES += " wireless-regdb wpasupplicant cvi-pinmux-cv181x"
 
 IMAGE_ADDITIONS += "load-systemko"
+IMAGE_ADDITIONS += "rtos-firmware"
 IMAGE_ADDITIONS += "aic8800-firmware"
 IMAGE_ADDITIONS += "sysctl-compat"
 IMAGE_ADDITIONS += "journald-compact"
