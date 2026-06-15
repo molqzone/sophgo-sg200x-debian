@@ -23,7 +23,7 @@ RUN apt-get update \
         systemd-container texinfo zlib1g-dev wget arch-test \
         linux-image-generic genimage joe mc zip \
         fakeroot git kernel-wedge quilt ccache flex bison \
-        libssl-dev dh-exec rsync libelf-dev bc gcc-riscv64-unknown-elf \
+        libssl-dev dh-exec rsync libelf-dev bc gcc-riscv64-unknown-elf ninja-build cmake \
     && git clone --depth 1 https://github.com/milkv-duo/host-tools.git /host-tools \
     && rm -rf /host-tools/gcc/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-elf \
     && rm -rf /host-tools/gcc/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu \
