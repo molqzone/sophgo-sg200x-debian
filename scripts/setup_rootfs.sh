@@ -179,6 +179,11 @@ rm -f /etc/sysctl.d/10-magic-sysrq.conf /usr/lib/sysctl.d/10-magic-sysrq.conf /l
 
 # Prevent udev/modprobe from auto-loading modules that are either unused in the
 # headless profile or explicitly loaded later from /mnt/system/ko.
+#
+# Keep remoteproc off by default because the packaged camera/multimedia route
+# still uses the vendor cmdqu path on first boot. The image also ships
+# /usr/bin/rtos-mode so users can switch cleanly to the remoteproc route after
+# boot once they want the C906L RTOS firmware loaded from /lib/firmware.
 mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/maixcam-blacklist.conf <<EOF
 blacklist cvitek_mailbox
