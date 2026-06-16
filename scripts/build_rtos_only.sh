@@ -7,6 +7,7 @@ SDK_REPO=${SDK_REPO:-https://github.com/milkv-duo/duo-buildroot-sdk-v2.git}
 OUT_DIR=${OUT_DIR:-$(pwd)/rtos_out}
 BUILD_HOST_TOOLS=${BUILD_HOST_TOOLS:-$HOME/runs/duo-buildroot-sdk-v2/host-tools}
 SDK_DIR=${SDK_DIR:-$HOME/runs/duo-buildroot-sdk-v2}
+PATCH_ROOT=${PATCH_ROOT:-scripts/addons/rtos-firmware/patches}
 
 case "$BOARD" in
   licheervnano|duo256)
@@ -25,6 +26,15 @@ esac
 
 mkdir -p "$OUT_DIR"
 
+if [ ! -d "$PATCH_ROOT" ] && [ -d rtos_sdk_patch ]; then
+  PATCH_ROOT=rtos_sdk_patch
+fi
+
+if [ ! -d "$PATCH_ROOT" ]; then
+  echo "RTOS patch root not found: $PATCH_ROOT" >&2
+  exit 1
+fi
+
 if [ ! -d "$SDK_DIR/.git" ]; then
   git clone --depth 1 --branch "$SDK_BRANCH" "$SDK_REPO" "$SDK_DIR"
 fi
@@ -35,9 +45,32 @@ fi
 
 cp "configs/$BOARD/memmap.py" "$SDK_DIR/$SDK_MEMMAP"
 
-if [ -d rtos_sdk_patch/freertos ] || [ -d rtos_sdk_patch/cvi_mpi ]; then
-  rsync -a rtos_sdk_patch/ "$SDK_DIR/"
-fi
+stage_patch_file() {
+  local rel="$1"
+  local src="$PATCH_ROOT/$rel"
+  local dst="$SDK_DIR/$rel"
+
+  if [ ! -f "$src" ]; then
+    echo "Missing patch file: $src" >&2
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$dst")"
+  cp -a "$src" "$dst"
+}
+
+for rel in \
+  cvi_mpi/include/rtos_cmdqu.h \
+  freertos/cvitek/driver/gpio/include/gpio.h \
+  freertos/cvitek/driver/gpio/src/gpio.c \
+  freertos/cvitek/driver/rtos_cmdqu.h \
+  freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h \
+  freertos/cvitek/task/CMakeLists.txt \
+  freertos/cvitek/task/comm/CMakeLists.txt \
+  freertos/cvitek/task/comm/src/riscv64/comm_main.c
+do
+  stage_patch_file "$rel"
+done
 
 rm -rf "$SDK_DIR/freertos/cvitek/build" "$SDK_DIR/freertos/cvitek/install"
 
