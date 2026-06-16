@@ -1,0 +1,52 @@
+From 2ec0e8326dc514843e1a8c7ff9f3ff6591f6f9c0 Mon Sep 17 00:00:00 2001
+From: Xiao <2592509183@qq.com>
+Date: Tue, 16 Jun 2026 04:38:00 +0100
+Subject: [PATCH] licheervnano: osdrv: rtos_cmdqu: allow user commands and
+ return wait errors
+
+The vendor cmdqu driver rejects command IDs above SYS_CMD_INFO_LIMIT in the
+send path, while the RTOS side intentionally uses 0x60+ for user-defined
+commands such as ping and gpio access. On the board this made ioctl
+RTOS_CMDQU_SEND_WAIT appear to succeed while the command payload never
+reached the RTOS task, so userspace observed the original param_ptr value.
+
+Also propagate rtos_cmdqu_send_wait() failures back to userspace instead of
+always copying the unchanged request buffer out as if the exchange succeeded.
+---
+ interdrv/rtos_cmdqu/rtos_cmdqu.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+index 4c3c64f..5f6b585 100644
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+@@ -246,7 +246,8 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+ 	pr_debug("cmdq->block = %d\n", cmdq->block);
+ 	pr_debug("cmdq->para_ptr = %d\n", cmdq->param_ptr);
+ 	if (cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) {
+-		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
++		if (!(cmdq->ip_id == IP_SYSTEM && cmdq->cmd_id <= NR_RTOS_CMD))
++			pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
+ 		drv_spin_unlock_irqrestore(&mailbox_lock, mb_flags);
+ 		spin_unlock_irqrestore(&mailbox_queue_lock, flags);
+ 		return -ENOBUFS;
+@@ -375,9 +376,13 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 			if (ret) {
+ 				kfree(wait_list);
+ 				return -EFAULT;
+ 			}
+-			rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);
++			ret = rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);
++			if (ret)
++				return ret;
+ 			ret = copy_to_user((struct cmdqu_t __user *)arg,
+ 					&cmdq,
+ 					sizeof(struct cmdqu_t));
++			if (ret)
++				return -EFAULT;
+ 			kfree(wait_list);
+ 			break;
+ 		case RTOS_CMDQU_REQUEST:
+-- 
+2.34.1
+
