@@ -5,6 +5,7 @@ $(BUILDDIR)/rtos-firmware-stamp:
 		git clone --depth 1 https://github.com/milkv-duo/duo-buildroot-sdk-v2.git $(BUILDDIR)/rtos-firmware-sdk; \
 	fi
 	@cp -a /configs/$(BOARD)/memmap.py $(BUILDDIR)/rtos-firmware-sdk/build/boards/cv181x/sg2002_milkv_duo256m_musl_riscv64_sd/memmap.py
+	@rsync -a /builder/addons/rtos-firmware/patches/ $(BUILDDIR)/rtos-firmware-sdk/
 	@cd $(BUILDDIR)/rtos-firmware-sdk && bash -lc ' \
 		export PATH=/host-tools/gcc/riscv64-elf-x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$$PATH; \
 		source build/envsetup_milkv.sh milkv-duo256m-musl-riscv64-sd >/dev/null; \
@@ -14,6 +15,12 @@ $(BUILDDIR)/rtos-firmware-stamp:
 	@cp -a $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/install/bin/cvirtos.elf /output/$(BOARD)_c906-mcu.elf
 	@cp -a $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/install/bin/cvirtos.bin /output/$(BOARD)_c906-mcu.bin
 	@mkdir -p /rootfs/usr/bin/
+	@/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-gcc \
+		-O2 -static -Wall -Wextra \
+		-I$(BUILDDIR)/rtos-firmware-sdk/cvi_mpi/include \
+		-o $(BUILDDIR)/rtos-cmd /builder/addons/rtos-firmware/tools/rtos-cmd.c
+	@cp -a $(BUILDDIR)/rtos-cmd /rootfs/usr/bin/rtos-cmd
 	@cp -a addons/rtos-firmware/rtos-mode /rootfs/usr/bin/
+	@chmod +x /rootfs/usr/bin/rtos-cmd
 	@chmod +x /rootfs/usr/bin/rtos-mode
 	@touch $@
