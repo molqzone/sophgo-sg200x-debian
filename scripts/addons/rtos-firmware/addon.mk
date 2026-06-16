@@ -5,7 +5,14 @@ $(BUILDDIR)/rtos-firmware-stamp:
 		git clone --depth 1 https://github.com/milkv-duo/duo-buildroot-sdk-v2.git $(BUILDDIR)/rtos-firmware-sdk; \
 	fi
 	@cp -a /configs/$(BOARD)/memmap.py $(BUILDDIR)/rtos-firmware-sdk/build/boards/cv181x/sg2002_milkv_duo256m_musl_riscv64_sd/memmap.py
-	@rsync -a /builder/addons/rtos-firmware/patches/ $(BUILDDIR)/rtos-firmware-sdk/
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/task/comm/src/riscv64/comm_main.c $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/task/comm/src/riscv64/comm_main.c
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/task/comm/CMakeLists.txt $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/task/comm/CMakeLists.txt
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/task/CMakeLists.txt $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/task/CMakeLists.txt
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/gpio/include/gpio.h $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/driver/gpio/include/gpio.h
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/gpio/src/gpio.c $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/driver/gpio/src/gpio.c
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/rtos_cmdqu.h $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/driver/rtos_cmdqu.h
+	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h $(BUILDDIR)/rtos-firmware-sdk/freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h
+	@cp -a /builder/addons/rtos-firmware/patches/cvi_mpi/include/rtos_cmdqu.h $(BUILDDIR)/rtos-firmware-sdk/cvi_mpi/include/rtos_cmdqu.h
 	@cd $(BUILDDIR)/rtos-firmware-sdk && bash -lc ' \
 		export PATH=/host-tools/gcc/riscv64-elf-x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$$PATH; \
 		source build/envsetup_milkv.sh milkv-duo256m-musl-riscv64-sd >/dev/null; \
