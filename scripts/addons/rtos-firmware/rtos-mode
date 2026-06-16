@@ -50,6 +50,8 @@ start_cmdqu() {
 start_remoteproc() {
 	stop_media_chain
 	clear_cmdqu_blacklist
+	# remoteproc only handles firmware load/start. The current custom ping/gpio
+	# control path still uses the vendor cmdqu mailbox protocol inside RTOS.
 	[ -f /lib/firmware/c906-mcu.elf ] || {
 		echo "Missing /lib/firmware/c906-mcu.elf" >&2
 		exit 1
