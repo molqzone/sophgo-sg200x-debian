@@ -62,6 +62,7 @@ start_remoteproc() {
 	modprobe rpmsg_ctrl 2>/dev/null || true
 	modprobe rpmsg_char 2>/dev/null || true
 	modprobe rpmsg_tty 2>/dev/null || true
+	found=0
 	for rproc in /sys/class/remoteproc/remoteproc*; do
 		[ -e "$rproc/firmware" ] || continue
 		name=$(cat "$rproc/name" 2>/dev/null || true)
@@ -74,7 +75,26 @@ start_remoteproc() {
 		esac
 		echo c906-mcu.elf > "$rproc/firmware"
 		echo start > "$rproc/state"
+		[ "$(cat "$rproc/state")" = "running" ] || {
+			echo "C906L remoteproc did not enter running state" >&2
+			exit 1
+		}
+		found=1
 	done
+	[ "$found" -eq 1 ] || {
+		echo "C906L remoteproc device was not found" >&2
+		exit 1
+	}
+
+	# Mailbox-only FreeRTOS does not use the RPMsg provider.  Release IRQ 101
+	# before loading the vendor cmdqu driver, then restore the media chain
+	# without stopping the now-running remote processor.
+	rmmod cvitek_mailbox 2>/dev/null || true
+	KEEP_REMOTEPROC=1 sh /etc/init.d/load-systemko.sh start
+	[ -c /dev/cvi-rtos-cmdqu ] || {
+		echo "Vendor RTOS cmdqu device was not restored" >&2
+		exit 1
+	}
 }
 
 show_status() {

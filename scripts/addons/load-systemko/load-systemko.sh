@@ -9,20 +9,23 @@ then
 	rmmod spi_bitbang 2>/dev/null || true
 	rmmod i2c_gpio 2>/dev/null || true
 	rmmod i2c_algo_bit 2>/dev/null || true
-	rmmod cvitek_remoteproc 2>/dev/null || true
-	rmmod cvitek_mailbox 2>/dev/null || true
+	if [ "${KEEP_REMOTEPROC:-0}" != "1" ]
+	then
+		rmmod cvitek_remoteproc 2>/dev/null || true
+		rmmod cvitek_mailbox 2>/dev/null || true
+	fi
 
 	printf "load kernel module: "
 	cd /mnt/system/ko/${KERNELRELEASE}/
-	insmod cv181x_sys.ko
-	insmod cv181x_base.ko
+	grep -q '^cv181x_sys ' /proc/modules || insmod cv181x_sys.ko
+	grep -q '^cv181x_base ' /proc/modules || insmod cv181x_base.ko
 	# Load the Wi-Fi stack from the same packaged module set to avoid stale
 	# auto-loaded copies from /lib/modules racing ahead of boot service order.
 	modprobe cfg80211 2>/dev/null || true
 	modprobe mac80211 2>/dev/null || true
 	[ -f aic8800_bsp.ko ] && insmod aic8800_bsp.ko
 	[ -f aic8800_fdrv.ko ] && insmod aic8800_fdrv.ko
-	insmod cv181x_rtos_cmdqu.ko
+	grep -q '^cv181x_rtos_cmdqu ' /proc/modules || insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
 	insmod snsr_i2c.ko
