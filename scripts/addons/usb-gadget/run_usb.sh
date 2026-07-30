@@ -3,6 +3,8 @@ VID=0x3346
 PID=0x1003
 MSC_PID=0x1008
 RNDIS_PID=0x1009
+RNDIS_DEV_ADDR="02:00:00:00:20:02"
+RNDIS_HOST_ADDR="02:00:00:00:20:01"
 UVC_PID=0x100A
 UAC_PID=0x100B
 ADB_VID=0x18D1
@@ -28,6 +30,15 @@ INTF_NUM=0
 EP_IN=0
 EP_OUT=0
 
+set_rndis_addresses() {
+	machine_hex=$(tr -cd '[:xdigit:]' </etc/machine-id 2>/dev/null | cut -c1-10)
+	if [ "${#machine_hex}" -eq 10 ]; then
+		mac_tail=$(printf '%s' "$machine_hex" | sed 's/^\(..\)\(..\)\(..\)\(..\)\(..\)$/\1:\2:\3:\4:\5/')
+		RNDIS_DEV_ADDR="02:$mac_tail"
+		RNDIS_HOST_ADDR="06:$mac_tail"
+	fi
+}
+
 case "$2" in
   acm)
 	CLASS=acm
@@ -43,6 +54,7 @@ case "$2" in
 	CLASS=rndis
 	PID=$RNDIS_PID
 	PRODUCT=$PRODUCT_RNDIS
+	set_rndis_addresses
 	;;
   uvc)
 	CLASS=uvc
@@ -197,6 +209,8 @@ probe() {
     echo $MSC_FILE >$CVI_GADGET/functions/$CLASS.usb$FUNC_NUM/lun.0/file
   fi
   if [ "$CLASS" = "rndis" ] ; then
+    echo "$RNDIS_DEV_ADDR" >$CVI_FUNC/rndis.usb$FUNC_NUM/dev_addr
+    echo "$RNDIS_HOST_ADDR" >$CVI_FUNC/rndis.usb$FUNC_NUM/host_addr
     #OS STRING
     echo 1 >$CVI_GADGET/os_desc/use
     echo 0xcd >$CVI_GADGET/os_desc/b_vendor_code

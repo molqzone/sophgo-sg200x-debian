@@ -36,6 +36,8 @@ int main(int argc, char **argv)
 	int fd;
 	cmdqu_t cmdq;
 	unsigned int pin;
+	unsigned int ping_input = 0;
+	int verify_ping = 0;
 
 	if (argc < 3)
 		usage();
@@ -53,7 +55,9 @@ int main(int argc, char **argv)
 
 	if (strcmp(argv[1], "ping") == 0) {
 		cmdq.cmd_id = RTOS_USER_CMD_PING;
-		cmdq.param_ptr = parse_u32(argv[2]);
+		ping_input = parse_u32(argv[2]);
+		cmdq.param_ptr = ping_input;
+		verify_ping = 1;
 	} else if (strcmp(argv[1], "gpio-set") == 0) {
 		if (argc != 4)
 			usage();
@@ -74,7 +78,21 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	printf("cmd_id=0x%x param=0x%x\n", cmdq.cmd_id, cmdq.param_ptr);
+	if (verify_ping && cmdq.param_ptr != (ping_input ^ RTOS_USER_PING_XOR)) {
+		fprintf(stderr,
+			"RTOS ping mismatch: input=0x%x result=0x%x expected=0x%x\n",
+			ping_input, cmdq.param_ptr, ping_input ^ RTOS_USER_PING_XOR);
+		close(fd);
+		return 1;
+	}
+
+	if (verify_ping) {
+		printf("cmd_id=0x%x input=0x%x result=0x%x expected=0x%x\n",
+		       cmdq.cmd_id, ping_input, cmdq.param_ptr,
+		       ping_input ^ RTOS_USER_PING_XOR);
+	} else {
+		printf("cmd_id=0x%x param=0x%x\n", cmdq.cmd_id, cmdq.param_ptr);
+	}
 	close(fd);
 	return 0;
 }

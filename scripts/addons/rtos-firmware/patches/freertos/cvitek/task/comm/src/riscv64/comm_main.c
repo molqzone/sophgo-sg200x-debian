@@ -149,7 +149,7 @@ static int prvHandleUserCmd(cmdqu_t *rtos_cmdq)
 {
 	switch (rtos_cmdq->cmd_id) {
 	case RTOS_USER_CMD_PING:
-		rtos_cmdq->param_ptr ^= 0xA5A55A5A;
+		rtos_cmdq->param_ptr ^= RTOS_USER_PING_XOR;
 		return 0;
 	case RTOS_USER_CMD_GPIO_SET:
 	{

@@ -1,0 +1,55 @@
+#!/bin/sh
+# Switch SG2002 management USB between RNDIS/SSH and ACM recovery.
+set -eu
+
+mode=${1:-}
+run_usb=/usr/sbin/run_usb.sh
+
+stop_gadget() {
+  systemctl stop usb-gadget-rndis-usb0.service 2>/dev/null || true
+  ifdown usb0 2>/dev/null || true
+  systemctl stop --no-block usb-shell.service 2>/dev/null || true
+  systemctl kill --kill-whom=all --signal=KILL usb-shell.service 2>/dev/null || true
+  systemctl stop usb-gadget-rndis.service usb-gadget-acm.service 2>/dev/null || true
+  if [ -d /sys/kernel/config/usb_gadget/cvitek ]; then
+    sh "$run_usb" stop
+  fi
+}
+
+wait_for_usb0() {
+  attempt=0
+  while [ ! -e /sys/class/net/usb0 ]; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 50 ]; then
+      echo "usb0 did not appear" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+case "$mode" in
+  rndis)
+    systemctl disable usb-shell.service usb-gadget-acm.service >/dev/null 2>&1 || true
+    systemctl enable usb-gadget-rndis.service usb-gadget-rndis-usb0.service >/dev/null
+    stop_gadget
+    systemctl start usb-gadget-rndis.service
+    wait_for_usb0
+    ifup usb0 2>/dev/null || {
+      ip address replace 10.42.0.1/24 dev usb0
+      ip link set usb0 up
+    }
+    systemctl start usb-gadget-rndis-usb0.service
+    ;;
+  acm)
+    systemctl disable usb-gadget-rndis.service usb-gadget-rndis-usb0.service >/dev/null 2>&1 || true
+    systemctl enable usb-gadget-acm.service usb-shell.service >/dev/null
+    stop_gadget
+    systemctl start usb-gadget-acm.service
+    systemctl start usb-shell.service
+    ;;
+  *)
+    echo "usage: $0 rndis|acm" >&2
+    exit 2
+    ;;
+esac

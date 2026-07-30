@@ -47,6 +47,8 @@ enum RTOS_USER_CMD_ID {
 	RTOS_USER_CMD_LIMIT,
 };
 
+#define RTOS_USER_PING_XOR 0xA5A55A5AU
+
 struct rtos_ping_payload {
 	unsigned int magic;
 	unsigned int value;
