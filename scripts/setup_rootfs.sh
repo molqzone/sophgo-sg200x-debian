@@ -84,11 +84,8 @@ apt install -y --allow-downgrades -f /tmp/install/*.deb
 systemctl enable fake-hwclock-load.service fake-hwclock-save.timer || true
 
 # Convenience developer tools setup requested for the image profile.
-if [ -e /usr/lib/python3.13/EXTERNALLY-MANAGED ]; then
-  mv /usr/lib/python3.13/EXTERNALLY-MANAGED /usr/lib/python3.13/EXTERNALLY-MANAGED.bk || true
-fi
 ln -sf /usr/bin/python3 /usr/bin/python
-curl -sS https://bootstrap.pypa.io/get-pip.py | python3
+python3 -m pip --version
 
 
 # change device tree
