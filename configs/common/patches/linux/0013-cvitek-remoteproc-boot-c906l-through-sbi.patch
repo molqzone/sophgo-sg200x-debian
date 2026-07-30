@@ -1,0 +1,122 @@
+From 42610acede67e5a4a5f2310c927aff43c4bcc94a Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 06:33:55 +0800
+Subject: [PATCH] remoteproc: cvitek: boot C906L through SBI
+
+Hold C906L in reset before loading firmware, then program its boot vector and release it with the vendor SBI calls. Keep the reset-controller fallback for non-RISC-V builds.
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 61 ++++++++++++++++++++++++--
+ 1 file changed, 57 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+index 996d232..1d7f793 100644
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -25,6 +25,10 @@
+ #include <linux/remoteproc.h>
+ #include <linux/reset.h>
+ 
++#ifdef CONFIG_RISCV
++#include <asm/sbi.h>
++#endif
++
+ #include "remoteproc_internal.h"
+ 
+ #define CVITEK_RPROC_MAX_VRING 2
+@@ -46,6 +50,49 @@ struct cvitek_rproc {
+ 	uint32_t vq_msg;
+ };
+ 
++static int cvitek_rproc_set_reset(struct rproc *rproc, bool assert)
++{
++#ifdef CONFIG_RISCV
++	struct device *dev = rproc->dev.parent;
++	struct clk *efuse_clk;
++	int ret;
++
++	efuse_clk = clk_get_sys(NULL, "clk_efuse");
++	if (IS_ERR(efuse_clk)) {
++		ret = PTR_ERR(efuse_clk);
++		dev_err(dev, "failed to get efuse clock: %d\n", ret);
++		return ret;
++	}
++
++	ret = clk_prepare_enable(efuse_clk);
++	if (ret) {
++		dev_err(dev, "failed to enable efuse clock: %d\n", ret);
++		goto put_clk;
++	}
++
++	if (assert)
++		ret = sbi_rst_c906l();
++	else
++		ret = sbi_unrst_c906l(rproc->bootaddr);
++
++	clk_disable_unprepare(efuse_clk);
++	if (ret)
++		dev_err(dev, "failed to %s C906L via SBI: %d\n",
++			assert ? "reset" : "start", ret);
++
++put_clk:
++	clk_put(efuse_clk);
++	return ret;
++#else
++	struct cvitek_rproc *ddata = rproc->priv;
++
++	if (assert)
++		return reset_control_assert(ddata->sw_reset);
++
++	return reset_control_deassert(ddata->sw_reset);
++#endif
++}
++
+ static void cvitek_rproc_mbox_kick_vq(struct work_struct *work)
+ {
+ 	struct cvitek_rproc *ddata = container_of(work, struct cvitek_rproc, vq_work);
+@@ -237,9 +284,9 @@ static int cvitek_rproc_start(struct rproc *rproc)
+ 		return err;
+ 	}
+ 
+-	err = reset_control_deassert(ddata->sw_reset);
++	err = cvitek_rproc_set_reset(rproc, false);
+ 	if (err) {
+-		dev_err(&rproc->dev, "Failed to deassert S/W Reset\n");
++		dev_err(&rproc->dev, "Failed to start C906L\n");
+ 		goto sw_reset_fail;
+ 	}
+ 
+@@ -252,6 +299,11 @@ sw_reset_fail:
+ 	return err;
+ }
+ 
++static int cvitek_rproc_prepare(struct rproc *rproc)
++{
++	return cvitek_rproc_set_reset(rproc, true);
++}
++
+ static int cvitek_rproc_stop(struct rproc *rproc)
+ {
+ 	struct cvitek_rproc *ddata = rproc->priv;
+@@ -259,9 +311,9 @@ static int cvitek_rproc_stop(struct rproc *rproc)
+ 
+ 	dev_dbg(&rproc->dev, "Stopping\n");
+ 
+-	sw_err = reset_control_assert(ddata->sw_reset);
++	sw_err = cvitek_rproc_set_reset(rproc, true);
+ 	if (sw_err)
+-		dev_err(&rproc->dev, "Failed to assert S/W Reset\n");
++		dev_err(&rproc->dev, "Failed to reset C906L\n");
+ 
+ 	clk_disable(ddata->clk);
+ 
+@@ -280,6 +332,7 @@ static int cvitek_rproc_stop(struct rproc *rproc)
+ 
+ static const struct rproc_ops cvitek_rproc_ops = {
+ 	.kick = cvitek_rproc_kick,
++	.prepare = cvitek_rproc_prepare,
+ 	.start = cvitek_rproc_start,
+ 	.stop = cvitek_rproc_stop,
+ 	.parse_fw = cvitek_rproc_parse_fw,
+-- 
+2.53.0.windows.1
+
