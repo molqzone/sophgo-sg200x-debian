@@ -75,6 +75,16 @@ $(info $(blue)Packages: $(_PACKAGES)$(reset))
 
 NPROCS := $(shell nproc)
 
+PINMUX_COMMIT = ec3fd56cef75a5ee1d7b485e0e8f3df1eb546cd1
+PINMUX_VERSION = 1.0.0+gitec3fd56
+PINMUX_SRC = $(BUILDDIR)/cvi-pinmux-cv181x
+PINMUX_PKG = $(BUILDDIR)/package/cvi-pinmux-cv181x-$(PINMUX_VERSION)
+PINMUX_CC = /host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-gcc
+
+ifeq ($(BOARD),licheervnano)
+LOCAL_PINMUX_TARGET = $(BUILDDIR)/cvi-pinmux-package-stamp
+endif
+
 
 define copy_header_action
 	@cp -r $(BUILDDIR)/osdrv/interdrv/include/chip/cv181x/uapi/linux/* ${1}/linux/
@@ -387,17 +397,41 @@ fsbl-clean:
 	@rm -f $(BUILDDIR)/fsbl-*-stamp
 
 
+$(BUILDDIR)/cvi-pinmux-package-stamp:
+	@echo "$(COLOUR_GREEN)Building pinned cvi_pinmux for $(BOARD)$(END_COLOUR)"
+	@rm -rf $(PINMUX_SRC) $(PINMUX_PKG)
+	@mkdir -p $(PINMUX_SRC) $(PINMUX_PKG)/DEBIAN $(PINMUX_PKG)/usr/bin
+	@curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 \
+		https://github.com/Fishwaldo/sophgo-sg200x-packages/archive/$(PINMUX_COMMIT).tar.gz \
+		-o $(BUILDDIR)/cvi-pinmux-cv181x.tar.gz
+	@tar -xzf $(BUILDDIR)/cvi-pinmux-cv181x.tar.gz --strip-components=2 -C $(PINMUX_SRC) \
+		sophgo-sg200x-packages-$(PINMUX_COMMIT)/cvi-pinmux-cv181x
+	@$(PINMUX_CC) -static -Os -s -Wall -Wextra -o $(PINMUX_PKG)/usr/bin/cvi_pinmux \
+		$(PINMUX_SRC)/cvi_pinmux.c $(PINMUX_SRC)/devmem.c
+	@printf 'Package: cvi-pinmux-cv181x\nVersion: $(PINMUX_VERSION)\nArchitecture: riscv64\nMaintainer: MaixCAM image automation\nDescription: Pinmux control for CVITEK CV181x chips\n' > $(PINMUX_PKG)/DEBIAN/control
+	@chmod 0755 $(PINMUX_PKG)/usr/bin/cvi_pinmux
+	@dpkg-deb --build $(PINMUX_PKG) $(BUILDDIR)/package/cvi-pinmux-cv181x_$(PINMUX_VERSION)_$(DEB_ARCH).deb
+	@cp $(BUILDDIR)/package/cvi-pinmux-cv181x_$(PINMUX_VERSION)_$(DEB_ARCH).deb /output/
+	@touch $@
+
+
 $(BUILDDIR)/image-prepare-stamp: 
 	@echo "$(COLOUR_GREEN)Preparing Image for $(BOARD)$(END_COLOUR)"
 	@-mkdir $(BUILDDIR)
 	@rm -rf /rootfs/
 	@-rm $(addon-targets)
 	@mkdir -p /rootfs/
-	@curl -v -L https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc
+
+ifeq ($(BOARD),licheervnano)
+	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main"
+else
+	@curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc
 	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "/rootfs/" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
+
+endif
 	@touch $@
 
-$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(BUILDDIR)/vcodec-firmware-package-stamp $(addon-targets)
+$(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/osdrv-package-stamp $(BUILDDIR)/middleware-package-stamp $(BUILDDIR)/vcodec-firmware-package-stamp $(LOCAL_PINMUX_TARGET) $(addon-targets)
 	@[ -e /rootfs/usr/bin/devmem ] || ln -s busybox /rootfs/usr/bin/devmem
 	@echo "$(COLOUR_GREEN)Copying Deb files for installation on $(BOARD)$(END_COLOUR)"
 	@cp $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION).deb /rootfs/tmp/install/
@@ -407,6 +441,11 @@ $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl
 	@cp $(BUILDDIR)/linux-image-$(BOARD)-*.deb /rootfs/tmp/install/
 	@cp $(BUILDDIR)/linux-headers-*.deb /rootfs/tmp/install/
 	@cp $(BUILDDIR)/linux-libc-dev*.deb /rootfs/tmp/install/
+
+ifeq ($(BOARD),licheervnano)
+	@cp $(BUILDDIR)/package/cvi-pinmux-cv181x_$(PINMUX_VERSION)_$(DEB_ARCH).deb /rootfs/tmp/install/
+
+endif
 	@touch $@
 
 
@@ -420,7 +459,11 @@ $(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/li
 		if [ ! -x "$${qemu_bin}" ]; then qemu_bin=/usr/bin/qemu-riscv64; fi; \
 		cp -v "$${qemu_bin}" /rootfs/tmp/install/qemu-riscv64-static'
 	@cp -v /builder/setup_rootfs.sh /rootfs/tmp/install/
+
+ifneq ($(BOARD),licheervnano)
 	@cp -v $(BUILDDIR)/public-key.asc /rootfs/tmp/install/
+
+endif
 	@chroot /rootfs/ /tmp/install/qemu-riscv64-static /bin/sh /tmp/install/setup_rootfs.sh
 	@rm -rf /rootfs/tmp/install/
 	@umount /rootfs/proc || true 

@@ -202,14 +202,18 @@ EOF
 
 rm -rf /etc/apt/sources.list.d/multistrap-debian.list
 
-#apt-key add /tmp/install/public-key.asc
-gpg --dearmor /tmp/install/public-key.asc
-cp /tmp/install/public-key.asc.gpg /etc/apt/trusted.gpg.d/sophgo-myho-st.gpg
-
-cat > /etc/apt/sources.list <<EOF
+if [ "$BOARD" = "licheervnano" ]; then
+  cat > /etc/apt/sources.list <<EOF
+deb http://deb.debian.org/debian sid main non-free-firmware
+EOF
+else
+  gpg --dearmor /tmp/install/public-key.asc
+  cp /tmp/install/public-key.asc.gpg /etc/apt/trusted.gpg.d/sophgo-myho-st.gpg
+  cat > /etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian sid main non-free-firmware
 deb https://sophgo.my-ho.st:8443/ debian sophgo
 EOF
+fi
 
 echo "/boot/uboot.env	0x0000          0x20000" > /etc/fw_env.config
 mkenvimage -s 0x20000 -o /boot/uboot.env /etc/u-boot-initial-env

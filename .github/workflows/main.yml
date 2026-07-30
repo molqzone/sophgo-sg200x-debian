@@ -78,29 +78,32 @@ jobs:
           image: ${{ needs.build-docker-image.outputs.image_repo }}:${{ github.ref_name }}
           options: --privileged -v ${{ github.workspace }}/images/:/output -v ${{ github.workspace }}/configs/:/configs/
           run: |
+            set -eux
             make BOARD=${{ matrix.boards }} STORAGE_TYPE=${{ matrix.storage }} image
+            test -d /output
             chmod 777 /output/
       - name: Pack
         run: |
+          set -euo pipefail
           cd images/
           ls -lah
-          if [ -f ${{ matrix.boards }}_${{ matrix.storage }}.img ]; then
-              lz4 -9 -f ${{ matrix.boards }}_${{ matrix.storage }}.img ${{ matrix.boards }}_${{ matrix.storage }}.img.lz4
-              rm ${{ matrix.boards }}_${{ matrix.storage }}.img
-          fi
+          image=${{ matrix.boards }}_${{ matrix.storage }}.img
+          test -s "$image"
+          lz4 -9 -f "$image" "$image.lz4"
+          rm "$image"
+          test -s "$image.lz4"
           shopt -s nullglob
           debs=(*.deb)
           if ((${#debs[@]})); then
               tar czvf ${{ matrix.boards }}-${{ matrix.storage }}_debs.tar.gz "${debs[@]}"
               rm -- "${debs[@]}"
           fi
-          echo "PACKAGE=${{ github.workspace }}/images/*" >> $GITHUB_ENV
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: image-files-${{ matrix.boards }}-${{ matrix.storage }}
-          path: |
-            ${{env.PACKAGE}}
+          path: ${{ github.workspace }}/images/*
+          if-no-files-found: error
   release:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest

@@ -7,7 +7,7 @@ DDR_CFG=ddr3_1866_x16
 PARTITION_FILE=partition_sd.xml
 STORAGE_TYPE=sd
 
-PACKAGES += " wireless-regdb wpasupplicant cvi-pinmux-cv181x"
+PACKAGES += " wireless-regdb wpasupplicant"
 
 IMAGE_ADDITIONS += "load-systemko"
 IMAGE_ADDITIONS += "rtos-firmware"
