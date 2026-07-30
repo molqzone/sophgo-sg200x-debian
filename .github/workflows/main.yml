@@ -27,7 +27,6 @@ jobs:
             filters: |
               src:
               - 'scripts/**'
-              - '.github/**'
         - name: Log into registry ghcr.io
           if: (github.event_name != 'pull_request' && steps.filter.outputs.src == 'true') || startsWith(github.event.ref, 'refs/tags/v')
           uses: docker/login-action@v3
@@ -59,6 +58,7 @@ jobs:
           
   build-image:
     strategy:
+      fail-fast: false
       matrix:
         boards: [licheervnano, duo256, duos]
         storage: [sd]
@@ -88,8 +88,12 @@ jobs:
               lz4 -9 -f ${{ matrix.boards }}_${{ matrix.storage }}.img ${{ matrix.boards }}_${{ matrix.storage }}.img.lz4
               rm ${{ matrix.boards }}_${{ matrix.storage }}.img
           fi
-          tar czvf ${{ matrix.boards }}-${{ matrix.storage }}_debs.tar.gz *.deb
-          rm *.deb
+          shopt -s nullglob
+          debs=(*.deb)
+          if ((${#debs[@]})); then
+              tar czvf ${{ matrix.boards }}-${{ matrix.storage }}_debs.tar.gz "${debs[@]}"
+              rm -- "${debs[@]}"
+          fi
           echo "PACKAGE=${{ github.workspace }}/images/*" >> $GITHUB_ENV
       - name: Upload package
         uses: actions/upload-artifact@v4
