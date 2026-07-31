@@ -274,7 +274,7 @@ int sg2002_rtos_message_call(struct sg2002_rtos *rtos,
 	uint64_t deadline = 0U;
 	uint64_t now;
 	uint32_t remaining = timeout_ms;
-	uint32_t sequence;
+	uint32_t sequence = 0U;
 	int ret;
 
 	if (rtos == NULL || rtos->fd < 0 || private == NULL ||
