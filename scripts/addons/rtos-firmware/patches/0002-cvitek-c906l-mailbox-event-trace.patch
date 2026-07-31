@@ -7,13 +7,13 @@ Keep a validated last-event record and cumulative event bitmap in the
 unused half of the existing 64-byte boot-trace cache line. This exposes
 mailbox progress without changing the command protocol or MMIO sequence.
 ---
- .../cvitek/driver/common/include/boot_trace.h | 70 +++++++++++++++++++-
- 1 file changed, 69 insertions(+), 1 deletion(-)
+ .../cvitek/driver/common/include/boot_trace.h | 71 +++++++++++++++++++-
+ 1 file changed, 70 insertions(+), 1 deletion(-)
 
 diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvitek/driver/common/include/boot_trace.h
 --- a/freertos/cvitek/driver/common/include/boot_trace.h
 +++ b/freertos/cvitek/driver/common/include/boot_trace.h
-@@ -11,6 +11,20 @@
+@@ -11,6 +11,21 @@
  #define CVITEK_BOOT_TRACE_STAGE_IRQ_READY 4U
  #define CVITEK_BOOT_TRACE_STAGE_CMDQU_TASK 5U
  
@@ -29,12 +29,13 @@ diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvite
 +#define CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED 10U
 +#define CVITEK_BOOT_TRACE_EVENT_SPINLOCK_FAIL 11U
 +#define CVITEK_BOOT_TRACE_EVENT_REPLY_NO_SLOT 12U
-+#define CVITEK_BOOT_TRACE_EVENT_MAX CVITEK_BOOT_TRACE_EVENT_REPLY_NO_SLOT
++#define CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL 13U
++#define CVITEK_BOOT_TRACE_EVENT_MAX CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL
 +
  struct cvitek_boot_trace {
  	volatile uint32_t magic;
  	volatile uint32_t version;
-@@ -21,7 +35,14 @@ struct cvitek_boot_trace {
+@@ -21,7 +36,14 @@ struct cvitek_boot_trace {
  	volatile uint32_t stage_inverse;
  	volatile uint32_t hart_id;
  	volatile uint32_t hart_id_inverse;
@@ -50,7 +51,7 @@ diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvite
  };
  
  extern unsigned char __boot_trace_start[];
-@@ -37,4 +58,51 @@ static inline void cvitek_boot_trace_mark(uint32_t stage)
+@@ -37,4 +59,51 @@ static inline void cvitek_boot_trace_mark(uint32_t stage)
  	__asm__ volatile ("fence rw, rw" ::: "memory");
  }
  

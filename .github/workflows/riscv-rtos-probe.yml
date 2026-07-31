@@ -1,9 +1,9 @@
-name: Build C906L mailbox-event probe
+name: Build C906L mailbox fix
 
 on:
   push:
     branches:
-      - codex-rtos-mailbox-event-probe-20260731
+      - codex-rtos-mailbox-fix-20260731
     paths:
       - .github/workflows/riscv-rtos-probe.yml
       - configs/common/patches/linux/**
@@ -19,11 +19,11 @@ permissions:
   packages: read
 
 concurrency:
-  group: c906l-mailbox-event-probe-${{ github.ref }}
+  group: c906l-mailbox-fix-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-probe:
+  build-fix:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -76,7 +76,8 @@ jobs:
           grep -Fqx 'boot trace host sentinel at 0x%llx' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
-          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_event_trace_v2' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_poll_fallback_v1' artifact/c906l-rtos.strings.txt
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
           (
             cd artifact
@@ -96,7 +97,7 @@ jobs:
       - name: Upload probe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: c906l-mailbox-event-probe
+          name: c906l-mailbox-fix
           path: artifact/
           if-no-files-found: error
           retention-days: 7

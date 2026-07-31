@@ -7,8 +7,8 @@ Decode the event fields stored in the second half of the existing boot
 trace cache line. Initialize every field with an inverse copy and reject
 torn snapshots through the existing read-only sysfs attribute.
 ---
- drivers/remoteproc/cvitek_remoteproc.c | 79 ++++++++++++++++++++++++++++++++--
- 1 file changed, 75 insertions(+), 4 deletions(-)
+ drivers/remoteproc/cvitek_remoteproc.c | 81 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 77 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
 index 3b220e4..75ea3e6 100644
@@ -38,7 +38,7 @@ index 3b220e4..75ea3e6 100644
  };
  
  struct cvitek_rproc_config {};
-@@ -88,6 +96,40 @@ static const char *cvitek_boot_trace_stage_name(u32 stage)
+@@ -88,6 +96,42 @@ static const char *cvitek_boot_trace_stage_name(u32 stage)
  	}
  }
  
@@ -71,6 +71,8 @@ index 3b220e4..75ea3e6 100644
 +		return "spinlock_fail";
 +	case 12:
 +		return "reply_no_slot";
++	case 13:
++		return "mailbox_poll";
 +	default:
 +		return "unknown";
 +	}
@@ -79,7 +81,7 @@ index 3b220e4..75ea3e6 100644
  static struct cvitek_boot_trace __iomem *
  cvitek_boot_trace_ptr(struct rproc *rproc)
  {
-@@ -117,6 +159,14 @@ static int cvitek_boot_trace_init(struct rproc *rproc)
+@@ -117,6 +161,14 @@ static int cvitek_boot_trace_init(struct rproc *rproc)
  	writel(~0U, &trace->stage_inverse);
  	writel(~0U, &trace->hart_id);
  	writel(0, &trace->hart_id_inverse);
@@ -94,7 +96,7 @@ index 3b220e4..75ea3e6 100644
  	wmb();
  
  	if (readl(&trace->magic) != CVITEK_BOOT_TRACE_MAGIC ||
-@@ -137,6 +187,8 @@ static ssize_t boot_trace_show(struct device *dev,
+@@ -137,6 +189,8 @@ static ssize_t boot_trace_show(struct device *dev,
  	struct cvitek_boot_trace __iomem *trace;
  	u32 magic, version, cookie, cookie_inverse;
  	u32 stage, stage_inverse, hart_id, hart_id_inverse;
@@ -103,7 +105,7 @@ index 3b220e4..75ea3e6 100644
  	ssize_t ret;
  	bool valid;
  
-@@ -169,22 +221,41 @@ static ssize_t boot_trace_show(struct device *dev,
+@@ -169,22 +223,41 @@ static ssize_t boot_trace_show(struct device *dev,
  	stage_inverse = readl(&trace->stage_inverse);
  	hart_id = readl(&trace->hart_id);
  	hart_id_inverse = readl(&trace->hart_id_inverse);
