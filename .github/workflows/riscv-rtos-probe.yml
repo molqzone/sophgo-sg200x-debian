@@ -1,4 +1,4 @@
-name: Build C906L mailbox fix
+name: Build C906L communication stack
 
 on:
   push:
@@ -20,11 +20,11 @@ permissions:
   packages: read
 
 concurrency:
-  group: c906l-mailbox-fix-${{ github.ref }}
+  group: c906l-communication-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-fix:
+  build-communication:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -40,7 +40,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build kernel and RTOS probe
+      - name: Build kernel, communication tools, and standalone RTOS
         shell: bash
         run: |
           set -euo pipefail
@@ -51,7 +51,21 @@ jobs:
             -v "$GITHUB_WORKSPACE/configs:/configs:ro" \
             -v "$GITHUB_WORKSPACE/probe-output:/output" \
             "$BUILDER_IMAGE" \
-            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build//rtos-firmware-stamp; make BOARD=licheervnano STORAGE_TYPE=sd osdrv-clean; make BOARD=licheervnano STORAGE_TYPE=sd osdrv'
+            bash -lc '
+              set -euo pipefail
+              mkdir -p /rootfs
+              make BOARD=licheervnano STORAGE_TYPE=sd linux /build//rtos-firmware-stamp
+              CC=cc bash /builder/addons/rtos-firmware/tests/run_host_tests.sh \
+                /build/rtos-firmware-sdk/cvi_mpi/include /output/host-tests
+              make BOARD=licheervnano STORAGE_TYPE=sd osdrv-clean
+              make BOARD=licheervnano STORAGE_TYPE=sd osdrv
+              cd /
+              OUT_DIR=/output/standalone \
+                SDK_DIR=/build/rtos-firmware-sdk \
+                BUILD_HOST_TOOLS=/host-tools \
+                ADDON_ROOT=/builder/addons/rtos-firmware \
+                bash /builder/build_rtos_only.sh
+            '
 
       - name: Package probe artifact
         shell: bash
@@ -74,8 +88,18 @@ jobs:
           cp "${cmdqu_modules[0]}" artifact/cv181x_rtos_cmdqu.ko
           cp probe-output/licheervnano_c906-mcu.elf artifact/
           cp probe-output/licheervnano_c906-mcu.bin artifact/
+          cp probe-output/licheervnano_rtos-cmd artifact/rtos-cmd
+          cp probe-output/licheervnano_rtos-bench artifact/rtos-bench
+          cp probe-output/licheervnano_libsg2002-rtos.a artifact/libsg2002-rtos.a
+          cp probe-output/sg2002_rtos.h artifact/
+          cp probe-output/sg2002_rtos_protocol.h artifact/
           cp probe-output/licheervnano_boot-trace-layout.json artifact/
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
+          cp probe-output/host-tests/host-tests.txt artifact/
+          cp probe-output/standalone/licheervnano_c906-mcu.elf artifact/standalone-c906-mcu.elf
+          cp probe-output/standalone/licheervnano_c906-mcu.bin artifact/standalone-c906-mcu.bin
+          cp probe-output/standalone/licheervnano_boot-trace-layout.json artifact/standalone-boot-trace-layout.json
+          cp probe-output/standalone/licheervnano_rtos-source-SHA256SUMS.txt artifact/standalone-source-SHA256SUMS.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
           modinfo -F vermagic artifact/cv181x_rtos_cmdqu.ko > artifact/cmdqu-vermagic.txt
           strings -a artifact/cvitek_remoteproc.ko > artifact/cvitek_remoteproc.strings.txt
@@ -87,7 +111,12 @@ jobs:
           grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
-          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_direction_v5' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_layered_v1' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'protocol=PASS' artifact/host-tests.txt
+          grep -Fqx 'rtos_app=PASS' artifact/host-tests.txt
+          grep -Fqx 'linux_comm=PASS' artifact/host-tests.txt
+          test -x artifact/rtos-cmd
+          test -x artifact/rtos-bench
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
           (
             cd artifact
@@ -98,6 +127,16 @@ jobs:
               cv181x_rtos_cmdqu.ko \
               licheervnano_c906-mcu.elf \
               licheervnano_c906-mcu.bin \
+              standalone-c906-mcu.elf \
+              standalone-c906-mcu.bin \
+              standalone-boot-trace-layout.json \
+              standalone-source-SHA256SUMS.txt \
+              rtos-cmd \
+              rtos-bench \
+              libsg2002-rtos.a \
+              sg2002_rtos.h \
+              sg2002_rtos_protocol.h \
+              host-tests.txt \
               licheervnano_boot-trace-layout.json \
               rtos-sdk-commit.txt \
               source-commit.txt \
@@ -111,7 +150,7 @@ jobs:
       - name: Upload probe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: c906l-mailbox-fix
+          name: c906l-communication-stack
           path: artifact/
           if-no-files-found: error
           retention-days: 7

@@ -1,41 +1,230 @@
-From 2ec0e8326dc514843e1a8c7ff9f3ff6591f6f9c0 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Xiao <2592509183@qq.com>
 Date: Tue, 16 Jun 2026 04:38:00 +0100
-Subject: [PATCH] licheervnano: osdrv: rtos_cmdqu: allow user commands and
- return wait errors
+Subject: [PATCH] licheervnano: osdrv: make rtos cmdqu sync calls reliable
 
-The vendor cmdqu driver rejects command IDs above SYS_CMD_INFO_LIMIT in the
-send path, while the RTOS side intentionally uses 0x60+ for user-defined
-commands such as ping and gpio access. On the board this made ioctl
-RTOS_CMDQU_SEND_WAIT appear to succeed while the command payload never
-reached the RTOS task, so userspace observed the original param_ptr value.
+Keep the kernel driver application-agnostic by allowing the full 7-bit command
+space for IP_SYSTEM. Serialize synchronous transactions because the eight-byte
+vendor ABI has no transaction identifier, and protect the waiter list from the
+mailbox IRQ with the existing queue lock.
 
-Also propagate rtos_cmdqu_send_wait() failures back to userspace instead of
-always copying the unchanged request buffer out as if the exchange succeeded.
+Propagate send, timeout, signal, and user-copy failures accurately. The vendor
+ioctl path also freed an uninitialized waiter pointer on copy failures and after
+successful SEND_WAIT calls; remove those invalid frees.
 ---
- interdrv/rtos_cmdqu/rtos_cmdqu.c | 11 ++++++++---
- 1 file changed, 8 insertions(+), 3 deletions(-)
+ interdrv/rtos_cmdqu/rtos_cmdqu.c | 100 ++++++++++++++++++++-------------
+ 1 file changed, 62 insertions(+), 38 deletions(-)
 
 diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
-index 4c3c64f..5f6b585 100644
+index 4c3c64f..0000000 100644
 --- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
 +++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
-@@ -246,7 +246,8 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+@@ -4,6 +4,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/miscdevice.h>
+ #include <linux/module.h>
++#include <linux/mutex.h>
+ #include <linux/io.h>
+ #include <linux/fs.h>
+ #include <linux/ioctl.h>
+@@ -32,6 +33,7 @@ struct cvi_rtos_cmdqu_device {
+ 
+ spinlock_t mailbox_queue_lock;
+ spinlock_t send_queue_lock;
++static DEFINE_MUTEX(send_wait_lock);
+ #ifdef _LP64
+ static __u64  reg_base;
+ #else
+@@ -179,6 +181,7 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ 	char set_val, done_val;
+ 	int i;
+ 	int flags;
++	unsigned long queue_flags;
+ 	cmdqu_t *cmdq;
+ 
+ 	struct rtos_cmdqu_wait_list_t *wait_list;
+@@ -225,11 +228,13 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ 			pr_debug("cmdq->block =%d\n", linux_cmdq.block);
+ 			pr_debug("cmdq->linux_valid =%d\n", linux_cmdq.resv.valid.linux_valid);
+ 			pr_debug("cmdq->rtos_valid =%x", linux_cmdq.resv.valid.rtos_valid);
+ 			if (linux_cmdq.resv.valid.rtos_valid == 1 &&
++				linux_cmdq.resv.valid.linux_valid == 0 &&
+ 				linux_cmdq.cmd_id <= NR_RTOS_CMD &&
+-				linux_cmdq.ip_id <= NR_RTOS_IP &&
++				linux_cmdq.ip_id < NR_RTOS_IP &&
+ 				linux_cmdq.block == 1) {
+ 				// dewait
++				spin_lock_irqsave(&send_queue_lock, queue_flags);
+ 				list_for_each(pos, &rtos_cmdqu_wait_head.list) {
+ 					wait_list = list_entry(pos, struct rtos_cmdqu_wait_list_t, list);
+ 					pr_debug("s wait_list->cmdq.ip_id=%d\n", wait_list->cmdq.ip_id);
+@@ -251,9 +257,12 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ 						break;
+ 					}
+ 				}
++				spin_unlock_irqrestore(&send_queue_lock, queue_flags);
+ 			} else if (linux_cmdq.resv.valid.rtos_valid == 1 &&
++				linux_cmdq.resv.valid.linux_valid == 0 &&
++				linux_cmdq.ip_id < NR_RTOS_IP &&
+ 				rtos_irqaction[linux_cmdq.ip_id].handler &&
+-				rtos_irqaction[linux_cmdq.ip_id].ip_id <= NR_RTOS_IP) {
++				rtos_irqaction[linux_cmdq.ip_id].ip_id < NR_RTOS_IP) {
+ 				irq_request_func rtos_irq_func;
+ 
+ 				pr_debug("handler =%p\n",
+@@ -330,11 +338,12 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+ 	pr_debug("cmdq->cmd_id = %d\n", cmdq->cmd_id);
  	pr_debug("cmdq->block = %d\n", cmdq->block);
  	pr_debug("cmdq->para_ptr = %d\n", cmdq->param_ptr);
 -	if (cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) {
--		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
-+	if ((cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) &&
-+		!(cmdq->ip_id == IP_SYSTEM && cmdq->cmd_id <= NR_RTOS_CMD)) {
-+		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
++	if (cmdq->ip_id >= IP_LIMIT ||
++		(cmdq->cmd_id >= SYS_CMD_INFO_LIMIT && cmdq->ip_id != IP_SYSTEM)) {
+ 		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
  		drv_spin_unlock_irqrestore(&mailbox_lock, mb_flags);
  		spin_unlock_irqrestore(&mailbox_queue_lock, flags);
- 		return -ENOBUFS;
-@@ -375,9 +376,13 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
- 			if (ret) {
- 				kfree(wait_list);
+-		return -ENOBUFS;
++		return -EINVAL;
+ 	}
+ 
+ 	for (valid = 0; valid < MAILBOX_MAX_NUM; valid++) {
+@@ -380,75 +389,81 @@ int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id)
+ {
+ 	unsigned long flags;
+ 	struct rtos_cmdqu_wait_list_t *wait_list;
+ 	struct list_head *pos;
+ 	int delaytime;
+-	int ret = 0;
++	int completed;
++	int ret;
+ 
+ 	pr_debug("%s %d\n", __func__, __LINE__);
+ 
++	ret = mutex_lock_interruptible(&send_wait_lock);
++	if (ret)
++		return ret;
++
+ 	spin_lock_irqsave(&send_queue_lock, flags);
+-	/* check list with same commands? if yes, ignore it */
++	/* Defensive check; send_wait_lock normally permits only one waiter. */
+ 	list_for_each(pos, &rtos_cmdqu_wait_head.list) {
+ 		wait_list = list_entry(pos, struct rtos_cmdqu_wait_list_t, list);
+ 		pr_debug("list->cmdq.ip_id=%d\n", wait_list->cmdq.ip_id);
+ 		pr_debug("list->cmdq.cmd_id=%d\n", wait_list->cmdq.cmd_id);
+ 		if (cmdq->ip_id == wait_list->cmdq.ip_id &&
+-			wait_cmd_id == wait_list->cmdq.cmd_id &&
+-			cmdq->param_ptr == wait_list->cmdq.param_ptr) {
+-
++			wait_cmd_id == wait_list->cmdq.cmd_id) {
+ 			pr_debug("exist : wait_list->cmdq.ip_id=%d\n", wait_list->cmdq.ip_id);
+ 			pr_debug("exist : wait_list->cmdq.cmd_id=%d\n", wait_list->cmdq.cmd_id);
+ 			pr_debug("exist : wait_list->cmdq.param_ptr=%d\n", wait_list->cmdq.param_ptr);
+ 			spin_unlock_irqrestore(&send_queue_lock, flags);
++			mutex_unlock(&send_wait_lock);
+ 			return -EEXIST;
+-
+ 		}
+ 	}
+ 	cmdq->block = 1;
+ 
+ 	wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);
+-
+ 	if (!wait_list) {
+ 		spin_unlock_irqrestore(&send_queue_lock, flags);
++		mutex_unlock(&send_wait_lock);
+ 		return -ENOMEM;
+ 	}
+ 
+ 	*((unsigned long long *) &wait_list->cmdq) = *((unsigned long long *) cmdq);
+ 	wait_list->cmdq.cmd_id = wait_cmd_id;
+-
+ 	init_waitqueue_head(&wait_list->wq);
+ 	list_add_tail(&wait_list->list, &rtos_cmdqu_wait_head.list);
+-
+ 	spin_unlock_irqrestore(&send_queue_lock, flags);
+ 	/* check the delay ms
+ 	 * if mstime is 65535 (-1), it will be blocked infinite (MAX_JIFFY_OFFSET)
+ 	 */
+-
+ 	delaytime = wait_list->cmdq.resv.mstime;
+ 	if (delaytime == 0xFFFF)
+ 		delaytime = -1;
+ 
+ 	ret = rtos_cmdqu_send(cmdq);
+-
+-	ret = wait_event_interruptible_timeout(wait_list->wq,
+-		wait_list->condition != 0, msecs_to_jiffies(delaytime));
++	if (!ret)
++		ret = wait_event_interruptible_timeout(wait_list->wq,
++			wait_list->condition != 0, msecs_to_jiffies(delaytime));
++
+ 	spin_lock_irqsave(&send_queue_lock, flags);
++	completed = wait_list->condition;
+ 	list_del_init(&wait_list->list);
+ 	spin_unlock_irqrestore(&send_queue_lock, flags);
++	if (ret == 0 && completed)
++		ret = 1;
+-	if (!ret) {
+-		ret = -ETIME;
+-		kfree(wait_list);
++
++	if (ret == 0) {
++		ret = -ETIMEDOUT;
+ 		pr_err("RTOS_CMDQU_SEND_WAIT timeout\n");
+-		return ret;
++	} else if (ret > 0) {
++		pr_debug("RTOS_CMDQU_SEND_WAIT done\n");
++		pr_debug("list wait_list->cmdq.ip_id=%d wait_list->cmdq.cmd_id=%d wait_list->cmdq.param_ptr=%x\n",
++			wait_list->cmdq.ip_id, wait_list->cmdq.cmd_id, wait_list->cmdq.param_ptr);
++		/* get context from interrupt and return to userspace */
++		*((unsigned long long *) cmdq) =
++			*((unsigned long long *) &wait_list->cmdq);
++		ret = 0;
+ 	}
+-	pr_debug("RTOS_CMDQU_SEND_WAIT done\n");
+-	pr_debug("list wait_list->cmdq.ip_id=%d wait_list->cmdq.cmd_id=%d wait_list->cmdq.param_ptr=%x\n",
+-		wait_list->cmdq.ip_id, wait_list->cmdq.cmd_id, wait_list->cmdq.param_ptr);
+-
+-	/* get context from interrupt and return to userspace */
+-	*((unsigned long long *) cmdq) = *((unsigned long long *) &wait_list->cmdq);
+ 	kfree(wait_list);
+-	return 0;
++	mutex_unlock(&send_wait_lock);
++	return ret;
+ }
+ EXPORT_SYMBOL(rtos_cmdqu_send_wait);
+ 
+@@ -466,16 +477,20 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 	switch (cmd) {
+ 		case RTOS_CMDQU_SEND:
+ 			pr_debug("RTOS_CMDQU_SEND\n");
+-			copy_from_user(&cmdq,
++			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+ 				sizeof(struct cmdqu_t));
++			if (ret)
++				return -EFAULT;
+ 			ret = rtos_cmdqu_send(&cmdq);
+ 			break;
+ 		case RTOS_CMDQU_SEND_WAKEUP:
+ 			pr_debug("RTOS_CMDQU_SEND_WAKEUP\n");
+-			copy_from_user(&cmdq,
++			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+ 				sizeof(struct cmdqu_t));
++			if (ret)
++				return -EFAULT;
+ 			pr_debug("cmdq.ip_id=%d cmdq.cmd_id=%d\n", cmdq.ip_id, cmdq.cmd_id);
+ 
+ 			spin_lock_irqsave(&send_queue_lock, flags);
+@@ -506,32 +521,37 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+ 				sizeof(struct cmdqu_t));
+-			if (ret) {
+-				kfree(wait_list);
++			if (ret)
  				return -EFAULT;
- 			}
+-			}
 -			rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);
 +			ret = rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);
 +			if (ret)
@@ -43,10 +232,36 @@ index 4c3c64f..5f6b585 100644
  			ret = copy_to_user((struct cmdqu_t __user *)arg,
  					&cmdq,
  					sizeof(struct cmdqu_t));
+-			kfree(wait_list);
 +			if (ret)
 +				return -EFAULT;
- 			kfree(wait_list);
  			break;
  		case RTOS_CMDQU_REQUEST:
+-			copy_from_user(&cmdq,
++			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+ 				sizeof(struct cmdqu_t));
++			if (ret)
++				return -EFAULT;
+ 
+ 			ret = request_rtos_irq(cmdq.ip_id, callback_rtos_irq_handler,
+ 				"RTOS_CMDQU_REQUEST", (void *)((unsigned long)cmdq.param_ptr));
+ 			break;
+ 		case RTOS_CMDQU_REQUEST_FREE:
+-			copy_from_user(&cmdq,
++			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+ 				sizeof(struct cmdqu_t));
+-			free_rtos_irq(cmdq.ip_id);
++			if (ret)
++				return -EFAULT;
++			ret = free_rtos_irq(cmdq.ip_id);
+ 			break;
+ 		default:
+-			ret = -EFAULT;
++			ret = -ENOTTY;
+ 			break;
+ 	}
+ 	return ret;
 -- 
 2.34.1

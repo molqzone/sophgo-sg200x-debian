@@ -1,98 +1,99 @@
 #include <errno.h>
-#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 
-#include "rtos_cmdqu.h"
+#include "sg2002_rtos.h"
 
 static void usage(void)
 {
 	fprintf(stderr,
 		"Usage:\n"
-		"  rtos-cmd ping <hex-value>\n"
-		"  rtos-cmd gpio-set <pin-hex> <0|1>\n"
-		"  rtos-cmd gpio-get <pin-hex>\n");
+		"  rtos-cmd info\n"
+		"  rtos-cmd ping <value>\n"
+		"  rtos-cmd gpio-set <pin> <0|1>\n"
+		"  rtos-cmd gpio-get <pin>\n");
 	exit(2);
 }
 
-static unsigned int parse_u32(const char *s)
+static uint32_t parse_u32(const char *text)
 {
 	char *end = NULL;
-	unsigned long v = strtoul(s, &end, 0);
+	unsigned long value = strtoul(text, &end, 0);
 
-	if (s[0] == '\0' || (end && *end != '\0') || v > 0xFFFFFFFFUL) {
-		fprintf(stderr, "invalid value: %s\n", s);
+	if (text[0] == '\0' || end == NULL || *end != '\0' ||
+	    value > UINT32_MAX) {
+		fprintf(stderr, "invalid value: %s\n", text);
 		exit(2);
 	}
-	return (unsigned int)v;
+	return (uint32_t)value;
+}
+
+static int report_error(const char *operation, int error)
+{
+	fprintf(stderr, "%s failed: %s (%d)\n", operation,
+		strerror(-error), error);
+	return 1;
 }
 
 int main(int argc, char **argv)
 {
-	int fd;
-	cmdqu_t cmdq;
-	unsigned int pin;
-	unsigned int ping_input = 0;
-	int verify_ping = 0;
+	struct sg2002_rtos rtos = SG2002_RTOS_INITIALIZER;
+	uint32_t input;
+	uint32_t result;
+	uint32_t info;
+	uint16_t pin;
+	int value;
+	int ret;
 
-	if (argc < 3)
+	if (argc < 2)
 		usage();
 
-	fd = open("/dev/" RTOS_CMDQU_DEV_NAME, O_RDWR | O_DSYNC);
-	if (fd < 0) {
-		perror("open /dev/cvi-rtos-cmdqu");
-		return 1;
-	}
+	ret = sg2002_rtos_open(&rtos, NULL);
+	if (ret)
+		return report_error("open " SG2002_RTOS_DEVICE_PATH, ret);
 
-	memset(&cmdq, 0, sizeof(cmdq));
-	cmdq.ip_id = IP_SYSTEM;
-	cmdq.block = 1;
-	cmdq.resv.mstime = 3000;
-
-	if (strcmp(argv[1], "ping") == 0) {
-		cmdq.cmd_id = RTOS_USER_CMD_PING;
-		ping_input = parse_u32(argv[2]);
-		cmdq.param_ptr = ping_input;
-		verify_ping = 1;
-	} else if (strcmp(argv[1], "gpio-set") == 0) {
-		if (argc != 4)
+	if (strcmp(argv[1], "info") == 0) {
+		if (argc != 2)
 			usage();
-		pin = parse_u32(argv[2]);
-		cmdq.cmd_id = RTOS_USER_CMD_GPIO_SET;
-		cmdq.param_ptr = (pin << 16) | (parse_u32(argv[3]) & 0x1);
+		ret = sg2002_rtos_get_info(&rtos, &info);
+		if (!ret)
+			printf("protocol=%u.%u capabilities=0x%02x raw=0x%08x\n",
+			       (unsigned int)SG2002_RTOS_INFO_MAJOR(info),
+			       (unsigned int)SG2002_RTOS_INFO_MINOR(info),
+			       (unsigned int)SG2002_RTOS_INFO_CAPABILITIES(info),
+			       info);
+	} else if (strcmp(argv[1], "ping") == 0) {
+		if (argc != 3)
+			usage();
+		input = parse_u32(argv[2]);
+		ret = sg2002_rtos_ping(&rtos, input, &result);
+		if (!ret && result != (input ^ SG2002_RTOS_PING_XOR))
+			ret = -EPROTO;
+		if (!ret)
+			printf("cmd_id=0x%x input=0x%x result=0x%x expected=0x%x\n",
+			       SG2002_RTOS_CMD_PING, input, result,
+			       input ^ SG2002_RTOS_PING_XOR);
+	} else if (strcmp(argv[1], "gpio-set") == 0) {
+		if (argc != 4 || parse_u32(argv[2]) > UINT16_MAX)
+			usage();
+		pin = (uint16_t)parse_u32(argv[2]);
+		value = (int)parse_u32(argv[3]);
+		ret = sg2002_rtos_gpio_set(&rtos, pin, value);
+		if (!ret)
+			printf("pin=0x%x value=%d\n", pin, value);
 	} else if (strcmp(argv[1], "gpio-get") == 0) {
-		pin = parse_u32(argv[2]);
-		cmdq.cmd_id = RTOS_USER_CMD_GPIO_GET;
-		cmdq.param_ptr = (pin << 16);
+		if (argc != 3 || parse_u32(argv[2]) > UINT16_MAX)
+			usage();
+		pin = (uint16_t)parse_u32(argv[2]);
+		ret = sg2002_rtos_gpio_get(&rtos, pin, &value);
+		if (!ret)
+			printf("pin=0x%x value=%d\n", pin, value);
 	} else {
 		usage();
 	}
 
-	if (ioctl(fd, RTOS_CMDQU_SEND_WAIT, &cmdq) < 0) {
-		perror("ioctl RTOS_CMDQU_SEND_WAIT");
-		close(fd);
-		return 1;
-	}
-
-	if (verify_ping && cmdq.param_ptr != (ping_input ^ RTOS_USER_PING_XOR)) {
-		fprintf(stderr,
-			"RTOS ping mismatch: input=0x%x result=0x%x expected=0x%x\n",
-			ping_input, cmdq.param_ptr, ping_input ^ RTOS_USER_PING_XOR);
-		close(fd);
-		return 1;
-	}
-
-	if (verify_ping) {
-		printf("cmd_id=0x%x input=0x%x result=0x%x expected=0x%x\n",
-		       cmdq.cmd_id, ping_input, cmdq.param_ptr,
-		       ping_input ^ RTOS_USER_PING_XOR);
-	} else {
-		printf("cmd_id=0x%x param=0x%x\n", cmdq.cmd_id, cmdq.param_ptr);
-	}
-	close(fd);
-	return 0;
+	sg2002_rtos_close(&rtos);
+	return ret ? report_error(argv[1], ret) : 0;
 }

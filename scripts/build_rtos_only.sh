@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+
 BOARD=${BOARD:-licheervnano}
 SDK_REPO=${SDK_REPO:-https://github.com/milkv-duo/duo-buildroot-sdk-v2.git}
 SDK_COMMIT=${SDK_COMMIT:-6f8962c394dd0a05729abb089f0feb7d5cc4aa5e}
 OUT_DIR=${OUT_DIR:-$(pwd)/rtos_out}
 BUILD_HOST_TOOLS=${BUILD_HOST_TOOLS:-$HOME/runs/duo-buildroot-sdk-v2/host-tools}
 SDK_DIR=${SDK_DIR:-$HOME/runs/duo-buildroot-sdk-v2}
-PATCH_ROOT=${PATCH_ROOT:-scripts/addons/rtos-firmware/patches}
+ADDON_ROOT=${ADDON_ROOT:-$SCRIPT_DIR/addons/rtos-firmware}
+CONFIG_ROOT=${CONFIG_ROOT:-$REPO_ROOT/configs}
+CHECK_TRACE_SCRIPT=${CHECK_TRACE_SCRIPT:-$SCRIPT_DIR/check_rtos_trace_layout.py}
 
 case "$BOARD" in
   licheervnano|duo256)
@@ -26,15 +31,11 @@ esac
 
 mkdir -p "$OUT_DIR"
 
-if [ ! -d "$PATCH_ROOT" ] && [ -d rtos_sdk_patch ]; then
-  PATCH_ROOT=rtos_sdk_patch
-fi
-
-if [ ! -d "$PATCH_ROOT" ]; then
-  echo "RTOS patch root not found: $PATCH_ROOT" >&2
+if [ ! -d "$ADDON_ROOT" ]; then
+  echo "RTOS addon root not found: $ADDON_ROOT" >&2
   exit 1
 fi
-PATCH_ROOT=$(cd "$PATCH_ROOT" && pwd)
+ADDON_ROOT=$(cd "$ADDON_ROOT" && pwd)
 
 if [ ! -d "$SDK_DIR/.git" ]; then
   mkdir -p "$SDK_DIR"
@@ -57,42 +58,8 @@ if [ ! -d "$BUILD_HOST_TOOLS" ]; then
   git clone --depth 1 https://github.com/milkv-duo/host-tools.git "$BUILD_HOST_TOOLS"
 fi
 
-cp "configs/$BOARD/memmap.py" "$SDK_DIR/$SDK_MEMMAP"
-
-stage_patch_file() {
-  local rel="$1"
-  local src="$PATCH_ROOT/$rel"
-  local dst="$SDK_DIR/$rel"
-
-  if [ ! -f "$src" ]; then
-    echo "Missing patch file: $src" >&2
-    exit 1
-  fi
-
-  mkdir -p "$(dirname "$dst")"
-  cp -a "$src" "$dst"
-}
-
-for rel in \
-  cvi_mpi/include/rtos_cmdqu.h \
-  freertos/cvitek/driver/gpio/include/gpio.h \
-  freertos/cvitek/driver/gpio/src/gpio.c \
-  freertos/cvitek/driver/rtos_cmdqu.h \
-  freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h \
-  freertos/cvitek/task/CMakeLists.txt \
-  freertos/cvitek/task/comm/CMakeLists.txt \
-  freertos/cvitek/task/comm/src/riscv64/comm_main.c
-do
-  stage_patch_file "$rel"
-done
-
-rm -f "$SDK_DIR/freertos/cvitek/driver/common/include/boot_trace.h"
-git -C "$SDK_DIR" apply --check "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
-git -C "$SDK_DIR" apply "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
-git -C "$SDK_DIR" apply --check "$PATCH_ROOT/0002-cvitek-c906l-mailbox-event-trace.patch"
-git -C "$SDK_DIR" apply "$PATCH_ROOT/0002-cvitek-c906l-mailbox-event-trace.patch"
-grep -Fq "CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED" \
-  "$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/comm_main.c"
+cp "$CONFIG_ROOT/$BOARD/memmap.py" "$SDK_DIR/$SDK_MEMMAP"
+bash "$ADDON_ROOT/prepare_sdk.sh" "$SDK_DIR"
 
 rm -rf "$SDK_DIR/freertos/cvitek/build" "$SDK_DIR/freertos/cvitek/install"
 
@@ -109,13 +76,18 @@ popd >/dev/null
 cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.elf" "$OUT_DIR/${BOARD}_c906-mcu.elf"
 cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.bin" "$OUT_DIR/${BOARD}_c906-mcu.bin"
 
-python3 scripts/check_rtos_trace_layout.py \
+python3 "$CHECK_TRACE_SCRIPT" \
   --readelf "$BUILD_HOST_TOOLS/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-readelf" \
   "$OUT_DIR/${BOARD}_c906-mcu.elf" |
   tee "$OUT_DIR/${BOARD}_boot-trace-layout.json"
 
 sha256sum "$OUT_DIR/${BOARD}_c906-mcu.elf" "$OUT_DIR/${BOARD}_c906-mcu.bin" > "$OUT_DIR/SHA256SUMS.txt"
 git -C "$SDK_DIR" rev-parse HEAD > "$OUT_DIR/${BOARD}_rtos-sdk-commit.txt"
+sha256sum \
+  "$ADDON_ROOT/include/sg2002_rtos_protocol.h" \
+  "$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
+  "$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" > \
+  "$OUT_DIR/${BOARD}_rtos-source-SHA256SUMS.txt"
 
 echo "RTOS firmware built:"
 echo "  $OUT_DIR/${BOARD}_c906-mcu.elf"
