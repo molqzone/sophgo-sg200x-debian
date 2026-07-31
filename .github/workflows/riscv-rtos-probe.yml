@@ -49,7 +49,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/configs:/configs:ro" \
             -v "$GITHUB_WORKSPACE/probe-output:/output" \
             "$BUILDER_IMAGE" \
-            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build/rtos-firmware-stamp'
+            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build//rtos-firmware-stamp'
 
       - name: Package probe artifact
         shell: bash
