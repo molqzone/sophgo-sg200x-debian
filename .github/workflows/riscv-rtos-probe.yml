@@ -77,7 +77,7 @@ jobs:
           grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
-          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_slot_scan_v2' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_busy_scan_v3' artifact/c906l-rtos.strings.txt
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
           (
             cd artifact

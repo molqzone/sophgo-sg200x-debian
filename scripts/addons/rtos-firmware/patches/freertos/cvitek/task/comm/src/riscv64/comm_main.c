@@ -101,7 +101,7 @@ TASK_CTX_S gTaskCtx[E_QUEUE_MAX] = {
 	{
 		.name = "CMDQU",
 		.stack_size = configMINIMAL_STACK_SIZE,
-		.priority = tskIDLE_PRIORITY + 5,
+		.priority = tskIDLE_PRIORITY + 1,
 		.runTask = prvCmdQuRunTask,
 		.queLength = 30,
 		.queHandle = NULL,
@@ -268,12 +268,14 @@ void prvCmdQuRunTask(void *pvParameters)
 	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_TASK_READY,
 				(((uint32_t)RECEIVE_CPU & 0xffffU) << 16) |
 				((uint32_t)send_to_cpu & 0xffffU));
-	printf("prvCmdQuRunTask run; c906l_mailbox_slot_scan_v2\n");
+	printf("prvCmdQuRunTask run; c906l_mailbox_busy_scan_v3\n");
 
 	for (;;) {
 			if (xQueueReceive(gTaskCtx[E_QUEUE_CMDQU].queHandle,
-					  &rtos_cmdq, 1U) != pdPASS) {
+					  &rtos_cmdq, 0U) != pdPASS) {
 				prvPollMailbox();
+				udelay(1000);
+				taskYIELD();
 				continue;
 			}
 			if (rtos_cmdq.cmd_id == RTOS_USER_CMD_PING)
