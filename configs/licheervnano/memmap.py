@@ -23,7 +23,7 @@ class MemoryMap:
     # The final page remains the boot trace. The two fixed-slot queues live
     # immediately below it and are excluded from the FreeRTOS linker region.
     RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
-    RTOS_SHM_SIZE = 68 * SIZE_1K
+    RTOS_SHM_SIZE = 132 * SIZE_1K
     RTOS_SHM_ADDR = (
         FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - RTOS_SHM_SIZE
     )

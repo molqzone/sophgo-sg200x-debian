@@ -3,7 +3,7 @@ From: Codex <codex@local>
 Date: Sat, 1 Aug 2026 02:30:00 +0800
 Subject: [PATCH] freertos: reserve the C906L shared-memory queues
 
-Keep the 68 KiB fixed-slot transport outside all loadable firmware segments.
+Keep the 132 KiB fixed-slot transport outside all loadable firmware segments.
 The final 4 KiB boot-trace page remains independently reserved.
 ---
  freertos/cvitek/scripts/cv181x_lscript.ld | 3 ++-

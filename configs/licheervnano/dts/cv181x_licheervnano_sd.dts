@@ -76,7 +76,7 @@
         model = "LicheeRv Nano";
 
 	reserved-memory {
-		rtos_shm: shared-memory@8ffee000 {
+		rtos_shm: shared-memory@8ffde000 {
 			reg = <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
 			no-map;
 		};

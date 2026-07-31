@@ -122,14 +122,24 @@ int main(void)
 	uint32_t value;
 	unsigned int i;
 
-	assert(SG2002_RTOS_SHM_REGION_SIZE == 0x11000U);
-	assert(SG2002_RTOS_SHM_RESPONSE_OFFSET == 0x9000U);
-	assert(sizeof(message) == 512U);
+	assert(SG2002_RTOS_SHM_ABI_VERSION == 2U);
+	assert(SG2002_RTOS_SHM_PAYLOAD_SIZE == 1018U);
+	assert(SG2002_RTOS_SHM_REGION_SIZE == 0x21000U);
+	assert(SG2002_RTOS_SHM_RESPONSE_OFFSET == 0x11000U);
+	assert(sizeof(message) == 1024U);
+#ifdef __linux__
+	assert(_IOC_SIZE(SG2002_RTOS_SHM_SEND) == 1028U);
+	assert(_IOC_SIZE(SG2002_RTOS_SHM_RECEIVE) == 1028U);
+#endif
 
 	sg2002_rtos_ring_init(&ring, &control.request_producer,
 			       &control.request_consumer, slots, &cache_ops);
 	assert(sg2002_rtos_ring_try_pop(&ring, &received) ==
 	       SG2002_RTOS_RING_EMPTY);
+	fill_message(&message, 1U);
+	message.length = SG2002_RTOS_SHM_PAYLOAD_SIZE + 1U;
+	assert(sg2002_rtos_ring_try_push(&ring, &message) ==
+	       SG2002_RTOS_RING_INVALID);
 
 	for (i = 0; i < SG2002_RTOS_SHM_SLOT_COUNT; i++) {
 		fill_message(&message, i + 1U);

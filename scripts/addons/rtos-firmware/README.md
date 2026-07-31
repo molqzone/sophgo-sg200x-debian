@@ -27,18 +27,18 @@ vendor 8-byte CMDQU ABI as its doorbell and compatibility fallback.
 To add an application command, assign it in the protocol header, add its
 handler to `sg2002_rtos_app.c`, and optionally add a typed Linux wrapper.
 Kernel, ring, cache, and mailbox code remain unchanged while each request and
-response fits in one 506-byte transport payload.
+response fits in one 1018-byte transport payload.
 
 ## Shared-memory contract
 
-The 68 KiB region is `4 KiB control + 64 * 512 B requests + 64 * 512 B
+The 132 KiB region is `4 KiB control + 64 * 1024 B requests + 64 * 1024 B
 responses`. Every slot is exactly:
 
 ```c
 struct sg2002_rtos_shm_slot {
     uint32_t sequence;
     uint16_t length;
-    uint8_t payload[506];
+    uint8_t payload[1018];
 };
 ```
 
@@ -74,7 +74,7 @@ separate IRQ and recovery counters plus mailbox, PLIC, and CSR state.
 
 ## Device-tree and legacy deployment
 
-New images describe the 68 KiB region as the named `shared-memory` resource of
+New images describe the 132 KiB region as the named `shared-memory` resource of
 `cvitek,rtos_cmdqu`; this is the preferred and parameter-free path. The driver
 validates the fixed size and 4 KiB alignment before mapping it.
 
@@ -84,15 +84,16 @@ DTB change or Linux reboot by passing the linker-matched subregion while the
 CMDQU module is loaded:
 
 ```sh
-RTOS_SHM_START=0x8ffee000 RTOS_SHM_SIZE=0x11000 \
+RTOS_SHM_START=0x8ffde000 RTOS_SHM_SIZE=0x21000 \
   /usr/bin/rtos-mode remoteproc
 ```
 
 `load-systemko.sh` requires both variables and forwards them as read-only
-`shm_start` and `shm_size` module parameters. A named device-tree resource
-takes precedence if one exists. These parameters are a migration bridge only:
-they must match both the firmware linker layout and memory already reserved by
-the running DTB.
+`shm_start` and `shm_size` module parameters. When both are supplied they
+explicitly override a named device-tree resource, which permits a new firmware
+layout to be tested while Linux is still running an older DTB. These parameters
+are a migration bridge only: they must match both the firmware linker layout
+and memory already reserved by the running DTB.
 
 ## Build and test
 
@@ -112,8 +113,8 @@ CC=cc bash scripts/addons/rtos-firmware/tests/run_host_tests.sh \
 
 On target, `rtos-bench [samples [warmup [echo-data-bytes]]]` measures the
 complete synchronous userspace-to-FreeRTOS round trip. With no payload argument
-it benchmarks PING over the selected transport. Values `1..505` use the
-application ECHO command and report both fixed 512-byte slot traffic and useful
+it benchmarks PING over the selected transport. Values `1..1017` use the
+application ECHO command and report both fixed 1024-byte slot traffic and useful
 application bytes. The host test suite covers ABI size, full/empty behavior,
 32-bit counter wraparound, generation reattachment, application dispatch,
 Linux shared-memory/CMDQU fallback behavior, and dependency guards for the

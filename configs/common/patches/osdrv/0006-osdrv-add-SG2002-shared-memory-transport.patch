@@ -1,4 +1,4 @@
-From 2f3797149a7c4a054906210a20186fda5aa8c793 Mon Sep 17 00:00:00 2001
+From f2d922045c92010ec38ce401e6d07db379fdf96d Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Sat, 1 Aug 2026 02:13:30 +0800
 Subject: [PATCH] osdrv: add SG2002 shared-memory transport
@@ -32,7 +32,7 @@ index 3fac675..6744622 100644
  	rm -rf .tmp_versions
 -
 diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
-index bccd36f..5023823 100644
+index bccd36f..40ace6a 100644
 --- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
 +++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
 @@ -3,7 +3,6 @@
@@ -242,21 +242,21 @@ index bccd36f..5023823 100644
 +
 +	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 +					   "shared-memory");
-+	if (res) {
-+		if (legacy_shm_start || legacy_shm_size)
-+			dev_warn(dev,
-+				 "device-tree shared memory overrides module parameters\n");
-+		shared_start = res->start;
-+		shared_size = resource_size(res);
-+	} else if (legacy_shm_start || legacy_shm_size) {
++	if (legacy_shm_start || legacy_shm_size) {
 +		if (!legacy_shm_start || !legacy_shm_size) {
 +			dev_err(dev,
 +				"shm_start and shm_size must be supplied together\n");
 +			return -EINVAL;
 +		}
++		if (res)
++			dev_warn(dev,
++				 "module parameters override device-tree shared memory\n");
 +		shared_start = legacy_shm_start;
 +		shared_size = legacy_shm_size;
 +		legacy_shared_memory = true;
++	} else if (res) {
++		shared_start = res->start;
++		shared_size = resource_size(res);
 +	}
 +
 +	if (shared_size) {
@@ -272,7 +272,7 @@ index bccd36f..5023823 100644
 +			return ret;
 +		}
 +		dev_info(dev, "%s shared-memory: phys=0x%llx size=0x%llx\n",
-+			 legacy_shared_memory ? "legacy-DT" : "device-tree",
++			 legacy_shared_memory ? "module-parameter" : "device-tree",
 +			 (unsigned long long)shared_start,
 +			 (unsigned long long)shared_size);
 +	} else {

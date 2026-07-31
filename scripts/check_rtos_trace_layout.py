@@ -23,7 +23,8 @@ def main():
     parser.add_argument("elf")
     parser.add_argument("--readelf", default="readelf")
     parser.add_argument("--trace-start", type=lambda value: int(value, 0), default=0x8FFFF000)
-    parser.add_argument("--shm-start", type=lambda value: int(value, 0), default=0x8FFEE000)
+    parser.add_argument("--shm-start", type=lambda value: int(value, 0), default=0x8FFDE000)
+    parser.add_argument("--shm-size", type=lambda value: int(value, 0), default=0x21000)
     args = parser.parse_args()
 
     program_headers = run_readelf(args.readelf, "-lW", args.elf)
@@ -62,6 +63,12 @@ def main():
         errors.append(
             f"LOAD end 0x{load_end:x} overlaps shared memory at 0x{args.shm_start:x}"
         )
+    if args.shm_start + args.shm_size != args.trace_start:
+        errors.append(
+            "shared memory does not end at boot trace: "
+            f"0x{args.shm_start:x} + 0x{args.shm_size:x} != "
+            f"0x{args.trace_start:x}"
+        )
     if trace_symbol != args.trace_start:
         actual = "missing" if trace_symbol is None else f"0x{trace_symbol:x}"
         errors.append(
@@ -79,6 +86,7 @@ def main():
         "entry": None if entry is None else f"0x{entry:x}",
         "load_end": f"0x{load_end:x}",
         "shm_start": f"0x{args.shm_start:x}",
+        "shm_size": f"0x{args.shm_size:x}",
         "shm_symbol": None if shm_symbol is None else f"0x{shm_symbol:x}",
         "trace_start": f"0x{args.trace_start:x}",
         "trace_symbol": None if trace_symbol is None else f"0x{trace_symbol:x}",

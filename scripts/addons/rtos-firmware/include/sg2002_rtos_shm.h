@@ -2,11 +2,13 @@
 
 #ifdef __KERNEL__
 #include <linux/ioctl.h>
+#include <linux/stddef.h>
 #include <linux/types.h>
 typedef __u8 sg2002_rtos_u8;
 typedef __u16 sg2002_rtos_u16;
 typedef __u32 sg2002_rtos_u32;
 #else
+#include <stddef.h>
 #include <stdint.h>
 typedef uint8_t sg2002_rtos_u8;
 typedef uint16_t sg2002_rtos_u16;
@@ -17,15 +19,17 @@ typedef uint32_t sg2002_rtos_u32;
 #endif
 
 #define SG2002_RTOS_SHM_MAGIC 0x53475251U
-#define SG2002_RTOS_SHM_ABI_VERSION 1U
+#define SG2002_RTOS_SHM_ABI_VERSION 2U
 #define SG2002_RTOS_SHM_FEATURE_GENERATION (1U << 0)
 #define SG2002_RTOS_SHM_FEATURES SG2002_RTOS_SHM_FEATURE_GENERATION
 
 #define SG2002_RTOS_SHM_CACHE_LINE_SIZE 64U
 #define SG2002_RTOS_SHM_CONTROL_SIZE 0x1000U
-#define SG2002_RTOS_SHM_SLOT_SIZE 512U
+#define SG2002_RTOS_SHM_SLOT_SIZE 1024U
 #define SG2002_RTOS_SHM_SLOT_COUNT 64U
-#define SG2002_RTOS_SHM_PAYLOAD_SIZE 506U
+#define SG2002_RTOS_SHM_SLOT_HEADER_SIZE 6U
+#define SG2002_RTOS_SHM_PAYLOAD_SIZE \
+	(SG2002_RTOS_SHM_SLOT_SIZE - SG2002_RTOS_SHM_SLOT_HEADER_SIZE)
 #define SG2002_RTOS_SHM_REQUEST_OFFSET SG2002_RTOS_SHM_CONTROL_SIZE
 #define SG2002_RTOS_SHM_RING_SIZE \
 	(SG2002_RTOS_SHM_SLOT_SIZE * SG2002_RTOS_SHM_SLOT_COUNT)
@@ -110,7 +114,13 @@ struct sg2002_rtos_shm_transfer {
 
 SG2002_RTOS_SHM_STATIC_ASSERT(sizeof(struct sg2002_rtos_shm_slot) ==
 	       SG2002_RTOS_SHM_SLOT_SIZE,
-	       "SG2002 shared-memory slot must be exactly 512 bytes");
+	       "SG2002 shared-memory slot must be exactly 1024 bytes");
+SG2002_RTOS_SHM_STATIC_ASSERT(
+	offsetof(struct sg2002_rtos_shm_slot, payload) ==
+		SG2002_RTOS_SHM_SLOT_HEADER_SIZE,
+	"SG2002 shared-memory slot header must be exactly 6 bytes");
+SG2002_RTOS_SHM_STATIC_ASSERT(sizeof(struct sg2002_rtos_shm_transfer) == 1028U,
+	"SG2002 shared-memory transfer must be exactly 1028 bytes");
 SG2002_RTOS_SHM_STATIC_ASSERT(
 	(SG2002_RTOS_SHM_SLOT_COUNT & (SG2002_RTOS_SHM_SLOT_COUNT - 1U)) == 0U,
 	"SG2002 shared-memory slot count must be a power of two");

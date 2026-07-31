@@ -75,6 +75,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v fdtget >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y device-tree-compiler
+          fi
           mkdir -p artifact extracted osdrv-extracted
           mapfile -t image_debs < <(find probe-output -maxdepth 1 -type f -name 'linux-image-licheervnano-*.deb' -print)
           test "${#image_debs[@]}" -eq 1
@@ -86,10 +90,22 @@ jobs:
           test "${#modules[@]}" -eq 1
           mapfile -t cmdqu_modules < <(find osdrv-extracted -type f -name cv181x_rtos_cmdqu.ko -print)
           test "${#cmdqu_modules[@]}" -eq 1
+          mapfile -t device_trees < <(find extracted -type f -path '*/cvitek/cv181x_licheervnano_sd.dtb' -print)
+          test "${#device_trees[@]}" -eq 1
+          device_tree="${device_trees[0]}"
+          test "$(fdtget -t x "$device_tree" /reserved-memory/shared-memory@8ffde000 reg)" = \
+            '0 8ffde000 0 21000'
+          test "$(fdtget -t x "$device_tree" /rtos_cmdqu reg)" = \
+            '0 1900000 0 1000 0 8ffde000 0 21000'
+          test "$(fdtget -t s "$device_tree" /rtos_cmdqu reg-names)" = \
+            'mailbox shared-memory'
+          test "$(fdtget -t x "$device_tree" /reserved-memory/rproc reg)" = \
+            '0 8fe00000 0 1de000'
           cp "${image_debs[0]}" artifact/
           cp "${osdrv_debs[0]}" artifact/
           cp "${modules[0]}" artifact/cvitek_remoteproc.ko
           cp "${cmdqu_modules[0]}" artifact/cv181x_rtos_cmdqu.ko
+          cp "$device_tree" artifact/cv181x_licheervnano_sd.dtb
           cp probe-output/licheervnano_c906-mcu.elf artifact/
           cp probe-output/licheervnano_c906-mcu.bin artifact/
           cp probe-output/licheervnano_rtos-cmd artifact/rtos-cmd
@@ -120,6 +136,8 @@ jobs:
           grep -Fqx 'recovery' artifact/cvitek_remoteproc.strings.txt
           grep -Eq '^shm_start:.*legacy device trees' artifact/cmdqu-parameters.txt
           grep -Eq '^shm_size:.*legacy device trees' artifact/cmdqu-parameters.txt
+          grep -Fqx 'module parameters override device-tree shared memory' artifact/cv181x_rtos_cmdqu.strings.txt
+          ! grep -Fqx 'device-tree shared memory overrides module parameters' artifact/cv181x_rtos_cmdqu.strings.txt
           grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_irq_v2' artifact/c906l-rtos.strings.txt
           grep -Fqx 'layering=PASS' artifact/host-tests.txt
           grep -Fqx 'protocol=PASS' artifact/host-tests.txt
@@ -137,6 +155,7 @@ jobs:
               "$(basename "${osdrv_debs[0]}")" \
               cvitek_remoteproc.ko \
               cv181x_rtos_cmdqu.ko \
+              cv181x_licheervnano_sd.dtb \
               licheervnano_c906-mcu.elf \
               licheervnano_c906-mcu.bin \
               standalone-c906-mcu.elf \

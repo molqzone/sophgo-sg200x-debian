@@ -62,7 +62,7 @@ int __wrap_ioctl(int fd, unsigned long request, ...)
 		info->generation = 1U;
 		info->features = SG2002_RTOS_SHM_FEATURES;
 		if (fake_bad_shm_info)
-			info->abi_version = 0U;
+			info->abi_version = SG2002_RTOS_SHM_ABI_VERSION - 1U;
 		return 0;
 	}
 	if (request == SG2002_RTOS_SHM_SEND) {
