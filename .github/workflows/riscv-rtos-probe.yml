@@ -1,0 +1,89 @@
+name: Build RISC-V RTOS remoteproc probe
+
+on:
+  push:
+    branches:
+      - codex-usbnet-ssh-unattended-20260730
+    paths:
+      - .github/workflows/riscv-rtos-probe.yml
+      - configs/common/patches/linux/**
+      - configs/licheervnano/**
+      - scripts/Makefile
+      - scripts/addons/rtos-firmware/**
+      - scripts/build_rtos_only.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: riscv-rtos-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BUILDER_IMAGE: ghcr.io/jiu-xiao/sophgo-sg200x-debian:codex-usbnet-ssh-unattended-20260730
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log into GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build kernel and RTOS probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p probe-output
+          docker pull "$BUILDER_IMAGE"
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/scripts:/builder:ro" \
+            -v "$GITHUB_WORKSPACE/configs:/configs:ro" \
+            -v "$GITHUB_WORKSPACE/probe-output:/output" \
+            "$BUILDER_IMAGE" \
+            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build/rtos-firmware-stamp'
+
+      - name: Package probe artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact extracted
+          mapfile -t image_debs < <(find probe-output -maxdepth 1 -type f -name 'linux-image-licheervnano-*.deb' -print)
+          test "${#image_debs[@]}" -eq 1
+          dpkg-deb -x "${image_debs[0]}" extracted
+          mapfile -t modules < <(find extracted -type f -name cvitek_remoteproc.ko -print)
+          test "${#modules[@]}" -eq 1
+          cp "${image_debs[0]}" artifact/
+          cp "${modules[0]}" artifact/cvitek_remoteproc.ko
+          cp probe-output/licheervnano_c906-mcu.elf artifact/
+          cp probe-output/licheervnano_c906-mcu.bin artifact/
+          cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
+          modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
+          printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
+          (
+            cd artifact
+            sha256sum \
+              "$(basename "${image_debs[0]}")" \
+              cvitek_remoteproc.ko \
+              licheervnano_c906-mcu.elf \
+              licheervnano_c906-mcu.bin \
+              rtos-sdk-commit.txt \
+              source-commit.txt \
+              vermagic.txt > SHA256SUMS.txt
+          )
+
+      - name: Upload probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: riscv-rtos-probe
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7

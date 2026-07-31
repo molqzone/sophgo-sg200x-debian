@@ -2,8 +2,8 @@
 set -euo pipefail
 
 BOARD=${BOARD:-licheervnano}
-SDK_BRANCH=${SDK_BRANCH:-master}
 SDK_REPO=${SDK_REPO:-https://github.com/milkv-duo/duo-buildroot-sdk-v2.git}
+SDK_COMMIT=${SDK_COMMIT:-6f8962c394dd0a05729abb089f0feb7d5cc4aa5e}
 OUT_DIR=${OUT_DIR:-$(pwd)/rtos_out}
 BUILD_HOST_TOOLS=${BUILD_HOST_TOOLS:-$HOME/runs/duo-buildroot-sdk-v2/host-tools}
 SDK_DIR=${SDK_DIR:-$HOME/runs/duo-buildroot-sdk-v2}
@@ -36,7 +36,20 @@ if [ ! -d "$PATCH_ROOT" ]; then
 fi
 
 if [ ! -d "$SDK_DIR/.git" ]; then
-  git clone --depth 1 --branch "$SDK_BRANCH" "$SDK_REPO" "$SDK_DIR"
+  mkdir -p "$SDK_DIR"
+  git -C "$SDK_DIR" init
+fi
+
+if ! git -C "$SDK_DIR" remote get-url origin >/dev/null 2>&1; then
+  git -C "$SDK_DIR" remote add origin "$SDK_REPO"
+fi
+git -C "$SDK_DIR" remote set-url origin "$SDK_REPO"
+git -C "$SDK_DIR" fetch --depth 1 origin "$SDK_COMMIT"
+git -C "$SDK_DIR" checkout --force --detach FETCH_HEAD
+
+if [ "$(git -C "$SDK_DIR" rev-parse HEAD)" != "$SDK_COMMIT" ]; then
+  echo "RTOS SDK commit verification failed" >&2
+  exit 1
 fi
 
 if [ ! -d "$BUILD_HOST_TOOLS" ]; then
@@ -88,6 +101,7 @@ cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.elf" "$OUT_DIR/${BOARD}_c906-mc
 cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.bin" "$OUT_DIR/${BOARD}_c906-mcu.bin"
 
 sha256sum "$OUT_DIR/${BOARD}_c906-mcu.elf" "$OUT_DIR/${BOARD}_c906-mcu.bin" > "$OUT_DIR/SHA256SUMS.txt"
+git -C "$SDK_DIR" rev-parse HEAD > "$OUT_DIR/${BOARD}_rtos-sdk-commit.txt"
 
 echo "RTOS firmware built:"
 echo "  $OUT_DIR/${BOARD}_c906-mcu.elf"

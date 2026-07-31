@@ -5,8 +5,8 @@ Subject: [PATCH] remoteproc: cvitek: boot C906L through SBI
 
 Hold C906L in reset before loading firmware, then program its boot vector and release it with the vendor SBI calls. Keep the reset-controller fallback for non-RISC-V builds.
 ---
- drivers/remoteproc/cvitek_remoteproc.c | 61 ++++++++++++++++++++++++--
- 1 file changed, 57 insertions(+), 4 deletions(-)
+ drivers/remoteproc/cvitek_remoteproc.c | 67 +++++++++++++++++++++++++--
+ 1 file changed, 63 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
 index 996d232..1d7f793 100644
@@ -73,10 +73,16 @@ index 996d232..1d7f793 100644
  static void cvitek_rproc_mbox_kick_vq(struct work_struct *work)
  {
  	struct cvitek_rproc *ddata = container_of(work, struct cvitek_rproc, vq_work);
-@@ -237,9 +284,9 @@ static int cvitek_rproc_start(struct rproc *rproc)
+@@ -237,9 +284,15 @@ static int cvitek_rproc_start(struct rproc *rproc)
  		return err;
  	}
  
++	/*
++	 * The ELF loader writes through an ioremap_wc carveout. Ensure all
++	 * firmware stores reach DRAM before C906L leaves reset.
++	 */
++	wmb();
++
 -	err = reset_control_deassert(ddata->sw_reset);
 +	err = cvitek_rproc_set_reset(rproc, false);
  	if (err) {
@@ -119,4 +125,3 @@ index 996d232..1d7f793 100644
  	.parse_fw = cvitek_rproc_parse_fw,
 -- 
 2.53.0.windows.1
-

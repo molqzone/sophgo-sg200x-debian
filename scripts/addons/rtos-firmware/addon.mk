@@ -1,4 +1,6 @@
 RTOS_FIRMWARE_SDK := $(BUILDDIR)/rtos-firmware-sdk
+RTOS_FIRMWARE_SDK_REPO := https://github.com/milkv-duo/duo-buildroot-sdk-v2.git
+RTOS_FIRMWARE_SDK_COMMIT := 6f8962c394dd0a05729abb089f0feb7d5cc4aa5e
 RTOS_FIRMWARE_ELF := $(RTOS_FIRMWARE_SDK)/freertos/cvitek/install/bin/cvirtos.elf
 RTOS_FIRMWARE_BIN := $(RTOS_FIRMWARE_SDK)/freertos/cvitek/install/bin/cvirtos.bin
 
@@ -6,8 +8,15 @@ $(BUILDDIR)/rtos-firmware-build-stamp:
 	@echo "$(COLOUR_GREEN)Building RTOS firmware for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(RTOS_FIRMWARE_SDK)
 	@if [ ! -d $(RTOS_FIRMWARE_SDK)/.git ]; then \
-		git clone --depth 1 https://github.com/milkv-duo/duo-buildroot-sdk-v2.git $(RTOS_FIRMWARE_SDK); \
+		git -C $(RTOS_FIRMWARE_SDK) init; \
 	fi
+	@if ! git -C $(RTOS_FIRMWARE_SDK) remote get-url origin >/dev/null 2>&1; then \
+		git -C $(RTOS_FIRMWARE_SDK) remote add origin $(RTOS_FIRMWARE_SDK_REPO); \
+	fi
+	@git -C $(RTOS_FIRMWARE_SDK) remote set-url origin $(RTOS_FIRMWARE_SDK_REPO)
+	@git -C $(RTOS_FIRMWARE_SDK) fetch --depth 1 origin $(RTOS_FIRMWARE_SDK_COMMIT)
+	@git -C $(RTOS_FIRMWARE_SDK) checkout --force --detach FETCH_HEAD
+	@test "$$(git -C $(RTOS_FIRMWARE_SDK) rev-parse HEAD)" = "$(RTOS_FIRMWARE_SDK_COMMIT)"
 	@cp -a /configs/$(BOARD)/memmap.py $(RTOS_FIRMWARE_SDK)/build/boards/cv181x/sg2002_milkv_duo256m_musl_riscv64_sd/memmap.py
 	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/task/comm/src/riscv64/comm_main.c $(RTOS_FIRMWARE_SDK)/freertos/cvitek/task/comm/src/riscv64/comm_main.c
 	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/task/comm/CMakeLists.txt $(RTOS_FIRMWARE_SDK)/freertos/cvitek/task/comm/CMakeLists.txt
@@ -32,6 +41,7 @@ $(BUILDDIR)/rtos-firmware-stamp: $(BUILDDIR)/rtos-firmware-build-stamp
 	@cp -a $(RTOS_FIRMWARE_ELF) /rootfs/lib/firmware/c906-mcu.elf
 	@cp -a $(RTOS_FIRMWARE_ELF) /output/$(BOARD)_c906-mcu.elf
 	@cp -a $(RTOS_FIRMWARE_BIN) /output/$(BOARD)_c906-mcu.bin
+	@git -C $(RTOS_FIRMWARE_SDK) rev-parse HEAD > /output/$(BOARD)_rtos-sdk-commit.txt
 	@mkdir -p /rootfs/usr/bin/
 	@/host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-gcc \
 		-O2 -static -Wall -Wextra \
