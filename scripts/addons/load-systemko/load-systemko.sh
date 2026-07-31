@@ -25,7 +25,20 @@ then
 	modprobe mac80211 2>/dev/null || true
 	[ -f aic8800_bsp.ko ] && insmod aic8800_bsp.ko
 	[ -f aic8800_fdrv.ko ] && insmod aic8800_fdrv.ko
-	grep -q '^cv181x_rtos_cmdqu ' /proc/modules || insmod cv181x_rtos_cmdqu.ko
+	if ! grep -q '^cv181x_rtos_cmdqu ' /proc/modules
+	then
+		if [ -n "${RTOS_SHM_START:-}" ] || [ -n "${RTOS_SHM_SIZE:-}" ]
+		then
+			[ -n "${RTOS_SHM_START:-}" ] && [ -n "${RTOS_SHM_SIZE:-}" ] || {
+				echo "RTOS_SHM_START and RTOS_SHM_SIZE must be supplied together" >&2
+				exit 1
+			}
+			insmod cv181x_rtos_cmdqu.ko \
+				shm_start="$RTOS_SHM_START" shm_size="$RTOS_SHM_SIZE"
+		else
+			insmod cv181x_rtos_cmdqu.ko
+		fi
+	fi
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
 	insmod snsr_i2c.ko

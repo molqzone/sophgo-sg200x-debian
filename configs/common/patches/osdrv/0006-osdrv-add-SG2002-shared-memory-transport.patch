@@ -1,14 +1,14 @@
-From 55f0b8768f4d669c58a214a2eda9f73dc67811a7 Mon Sep 17 00:00:00 2001
+From 2f3797149a7c4a054906210a20186fda5aa8c793 Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Sat, 1 Aug 2026 02:13:30 +0800
 Subject: [PATCH] osdrv: add SG2002 shared-memory transport
 
 ---
  interdrv/rtos_cmdqu/Makefile                |   4 +-
- interdrv/rtos_cmdqu/rtos_cmdqu.c            | 125 ++++-
- interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c | 591 ++++++++++++++++++++
+ interdrv/rtos_cmdqu/rtos_cmdqu.c            | 161 +++++-
+ interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c | 593 ++++++++++++++++++++
  interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h |  35 ++
- 4 files changed, 727 insertions(+), 28 deletions(-)
+ 4 files changed, 764 insertions(+), 29 deletions(-)
  create mode 100644 interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
  create mode 100644 interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h
 
@@ -32,10 +32,18 @@ index 3fac675..6744622 100644
  	rm -rf .tmp_versions
 -
 diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
-index bccd36f..8489b8b 100644
+index bccd36f..5023823 100644
 --- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
 +++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
-@@ -16,6 +16,7 @@
+@@ -3,7 +3,6 @@
+ #include <linux/irqchip/arm-gic.h>
+ #include <linux/platform_device.h>
+ #include <linux/miscdevice.h>
+-#include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/io.h>
+ #include <linux/fs.h>
+@@ -16,6 +15,7 @@
  #include <linux/interrupt.h>
  #include <linux/slab.h>
  #include <linux/delay.h>
@@ -43,7 +51,7 @@ index bccd36f..8489b8b 100644
  
  #include "rtos_cmdqu.h"
  #include "cvi_mailbox.h"
-@@ -23,12 +24,15 @@
+@@ -23,12 +23,15 @@
  #include <base_cb.h>
  #include "cmdqu_cb.h"
  #include "rtos_cmdqu_cb.h"
@@ -59,7 +67,19 @@ index bccd36f..8489b8b 100644
  };
  
  spinlock_t mailbox_queue_lock;
-@@ -43,11 +47,20 @@ static int mailbox_irq;
+@@ -40,14 +43,32 @@ static __u64  reg_base;
+ static __u32  reg_base;
+ #endif
+ static int mailbox_irq;
++static unsigned long legacy_shm_start;
++static unsigned long legacy_shm_size;
++
++module_param_named(shm_start, legacy_shm_start, ulong, 0444);
++MODULE_PARM_DESC(shm_start,
++	"Physical start of the shared-memory transport for legacy device trees");
++module_param_named(shm_size, legacy_shm_size, ulong, 0444);
++MODULE_PARM_DESC(shm_size,
++	"Size of the shared-memory transport for legacy device trees");
  
  static int cvi_rtos_cmdqu_open(struct inode *inode, struct file *file)
  {
@@ -80,7 +100,7 @@ index bccd36f..8489b8b 100644
  	return 0;
  }
  
-@@ -122,6 +135,7 @@ DEFINE_CVI_SPINLOCK(mailbox_lock, SPIN_MBOX);
+@@ -122,6 +143,7 @@ DEFINE_CVI_SPINLOCK(mailbox_lock, SPIN_MBOX);
  
  irqreturn_t rtos_irq_handler(int irq, void *dev_id)
  {
@@ -88,7 +108,7 @@ index bccd36f..8489b8b 100644
  	char set_val, done_val;
  	int i;
  	int flags;
-@@ -173,6 +187,13 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+@@ -173,6 +195,13 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
  			pr_debug("cmdq->linux_valid =%d\n", linux_cmdq.resv.valid.linux_valid);
  			pr_debug("cmdq->rtos_valid =%x", linux_cmdq.resv.valid.rtos_valid);
  			if (linux_cmdq.resv.valid.rtos_valid == 1 &&
@@ -102,7 +122,7 @@ index bccd36f..8489b8b 100644
  				linux_cmdq.resv.valid.linux_valid == 0 &&
  				linux_cmdq.cmd_id <= NR_RTOS_CMD &&
  				linux_cmdq.ip_id < NR_RTOS_IP &&
-@@ -330,6 +351,17 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+@@ -330,6 +359,17 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
  }
  EXPORT_SYMBOL(rtos_cmdqu_send);
  
@@ -120,7 +140,7 @@ index bccd36f..8489b8b 100644
  int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id)
  {
  	unsigned long flags;
-@@ -425,6 +457,11 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+@@ -425,6 +465,11 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
  
  	pr_debug("%s dev=%p\n", __func__, dev);
  	switch (cmd) {
@@ -132,7 +152,7 @@ index bccd36f..8489b8b 100644
  		case RTOS_CMDQU_SEND:
  			pr_debug("RTOS_CMDQU_SEND\n");
  			ret = copy_from_user(&cmdq,
-@@ -507,11 +544,20 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+@@ -507,11 +552,20 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
  	return ret;
  }
  
@@ -153,7 +173,7 @@ index bccd36f..8489b8b 100644
  };
  
  static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
-@@ -521,6 +567,7 @@ static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
+@@ -521,6 +575,7 @@ static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
  	ndev->miscdev.minor = MISC_DYNAMIC_MINOR;
  	ndev->miscdev.name = RTOS_CMDQU_DEV_NAME;
  	ndev->miscdev.fops = &rtos_cmdqu_fops;
@@ -161,17 +181,20 @@ index bccd36f..8489b8b 100644
  
  	rc = misc_register(&ndev->miscdev);
  	if (rc) {
-@@ -552,8 +599,7 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+@@ -552,8 +607,10 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
  	struct device *dev = &pdev->dev;
  	struct cvi_rtos_cmdqu_device *ndev;
  	struct resource *res;
 -	int ret = 0;
 -	int err = -1;
++	resource_size_t shared_start = 0;
++	resource_size_t shared_size = 0;
++	bool legacy_shared_memory = false;
 +	int ret;
  
  	pr_info("%s start ---\n", __func__);
  	pr_info("name=%s\n", pdev->name);
-@@ -562,29 +608,17 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+@@ -562,29 +619,17 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
  		return -ENOMEM;
  
  	ndev->dev = dev;
@@ -205,7 +228,7 @@ index bccd36f..8489b8b 100644
  #endif
  #else
  #ifdef _LP64
-@@ -595,37 +629,75 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+@@ -595,37 +640,98 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
  		(unsigned long)(res->end - res->start + 1));
  #endif
  #endif
@@ -220,15 +243,38 @@ index bccd36f..8489b8b 100644
 +	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
 +					   "shared-memory");
 +	if (res) {
++		if (legacy_shm_start || legacy_shm_size)
++			dev_warn(dev,
++				 "device-tree shared memory overrides module parameters\n");
++		shared_start = res->start;
++		shared_size = resource_size(res);
++	} else if (legacy_shm_start || legacy_shm_size) {
++		if (!legacy_shm_start || !legacy_shm_size) {
++			dev_err(dev,
++				"shm_start and shm_size must be supplied together\n");
++			return -EINVAL;
++		}
++		shared_start = legacy_shm_start;
++		shared_size = legacy_shm_size;
++		legacy_shared_memory = true;
++	}
++
++	if (shared_size) {
 +		ndev->shm = sg2002_rtos_shm_linux_create(
-+			dev, res->start, resource_size(res),
++			dev, shared_start, shared_size,
 +			cvi_rtos_cmdqu_shm_kick, ndev);
-+		if (IS_ERR(ndev->shm))
-+			return PTR_ERR(ndev->shm);
-+		dev_info(dev,
-+			 "shared-memory: phys=0x%llx size=0x%llx\n",
-+			 (unsigned long long)res->start,
-+			 (unsigned long long)resource_size(res));
++		if (IS_ERR(ndev->shm)) {
++			ret = PTR_ERR(ndev->shm);
++			dev_err(dev,
++				"invalid shared-memory region: phys=0x%llx size=0x%llx (%d)\n",
++				(unsigned long long)shared_start,
++				(unsigned long long)shared_size, ret);
++			return ret;
++		}
++		dev_info(dev, "%s shared-memory: phys=0x%llx size=0x%llx\n",
++			 legacy_shared_memory ? "legacy-DT" : "device-tree",
++			 (unsigned long long)shared_start,
++			 (unsigned long long)shared_size);
 +	} else {
 +		dev_warn(dev,
 +			 "shared-memory resource absent; CMDQU compatibility only\n");
@@ -288,7 +334,7 @@ index bccd36f..8489b8b 100644
  }
  
  static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
-@@ -637,9 +709,10 @@ static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
+@@ -637,9 +743,10 @@ static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
  		pr_err("Failed to rm rtos cmdqu cb\n");
  	}
  	misc_deregister(&ndev->miscdev);
@@ -302,10 +348,10 @@ index bccd36f..8489b8b 100644
  
 diff --git a/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
 new file mode 100644
-index 0000000..f467e80
+index 0000000..d9388d7
 --- /dev/null
 +++ b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
-@@ -0,0 +1,591 @@
+@@ -0,0 +1,593 @@
 +#include "sg2002_rtos_shm_linux.h"
 +
 +#include <linux/device.h>
@@ -789,7 +835,9 @@ index 0000000..f467e80
 +
 +	if (!device || !kick)
 +		return ERR_PTR(-EINVAL);
-+	if (size != SG2002_RTOS_SHM_REGION_SIZE)
++	if (!start ||
++	    (start & (SG2002_RTOS_SHM_CONTROL_SIZE - 1U)) != 0U ||
++	    size != SG2002_RTOS_SHM_REGION_SIZE)
 +		return ERR_PTR(-EINVAL);
 +	transport = devm_kzalloc(device, sizeof(*transport), GFP_KERNEL);
 +	if (!transport)

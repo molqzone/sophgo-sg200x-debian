@@ -72,6 +72,28 @@ slots into FreeRTOS queues, and the CMDQU task blocks between commands. A
 100 ms scan remains only as missed-interrupt recovery; `boot_trace` reports
 separate IRQ and recovery counters plus mailbox, PLIC, and CSR state.
 
+## Device-tree and legacy deployment
+
+New images describe the 68 KiB region as the named `shared-memory` resource of
+`cvitek,rtos_cmdqu`; this is the preferred and parameter-free path. The driver
+validates the fixed size and 4 KiB alignment before mapping it.
+
+An installed legacy DTB may still reserve the original complete 2 MiB C906L
+carveout. Such systems can test or update the communication stack without a
+DTB change or Linux reboot by passing the linker-matched subregion while the
+CMDQU module is loaded:
+
+```sh
+RTOS_SHM_START=0x8ffee000 RTOS_SHM_SIZE=0x11000 \
+  /usr/bin/rtos-mode remoteproc
+```
+
+`load-systemko.sh` requires both variables and forwards them as read-only
+`shm_start` and `shm_size` module parameters. A named device-tree resource
+takes precedence if one exists. These parameters are a migration bridge only:
+they must match both the firmware linker layout and memory already reserved by
+the running DTB.
+
 ## Build and test
 
 The integrated image build invokes `addon.mk`. The C906L firmware can also be

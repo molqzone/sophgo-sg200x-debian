@@ -45,6 +45,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bash -n scripts/addons/load-systemko/load-systemko.sh
+          bash -n scripts/addons/rtos-firmware/rtos-mode
           mkdir -p probe-output
           docker pull "$BUILDER_IMAGE"
           docker run --rm \
@@ -104,6 +106,7 @@ jobs:
           cp probe-output/standalone/licheervnano_rtos-source-SHA256SUMS.txt artifact/standalone-source-SHA256SUMS.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
           modinfo -F vermagic artifact/cv181x_rtos_cmdqu.ko > artifact/cmdqu-vermagic.txt
+          modinfo -p artifact/cv181x_rtos_cmdqu.ko > artifact/cmdqu-parameters.txt
           strings -a artifact/cvitek_remoteproc.ko > artifact/cvitek_remoteproc.strings.txt
           strings -a artifact/cv181x_rtos_cmdqu.ko > artifact/cv181x_rtos_cmdqu.strings.txt
           strings -a artifact/licheervnano_c906-mcu.elf > artifact/c906l-rtos.strings.txt
@@ -114,6 +117,8 @@ jobs:
           grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'recovery' artifact/cvitek_remoteproc.strings.txt
+          grep -Eq '^shm_start:.*legacy device trees' artifact/cmdqu-parameters.txt
+          grep -Eq '^shm_size:.*legacy device trees' artifact/cmdqu-parameters.txt
           grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_irq_v2' artifact/c906l-rtos.strings.txt
           grep -Fqx 'layering=PASS' artifact/host-tests.txt
           grep -Fqx 'protocol=PASS' artifact/host-tests.txt
@@ -149,6 +154,7 @@ jobs:
               source-commit.txt \
               vermagic.txt \
               cmdqu-vermagic.txt \
+              cmdqu-parameters.txt \
               cvitek_remoteproc.strings.txt \
               cv181x_rtos_cmdqu.strings.txt \
               c906l-rtos.strings.txt > SHA256SUMS.txt
