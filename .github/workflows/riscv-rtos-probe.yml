@@ -11,6 +11,7 @@ on:
       - configs/common/patches/osdrv/**
       - configs/licheervnano/**
       - scripts/Makefile
+      - scripts/addons/load-systemko/**
       - scripts/addons/rtos-firmware/**
       - scripts/build_rtos_only.sh
       - scripts/check_rtos_trace_layout.py
