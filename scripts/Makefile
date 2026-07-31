@@ -102,7 +102,10 @@ endef
 
 define copy_ko_action
 	@mkdir -p $(BUILDDIR)/osdrv/ko
-	$(foreach kodir, $(KO_DIRS), find ${1}/lib/modules/*/kernel/$(kodir) -name '*.ko' -exec cp -f {} $(BUILDDIR)/osdrv/ko/ \; ;)
+	@for kodir in $(KO_DIRS); do \
+		find ${1}/lib/modules -type f -path "*/kernel/$$kodir/*.ko" \
+			-exec cp -f {} $(BUILDDIR)/osdrv/ko/ \; ; \
+	done
 endef
 
 $(BUILDDIR)/linux-prepare-checkout-stamp:
