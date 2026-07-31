@@ -62,6 +62,9 @@ stage_file \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_mailbox.h" \
 	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_mailbox.h"
 stage_file \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_platform.h" \
+	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_platform.h"
+stage_file \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_shm_transport.h" \
 	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_shm_transport.h"
 stage_file \

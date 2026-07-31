@@ -93,6 +93,7 @@ sha256sum \
 	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_app.h" \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_mailbox.h" \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_platform.h" \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_shm_transport.h" \
 	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
 	"$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" \

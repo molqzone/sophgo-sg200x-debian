@@ -36,12 +36,20 @@ def main():
             load_end = max(load_end, physical_address + memory_size)
 
     symbols = run_readelf(args.readelf, "-sW", args.elf)
-    trace_symbol = None
+    wanted_symbols = {
+        "__boot_trace_start": None,
+        "__rtos_shm_start": None,
+    }
     for line in symbols.splitlines():
-        if re.search(r"\b__boot_trace_start$", line):
-            fields = line.split()
-            trace_symbol = int(fields[1], 16)
-            break
+        fields = line.split()
+        if len(fields) < 8:
+            continue
+        name = fields[-1]
+        if name in wanted_symbols:
+            wanted_symbols[name] = int(fields[1], 16)
+
+    trace_symbol = wanted_symbols["__boot_trace_start"]
+    shm_symbol = wanted_symbols["__rtos_shm_start"]
 
     header = run_readelf(args.readelf, "-h", args.elf)
     entry_match = re.search(r"Entry point address:\s*(0x[0-9a-fA-F]+)", header)
@@ -59,6 +67,9 @@ def main():
         errors.append(
             f"__boot_trace_start is {actual}, expected 0x{args.trace_start:x}"
         )
+    if shm_symbol != args.shm_start:
+        actual = "missing" if shm_symbol is None else f"0x{shm_symbol:x}"
+        errors.append(f"__rtos_shm_start is {actual}, expected 0x{args.shm_start:x}")
     if entry is None or not 0x8FE00000 <= entry < args.shm_start:
         actual = "missing" if entry is None else f"0x{entry:x}"
         errors.append(f"entry point {actual} is outside the C906L firmware window")
@@ -68,6 +79,7 @@ def main():
         "entry": None if entry is None else f"0x{entry:x}",
         "load_end": f"0x{load_end:x}",
         "shm_start": f"0x{args.shm_start:x}",
+        "shm_symbol": None if shm_symbol is None else f"0x{shm_symbol:x}",
         "trace_start": f"0x{args.trace_start:x}",
         "trace_symbol": None if trace_symbol is None else f"0x{trace_symbol:x}",
         "status": "fail" if errors else "pass",

@@ -5,20 +5,20 @@
 #include <string.h>
 
 #include "arch_helpers.h"
-#include "memmap.h"
 #include "sg2002_rtos_app.h"
+#include "sg2002_rtos_platform.h"
 #include "sg2002_rtos_ring.h"
 #include "sg2002_rtos_shm.h"
 
 static volatile struct sg2002_rtos_shm_control *const shm_control =
 	(volatile struct sg2002_rtos_shm_control *)(uintptr_t)
-		CVIMMAP_RTOS_SHM_ADDR;
+		SG2002_RTOS_SHM_BASE;
 static volatile struct sg2002_rtos_shm_slot *const request_slots =
 	(volatile struct sg2002_rtos_shm_slot *)(uintptr_t)
-		(CVIMMAP_RTOS_SHM_ADDR + SG2002_RTOS_SHM_REQUEST_OFFSET);
+		(SG2002_RTOS_SHM_BASE + SG2002_RTOS_SHM_REQUEST_OFFSET);
 static volatile struct sg2002_rtos_shm_slot *const response_slots =
 	(volatile struct sg2002_rtos_shm_slot *)(uintptr_t)
-		(CVIMMAP_RTOS_SHM_ADDR + SG2002_RTOS_SHM_RESPONSE_OFFSET);
+		(SG2002_RTOS_SHM_BASE + SG2002_RTOS_SHM_RESPONSE_OFFSET);
 
 static struct sg2002_rtos_ring request_ring;
 static struct sg2002_rtos_ring response_ring;

@@ -6,18 +6,20 @@ Subject: [PATCH] freertos: reserve the C906L shared-memory queues
 Keep the 68 KiB fixed-slot transport outside all loadable firmware segments.
 The final 4 KiB boot-trace page remains independently reserved.
 ---
- freertos/cvitek/scripts/cv181x_lscript.ld | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
+ freertos/cvitek/scripts/cv181x_lscript.ld | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/freertos/cvitek/scripts/cv181x_lscript.ld b/freertos/cvitek/scripts/cv181x_lscript.ld
 --- a/freertos/cvitek/scripts/cv181x_lscript.ld
 +++ b/freertos/cvitek/scripts/cv181x_lscript.ld
-@@ -27,5 +27,5 @@ MEMORY
+@@ -24,6 +24,7 @@ _BOOT_TRACE_SIZE = 0x1000;
+ _BOOT_TRACE_SIZE = 0x1000;
++__rtos_shm_start = CVIMMAP_RTOS_SHM_ADDR;
+ 
+ MEMORY
  {
 -   psu_ddr_0_MEM_0 : ORIGIN = CVIMMAP_FREERTOS_ADDR , LENGTH = CVIMMAP_FREERTOS_SIZE - _BOOT_TRACE_SIZE
 +   psu_ddr_0_MEM_0 : ORIGIN = CVIMMAP_FREERTOS_ADDR , LENGTH = CVIMMAP_RTOS_SHM_ADDR - CVIMMAP_FREERTOS_ADDR
  }
- 
- /* Specify the default entry point to the program */
 -- 
 2.53.0.windows.1

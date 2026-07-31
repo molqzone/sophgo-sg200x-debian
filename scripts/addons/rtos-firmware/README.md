@@ -17,6 +17,8 @@ vendor 8-byte CMDQU ABI as its doorbell and compatibility fallback.
   doorbell events.
 - `freertos/src/sg2002_rtos_mailbox.c`: mailbox MMIO, receiver interrupt
   state, hardware spinlock, and Linux/RTOS direction bits only.
+- `freertos/include/sg2002_rtos_platform.h`: the linker-provided shared-memory
+  base binding; host tests replace this one platform boundary with a stub.
 - `freertos/src/sg2002_rtos_shm_transport.c`: C906L cache maintenance,
   generation attachment, and queue draining.
 - `freertos/src/sg2002_rtos_app.c`: C906L application command handlers.
@@ -39,6 +41,10 @@ struct sg2002_rtos_shm_slot {
     uint8_t payload[506];
 };
 ```
+
+The linker script exports `__rtos_shm_start`; both the standalone build and
+integrated image build verify that it resolves to the configured shared-memory
+base before publishing firmware artifacts.
 
 The Linux kernel is the sole writer of the request producer and response
 consumer counters. C906L is the sole writer of the request consumer and
