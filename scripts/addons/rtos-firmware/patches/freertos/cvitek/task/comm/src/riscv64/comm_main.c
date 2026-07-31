@@ -213,7 +213,8 @@ void main_cvirtos(void)
 	printf("create cvi task\n");
 
 	mailbox_hw_init();
-	irq_ret = request_irq(MBOX_INT_C906_2ND, prvQueueISR, 0, "mailbox", (void *)0);
+	/* IRQ61 is not delivered on SG2002 C906L; the CMDQU task owns RX polling. */
+	irq_ret = 0;
 	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_IRQ_RESULT,
 				(((uint32_t)MBOX_INT_C906_2ND & 0xffffU) << 16) |
 				((uint32_t)irq_ret & 0xffffU));
@@ -267,7 +268,7 @@ void prvCmdQuRunTask(void *pvParameters)
 	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_TASK_READY,
 				(((uint32_t)RECEIVE_CPU & 0xffffU) << 16) |
 				((uint32_t)send_to_cpu & 0xffffU));
-	printf("prvCmdQuRunTask run; c906l_mailbox_poll_fallback_v1\n");
+	printf("prvCmdQuRunTask run; c906l_mailbox_slot_scan_v2\n");
 
 	for (;;) {
 			if (xQueueReceive(gTaskCtx[E_QUEUE_CMDQU].queHandle,
@@ -448,35 +449,44 @@ static void prvPollMailbox(void)
 	cmdqu_t pending[MAILBOX_MAX_NUM];
 	unsigned char set_val;
 	unsigned char valid_val;
+	unsigned char pending_mask = 0;
+	int flags;
 	int pending_count = 0;
 	int i;
 
-	taskENTER_CRITICAL();
-	set_val = mbox_reg->cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_int.mbox_int;
-	if (!set_val) {
-		taskEXIT_CRITICAL();
+	/* Linux publishes each slot while holding the same hardware spinlock. */
+	drv_spin_lock_irqsave(&mailbox_lock, flags);
+	if (flags == MAILBOX_LOCK_FAILED)
 		return;
-	}
+
+	set_val = mbox_reg->cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_int.mbox_int;
 	__asm__ volatile ("fence iorw, iorw" ::: "memory");
 
 	for (i = 0; i < MAILBOX_MAX_NUM; i++) {
-		cmdqu_t *cmdq;
-
 		valid_val = set_val & (1U << i);
 		if (!valid_val)
 			continue;
 
-		cmdq = (cmdqu_t *)mailbox_context + i;
 		mbox_reg->cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_clr.mbox_int_clr = valid_val;
 		mbox_reg->cpu_mbox_en[RECEIVE_CPU].mbox_info &= ~valid_val;
-		__asm__ volatile ("fence iorw, iorw" ::: "memory");
+	}
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+
+	for (i = 0; i < MAILBOX_MAX_NUM; i++) {
+		cmdqu_t *cmdq = (cmdqu_t *)mailbox_context + i;
+
+		if (cmdq->resv.valid.linux_valid != 1)
+			continue;
 		*((unsigned long *)&pending[pending_count]) = *((unsigned long *)cmdq);
 		*((unsigned long *)cmdq) = 0;
+		pending_mask |= 1U << i;
 		pending_count++;
 	}
-	taskEXIT_CRITICAL();
+	drv_spin_unlock_irqrestore(&mailbox_lock, flags);
 
-	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL, set_val);
+	if (set_val || pending_mask)
+		cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL,
+					((uint32_t)pending_mask << 8) | set_val);
 	for (i = 0; i < pending_count; i++) {
 		BaseType_t queue_result;
 
