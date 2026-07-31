@@ -69,6 +69,11 @@ jobs:
           cp probe-output/licheervnano_boot-trace-layout.json artifact/
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
+          strings -a artifact/cvitek_remoteproc.ko > artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'firmware has no resource table; using mailbox-only mode' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'failed to %s C906L via SBI: %d' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'boot trace host sentinel at 0x%llx' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
           (
             cd artifact
@@ -80,7 +85,8 @@ jobs:
               licheervnano_boot-trace-layout.json \
               rtos-sdk-commit.txt \
               source-commit.txt \
-              vermagic.txt > SHA256SUMS.txt
+              vermagic.txt \
+              cvitek_remoteproc.strings.txt > SHA256SUMS.txt
           )
 
       - name: Upload probe artifact
