@@ -49,6 +49,7 @@ void prvQueueISR(void);
 void prvCmdQuRunTask(void *pvParameters);
 static int prvHandleUserCmd(cmdqu_t *rtos_cmdq);
 static uint32_t prvCmdHeader(const cmdqu_t *cmdq);
+static uint32_t prvReplyTraceArg(const cmdqu_t *cmdq, int send_to_cpu, int slot);
 
 /****************************************************************************
  * Global parameters
@@ -154,6 +155,13 @@ static uint32_t prvCmdHeader(const cmdqu_t *cmdq)
 	       ((uint32_t)cmdq->block << 15) |
 	       ((uint32_t)cmdq->resv.valid.linux_valid << 16) |
 	       ((uint32_t)cmdq->resv.valid.rtos_valid << 24);
+}
+
+static uint32_t prvReplyTraceArg(const cmdqu_t *cmdq, int send_to_cpu, int slot)
+{
+	return (((uint32_t)send_to_cpu & 0xfU) << 28) |
+	       (((uint32_t)slot & 0xfU) << 24) |
+	       (prvCmdHeader(cmdq) & 0x00ffffffU);
 }
 
 static int prvHandleUserCmd(cmdqu_t *rtos_cmdq)
@@ -365,8 +373,7 @@ send_label:
 						if (cmdq->cmd_id == RTOS_USER_CMD_PING)
 							cvitek_boot_trace_event(
 								CVITEK_BOOT_TRACE_EVENT_REPLY_SLOT,
-								(((uint32_t)send_to_cpu & 0xffffU) << 16) |
-								((uint32_t)valid & 0xffffU));
+								prvReplyTraceArg(cmdq, send_to_cpu, valid));
 						debug_printf("rtos_cmdqu_t->linux_valid = %d\n", rtos_cmdqu_t->resv.valid.linux_valid);
 						debug_printf("rtos_cmdqu_t->rtos_valid = %d\n", rtos_cmdqu_t->resv.valid.rtos_valid);
 						debug_printf("rtos_cmdqu_t->ip_id =%x %d\n", &rtos_cmdqu_t->ip_id, rtos_cmdqu_t->ip_id);
@@ -382,7 +389,7 @@ send_label:
 						if (cmdq->cmd_id == RTOS_USER_CMD_PING)
 							cvitek_boot_trace_event(
 								CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED,
-								prvCmdHeader(cmdq));
+								prvReplyTraceArg(cmdq, send_to_cpu, valid));
 						break;
 					}
 					rtos_cmdqu_t++;
