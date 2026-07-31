@@ -2,8 +2,8 @@
 # Purpose: stage the maintained SG2002 RTOS communication sources into a pinned SDK.
 # Usage: bash prepare_sdk.sh <sdk-dir>
 # Inputs: a checked-out duo-buildroot-sdk-v2 tree at the caller-selected revision.
-# Outputs: staged FreeRTOS sources plus applied boot/mailbox trace patches.
-# Side effects: overwrites only the listed SDK integration files and applies two patches.
+# Outputs: staged FreeRTOS sources plus applied boot/mailbox/shared-memory patches.
+# Side effects: overwrites only the listed SDK integration files and applies three patches.
 # Idempotency: callers must reset tracked SDK files to the pinned commit before each run.
 
 set -euo pipefail
@@ -50,23 +50,40 @@ stage_file \
 	"$ADDON_ROOT/include/sg2002_rtos_protocol.h" \
 	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_protocol.h"
 stage_file \
+	"$ADDON_ROOT/include/sg2002_rtos_shm.h" \
+	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_shm.h"
+stage_file \
+	"$ADDON_ROOT/include/sg2002_rtos_ring.h" \
+	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_ring.h"
+stage_file \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_app.h" \
 	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_app.h"
 stage_file \
 	"$ADDON_ROOT/freertos/include/sg2002_rtos_mailbox.h" \
 	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_mailbox.h"
 stage_file \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_shm_transport.h" \
+	"$SDK_DIR/freertos/cvitek/task/comm/include/sg2002_rtos_shm_transport.h"
+stage_file \
 	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_app.c"
 stage_file \
 	"$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_mailbox.c"
+stage_file \
+	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
+	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_ring.c"
+stage_file \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_shm_transport.c" \
+	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_shm_transport.c"
 
 rm -f "$SDK_DIR/freertos/cvitek/driver/common/include/boot_trace.h"
 git -C "$SDK_DIR" apply --check "$ADDON_ROOT/patches/0001-cvitek-c906l-boot-trace.patch"
 git -C "$SDK_DIR" apply "$ADDON_ROOT/patches/0001-cvitek-c906l-boot-trace.patch"
 git -C "$SDK_DIR" apply --check "$ADDON_ROOT/patches/0002-cvitek-c906l-mailbox-event-trace.patch"
 git -C "$SDK_DIR" apply "$ADDON_ROOT/patches/0002-cvitek-c906l-mailbox-event-trace.patch"
+git -C "$SDK_DIR" apply --check "$ADDON_ROOT/patches/0003-cvitek-c906l-shared-memory.patch"
+git -C "$SDK_DIR" apply "$ADDON_ROOT/patches/0003-cvitek-c906l-shared-memory.patch"
 
 grep -Fq "c906l_mailbox_irq_v2" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/comm_main.c"
@@ -74,3 +91,7 @@ grep -Fq "sg2002_rtos_mailbox_receive_from_isr" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_mailbox.c"
 grep -Fq "sg2002_rtos_mailbox_send" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_mailbox.c"
+grep -Fq "SG2002_RTOS_SHM_DOORBELL_COMMAND" \
+	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/comm_main.c"
+grep -Fq "sg2002_rtos_shm_process" \
+	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_shm_transport.c"

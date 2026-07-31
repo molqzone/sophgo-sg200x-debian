@@ -87,10 +87,19 @@ sha256sum "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf" \
 git -C "$SDK_DIR" rev-parse HEAD > \
   "$OUT_DIR/${ARTIFACT_BOARD}_rtos-sdk-commit.txt"
 sha256sum \
-  "$ADDON_ROOT/include/sg2002_rtos_protocol.h" \
-  "$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
-  "$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" > \
-  "$OUT_DIR/${ARTIFACT_BOARD}_rtos-source-SHA256SUMS.txt"
+	"$ADDON_ROOT/include/sg2002_rtos_protocol.h" \
+	"$ADDON_ROOT/include/sg2002_rtos_shm.h" \
+	"$ADDON_ROOT/include/sg2002_rtos_ring.h" \
+	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_app.h" \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_mailbox.h" \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_shm_transport.h" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_shm_transport.c" \
+	"$ADDON_ROOT/patches/freertos/cvitek/task/comm/CMakeLists.txt" \
+	"$ADDON_ROOT/patches/freertos/cvitek/task/comm/src/riscv64/comm_main.c" > \
+	"$OUT_DIR/${ARTIFACT_BOARD}_rtos-source-SHA256SUMS.txt"
 
 echo "RTOS firmware built:"
 echo "  $OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf"

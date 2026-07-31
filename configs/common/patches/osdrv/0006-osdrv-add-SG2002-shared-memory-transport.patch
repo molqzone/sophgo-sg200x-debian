@@ -1,0 +1,943 @@
+From 55f0b8768f4d669c58a214a2eda9f73dc67811a7 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Sat, 1 Aug 2026 02:13:30 +0800
+Subject: [PATCH] osdrv: add SG2002 shared-memory transport
+
+---
+ interdrv/rtos_cmdqu/Makefile                |   4 +-
+ interdrv/rtos_cmdqu/rtos_cmdqu.c            | 125 ++++-
+ interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c | 591 ++++++++++++++++++++
+ interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h |  35 ++
+ 4 files changed, 727 insertions(+), 28 deletions(-)
+ create mode 100644 interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
+ create mode 100644 interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h
+
+diff --git a/interdrv/rtos_cmdqu/Makefile b/interdrv/rtos_cmdqu/Makefile
+index 3fac675..6744622 100644
+--- a/interdrv/rtos_cmdqu/Makefile
++++ b/interdrv/rtos_cmdqu/Makefile
+@@ -7,7 +7,8 @@ ccflags-y += -I$(PWD)/../include/common/kapi/
+ 
+ ccflags-y +=-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare
+ 
+-$(CVIARCH_L)_rtos_cmdqu-objs =  rtos_cmdqu.o rtos_cmdqu_cb.o cvi_spinlock.o
++$(CVIARCH_L)_rtos_cmdqu-objs =  rtos_cmdqu.o rtos_cmdqu_cb.o cvi_spinlock.o \
++	sg2002_rtos_shm_linux.o
+ 
+ obj-m += $(CVIARCH_L)_rtos_cmdqu.o
+ 
+@@ -19,4 +20,3 @@ all:
+ clean:
+ 	rm -f *.o .*.cmd modules.order Module.symvers *.ko *.mod.c
+ 	rm -rf .tmp_versions
+-
+diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+index bccd36f..8489b8b 100644
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+@@ -16,6 +16,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/slab.h>
+ #include <linux/delay.h>
++#include <linux/err.h>
+ 
+ #include "rtos_cmdqu.h"
+ #include "cvi_mailbox.h"
+@@ -23,12 +24,15 @@
+ #include <base_cb.h>
+ #include "cmdqu_cb.h"
+ #include "rtos_cmdqu_cb.h"
++#include "sg2002_rtos_shm.h"
++#include "sg2002_rtos_shm_linux.h"
+ 
+ //#define pr_debug
+ 
+ struct cvi_rtos_cmdqu_device {
+ 	struct device *dev;
+ 	struct miscdevice miscdev;
++	struct sg2002_rtos_shm_linux *shm;
+ };
+ 
+ spinlock_t mailbox_queue_lock;
+@@ -43,11 +47,20 @@ static int mailbox_irq;
+ 
+ static int cvi_rtos_cmdqu_open(struct inode *inode, struct file *file)
+ {
++	struct miscdevice *miscdev = file->private_data;
++	struct cvi_rtos_cmdqu_device *device;
++
++	device = container_of(miscdev, struct cvi_rtos_cmdqu_device, miscdev);
++	file->private_data = device;
+ 	return 0;
+ }
+ 
+ static int cvi_rtos_cmdqu_release(struct inode *inode, struct file *file)
+ {
++	struct cvi_rtos_cmdqu_device *device = file->private_data;
++
++	if (device)
++		sg2002_rtos_shm_linux_release(device->shm, file);
+ 	return 0;
+ }
+ 
+@@ -122,6 +135,7 @@ DEFINE_CVI_SPINLOCK(mailbox_lock, SPIN_MBOX);
+ 
+ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ {
++	struct cvi_rtos_cmdqu_device *device = dev_id;
+ 	char set_val, done_val;
+ 	int i;
+ 	int flags;
+@@ -173,6 +187,13 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ 			pr_debug("cmdq->linux_valid =%d\n", linux_cmdq.resv.valid.linux_valid);
+ 			pr_debug("cmdq->rtos_valid =%x", linux_cmdq.resv.valid.rtos_valid);
+ 			if (linux_cmdq.resv.valid.rtos_valid == 1 &&
++				linux_cmdq.resv.valid.linux_valid == 0 &&
++				linux_cmdq.ip_id == IP_SYSTEM &&
++				linux_cmdq.cmd_id ==
++					SG2002_RTOS_SHM_DOORBELL_COMMAND &&
++				linux_cmdq.block == 0) {
++				sg2002_rtos_shm_linux_notify(device->shm);
++			} else if (linux_cmdq.resv.valid.rtos_valid == 1 &&
+ 				linux_cmdq.resv.valid.linux_valid == 0 &&
+ 				linux_cmdq.cmd_id <= NR_RTOS_CMD &&
+ 				linux_cmdq.ip_id < NR_RTOS_IP &&
+@@ -330,6 +351,17 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+ }
+ EXPORT_SYMBOL(rtos_cmdqu_send);
+ 
++static int cvi_rtos_cmdqu_shm_kick(void *context, u32 generation)
++{
++	cmdqu_t command = {0};
++
++	command.ip_id = IP_SYSTEM;
++	command.cmd_id = SG2002_RTOS_SHM_DOORBELL_COMMAND;
++	command.block = 0;
++	command.param_ptr = generation;
++	return rtos_cmdqu_send(&command);
++}
++
+ int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id)
+ {
+ 	unsigned long flags;
+@@ -425,6 +457,11 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 
+ 	pr_debug("%s dev=%p\n", __func__, dev);
+ 	switch (cmd) {
++		case SG2002_RTOS_SHM_ACQUIRE:
++		case SG2002_RTOS_SHM_SEND:
++		case SG2002_RTOS_SHM_RECEIVE:
++			return sg2002_rtos_shm_linux_ioctl(
++				dev->shm, filp, cmd, arg);
+ 		case RTOS_CMDQU_SEND:
+ 			pr_debug("RTOS_CMDQU_SEND\n");
+ 			ret = copy_from_user(&cmdq,
+@@ -507,11 +544,20 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 	return ret;
+ }
+ 
++static __poll_t cvi_rtos_cmdqu_poll(struct file *file,
++	struct poll_table_struct *wait)
++{
++	struct cvi_rtos_cmdqu_device *device = file->private_data;
++
++	return sg2002_rtos_shm_linux_poll(device->shm, file, wait);
++}
++
+ static const struct file_operations rtos_cmdqu_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = cvi_rtos_cmdqu_open,
+ 	.release = cvi_rtos_cmdqu_release,
+ 	.unlocked_ioctl = cvi_rtos_cmdqu_ioctl,
++	.poll = cvi_rtos_cmdqu_poll,
+ };
+ 
+ static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
+@@ -521,6 +567,7 @@ static int _register_dev(struct cvi_rtos_cmdqu_device *ndev)
+ 	ndev->miscdev.minor = MISC_DYNAMIC_MINOR;
+ 	ndev->miscdev.name = RTOS_CMDQU_DEV_NAME;
+ 	ndev->miscdev.fops = &rtos_cmdqu_fops;
++	ndev->miscdev.parent = ndev->dev;
+ 
+ 	rc = misc_register(&ndev->miscdev);
+ 	if (rc) {
+@@ -552,8 +599,7 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+ 	struct device *dev = &pdev->dev;
+ 	struct cvi_rtos_cmdqu_device *ndev;
+ 	struct resource *res;
+-	int ret = 0;
+-	int err = -1;
++	int ret;
+ 
+ 	pr_info("%s start ---\n", __func__);
+ 	pr_info("name=%s\n", pdev->name);
+@@ -562,29 +608,17 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	ndev->dev = dev;
+-
+-	ret = _register_dev(ndev);
+-	if (ret < 0) {
+-		pr_err("regsiter cvi_rtos_cmdqu chrdev error\n");
+-		return ret;
+-	}
+ 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+-
+-//	void __iomem *regs;
+-//	regs = devm_ioremap_resource(dev, res);
+-//	if (IS_ERR(regs)) {
+-//		ret = PTR_ERR(regs);
+-//		goto ERROR_PROVE_DEVICE;
+-//	}
+-//	printk("regs=%x\n", regs);
++	if (!res)
++		return -ENODEV;
+ 
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+ #ifdef _LP64
+ 	reg_base = (__u64)devm_ioremap(&pdev->dev, res->start,
+-		res->end - res->start);
++		resource_size(res));
+ #else
+ 	reg_base = (__u32)devm_ioremap(&pdev->dev, res->start,
+-		res->end - res->start);
++		resource_size(res));
+ #endif
+ #else
+ #ifdef _LP64
+@@ -595,37 +629,75 @@ static int cvi_rtos_cmdqu_probe(struct platform_device *pdev)
+ 		(unsigned long)(res->end - res->start + 1));
+ #endif
+ #endif
++	if (!reg_base)
++		return -ENOMEM;
+ 
+ 	pr_info("res-reg: start: 0x%llx, end: 0x%llx, virt-addr(%llx).\n",
+ 		res->start, res->end, le64_to_cpu(reg_base));
+ 	// spinlock ip offset address (0xc0)
+ 	spinlock_base(reg_base + 0xc0);
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
++					   "shared-memory");
++	if (res) {
++		ndev->shm = sg2002_rtos_shm_linux_create(
++			dev, res->start, resource_size(res),
++			cvi_rtos_cmdqu_shm_kick, ndev);
++		if (IS_ERR(ndev->shm))
++			return PTR_ERR(ndev->shm);
++		dev_info(dev,
++			 "shared-memory: phys=0x%llx size=0x%llx\n",
++			 (unsigned long long)res->start,
++			 (unsigned long long)resource_size(res));
++	} else {
++		dev_warn(dev,
++			 "shared-memory resource absent; CMDQU compatibility only\n");
++	}
++
+ 	mailbox_irq = platform_get_irq_byname(pdev, "mailbox");
++	if (mailbox_irq < 0) {
++		ret = mailbox_irq;
++		goto err_shm;
++	}
+ 
+ 	INIT_LIST_HEAD(&rtos_cmdqu_wait_head.list);
+ 	/* init cmdqu*/
+ 	rtos_cmdqu_init();
+ 	platform_set_drvdata(pdev, ndev);
+ 
+-	err = request_irq(mailbox_irq, rtos_irq_handler, 0, "mailbox",
++	ret = request_irq(mailbox_irq, rtos_irq_handler, 0, "mailbox",
+ 		(void *)ndev);
+-
+-	if (err) {
++	if (ret) {
+ 		pr_err("fail to register interrupt handler\n");
+-		return -1;
++		goto err_deinit;
++	}
++
++	ret = _register_dev(ndev);
++	if (ret < 0) {
++		pr_err("register cvi_rtos_cmdqu chrdev error\n");
++		goto err_irq;
+ 	}
+ 
+ 	/* rtos cmdqu register cb */
+ 	if (cvi_rtos_cmdqu_register_cb(ndev)) {
+ 		pr_err("fail to register rtos_cmdqu cb\n");
+-		return -EINVAL;
++		ret = -EINVAL;
++		goto err_misc;
+ 	}
+ 
+ 	pr_info("%s DONE\n", __func__);
+ 	return 0;
+ 
+-//ERROR_PROVE_DEVICE:
+-//	return err;
++err_misc:
++	misc_deregister(&ndev->miscdev);
++err_irq:
++	free_irq(mailbox_irq, ndev);
++err_deinit:
++	platform_set_drvdata(pdev, NULL);
++	rtos_cmdqu_deinit();
++err_shm:
++	sg2002_rtos_shm_linux_destroy(ndev->shm);
++	return ret;
+ }
+ 
+ static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
+@@ -637,9 +709,10 @@ static int cvi_rtos_cmdqu_remove(struct platform_device *pdev)
+ 		pr_err("Failed to rm rtos cmdqu cb\n");
+ 	}
+ 	misc_deregister(&ndev->miscdev);
+-	platform_set_drvdata(pdev, NULL);
+ 	/* remove irq handler*/
+ 	free_irq(mailbox_irq, ndev);
++	sg2002_rtos_shm_linux_destroy(ndev->shm);
++	platform_set_drvdata(pdev, NULL);
+ 	rtos_cmdqu_deinit();
+ 	pr_debug("%s DONE\n", __func__);
+ 
+diff --git a/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
+new file mode 100644
+index 0000000..f467e80
+--- /dev/null
++++ b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.c
+@@ -0,0 +1,591 @@
++#include "sg2002_rtos_shm_linux.h"
++
++#include <linux/device.h>
++#include <linux/err.h>
++#include <linux/io.h>
++#include <linux/jiffies.h>
++#include <linux/mutex.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++#include <linux/wait.h>
++#include <linux/workqueue.h>
++
++#include "sg2002_rtos_shm.h"
++
++#define SG2002_RTOS_SHM_KICK_MAX_ATTEMPTS 100
++
++struct sg2002_rtos_shm_linux {
++	struct device *device;
++	void __iomem *base;
++	resource_size_t size;
++	struct mutex owner_lock;
++	struct mutex tx_lock;
++	struct mutex rx_lock;
++	wait_queue_head_t wait;
++	struct delayed_work kick_work;
++	atomic_t kick_attempts;
++	atomic_t notifications;
++	struct file *owner;
++	sg2002_rtos_shm_kick_fn kick;
++	void *kick_context;
++	u32 generation;
++	u32 next_sequence;
++};
++
++static struct sg2002_rtos_shm_control __iomem *shm_control(
++	struct sg2002_rtos_shm_linux *transport)
++{
++	return (struct sg2002_rtos_shm_control __iomem *)transport->base;
++}
++
++static bool layout_valid(struct sg2002_rtos_shm_linux *transport)
++{
++	struct sg2002_rtos_shm_control __iomem *control;
++
++	if (!transport || !transport->base ||
++	    transport->size != SG2002_RTOS_SHM_REGION_SIZE)
++		return false;
++	control = shm_control(transport);
++	return readl(&control->layout.magic) == SG2002_RTOS_SHM_MAGIC &&
++	       readw(&control->layout.abi_version) ==
++		       SG2002_RTOS_SHM_ABI_VERSION &&
++	       readw(&control->layout.control_size) ==
++		       SG2002_RTOS_SHM_CONTROL_SIZE &&
++	       readl(&control->layout.region_size) ==
++		       SG2002_RTOS_SHM_REGION_SIZE &&
++	       readw(&control->layout.slot_size) ==
++		       SG2002_RTOS_SHM_SLOT_SIZE &&
++	       readw(&control->layout.slot_count) ==
++		       SG2002_RTOS_SHM_SLOT_COUNT &&
++	       readl(&control->layout.request_offset) ==
++		       SG2002_RTOS_SHM_REQUEST_OFFSET &&
++	       readl(&control->layout.response_offset) ==
++		       SG2002_RTOS_SHM_RESPONSE_OFFSET;
++}
++
++static bool rtos_ready(struct sg2002_rtos_shm_linux *transport)
++{
++	struct sg2002_rtos_shm_control __iomem *control;
++	u32 generation;
++
++	if (!layout_valid(transport))
++		return false;
++	control = shm_control(transport);
++	generation = READ_ONCE(transport->generation);
++	return generation != 0U &&
++	       readl(&control->layout.generation) == generation &&
++	       readl(&control->linux_peer.state) ==
++		       SG2002_RTOS_SHM_STATE_READY &&
++	       readl(&control->linux_peer.generation) == generation &&
++	       readl(&control->rtos_peer.state) ==
++		       SG2002_RTOS_SHM_STATE_READY &&
++	       readl(&control->rtos_peer.generation) == generation;
++}
++
++static int ring_occupancy(
++	struct sg2002_rtos_shm_counter_line __iomem *producer,
++	struct sg2002_rtos_shm_counter_line __iomem *consumer,
++	u32 *producer_value, u32 *consumer_value, u32 *occupancy)
++{
++	u32 current_producer = readl(&producer->value);
++	u32 current_consumer = readl(&consumer->value);
++	u32 current_occupancy = current_producer - current_consumer;
++
++	if (current_occupancy > SG2002_RTOS_SHM_SLOT_COUNT)
++		return -EPROTO;
++	if (producer_value)
++		*producer_value = current_producer;
++	if (consumer_value)
++		*consumer_value = current_consumer;
++	if (occupancy)
++		*occupancy = current_occupancy;
++	return 0;
++}
++
++static int request_occupancy(struct sg2002_rtos_shm_linux *transport,
++	u32 *producer, u32 *consumer, u32 *occupancy)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++
++	return ring_occupancy(&control->request_producer,
++			      &control->request_consumer,
++			      producer, consumer, occupancy);
++}
++
++static int response_occupancy(struct sg2002_rtos_shm_linux *transport,
++	u32 *producer, u32 *consumer, u32 *occupancy)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++
++	return ring_occupancy(&control->response_producer,
++			      &control->response_consumer,
++			      producer, consumer, occupancy);
++}
++
++static bool request_wait_done(struct sg2002_rtos_shm_linux *transport)
++{
++	u32 occupancy;
++
++	if (!rtos_ready(transport))
++		return true;
++	if (request_occupancy(transport, NULL, NULL, &occupancy))
++		return true;
++	return occupancy < SG2002_RTOS_SHM_SLOT_COUNT;
++}
++
++static bool response_wait_done(struct sg2002_rtos_shm_linux *transport)
++{
++	u32 occupancy;
++
++	if (!rtos_ready(transport))
++		return true;
++	if (response_occupancy(transport, NULL, NULL, &occupancy))
++		return true;
++	return occupancy > 0U;
++}
++
++static long wait_jiffies(u32 timeout_ms)
++{
++	if (timeout_ms == ~0U)
++		return MAX_SCHEDULE_TIMEOUT;
++	return max_t(long, 1, msecs_to_jiffies(timeout_ms));
++}
++
++static void initialize_generation(
++	struct sg2002_rtos_shm_linux *transport, u32 previous_generation)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++	u32 generation = previous_generation + 1U;
++
++	if (generation == 0U)
++		generation = 1U;
++
++	memset_io(transport->base, 0, transport->size);
++	writew(SG2002_RTOS_SHM_ABI_VERSION,
++	       &control->layout.abi_version);
++	writew(SG2002_RTOS_SHM_CONTROL_SIZE,
++	       &control->layout.control_size);
++	writel(SG2002_RTOS_SHM_REGION_SIZE, &control->layout.region_size);
++	writew(SG2002_RTOS_SHM_SLOT_SIZE, &control->layout.slot_size);
++	writew(SG2002_RTOS_SHM_SLOT_COUNT, &control->layout.slot_count);
++	writel(SG2002_RTOS_SHM_REQUEST_OFFSET,
++	       &control->layout.request_offset);
++	writel(SG2002_RTOS_SHM_RESPONSE_OFFSET,
++	       &control->layout.response_offset);
++	writel(generation, &control->layout.generation);
++	writel(SG2002_RTOS_SHM_FEATURES, &control->layout.features);
++	wmb();
++	writel(SG2002_RTOS_SHM_MAGIC, &control->layout.magic);
++	writel(generation, &control->linux_peer.generation);
++	wmb();
++	writel(SG2002_RTOS_SHM_STATE_READY, &control->linux_peer.state);
++	wmb();
++	WRITE_ONCE(transport->generation, generation);
++	WRITE_ONCE(transport->next_sequence, 1U);
++}
++
++static void fill_info(struct sg2002_rtos_shm_linux *transport,
++	struct sg2002_rtos_shm_info *info)
++{
++	memset(info, 0, sizeof(*info));
++	info->abi_version = SG2002_RTOS_SHM_ABI_VERSION;
++	info->region_size = SG2002_RTOS_SHM_REGION_SIZE;
++	info->control_size = SG2002_RTOS_SHM_CONTROL_SIZE;
++	info->slot_size = SG2002_RTOS_SHM_SLOT_SIZE;
++	info->slot_count = SG2002_RTOS_SHM_SLOT_COUNT;
++	info->payload_size = SG2002_RTOS_SHM_PAYLOAD_SIZE;
++	info->generation = READ_ONCE(transport->generation);
++	info->features = SG2002_RTOS_SHM_FEATURES;
++}
++
++static bool is_owner(struct sg2002_rtos_shm_linux *transport,
++	struct file *owner)
++{
++	return transport && owner && READ_ONCE(transport->owner) == owner;
++}
++
++static int kick_generation(struct sg2002_rtos_shm_linux *transport,
++	u32 generation)
++{
++	return transport->kick(transport->kick_context, generation);
++}
++
++static int kick_now(struct sg2002_rtos_shm_linux *transport)
++{
++	return kick_generation(transport, READ_ONCE(transport->generation));
++}
++
++static void kick_work(struct work_struct *work)
++{
++	struct sg2002_rtos_shm_linux *transport = container_of(
++		to_delayed_work(work), struct sg2002_rtos_shm_linux,
++		kick_work);
++	int attempt;
++
++	if (!READ_ONCE(transport->owner))
++		return;
++	if (!kick_now(transport)) {
++		atomic_set(&transport->kick_attempts, 0);
++		return;
++	}
++
++	attempt = atomic_inc_return(&transport->kick_attempts);
++	if (attempt < SG2002_RTOS_SHM_KICK_MAX_ATTEMPTS &&
++	    READ_ONCE(transport->owner)) {
++		schedule_delayed_work(&transport->kick_work,
++				      msecs_to_jiffies(1));
++	} else {
++		dev_err_ratelimited(transport->device,
++			"shared-memory doorbell remained busy\n");
++	}
++}
++
++static void request_kick(struct sg2002_rtos_shm_linux *transport)
++{
++	atomic_set(&transport->kick_attempts, 0);
++	if (kick_now(transport))
++		schedule_delayed_work(&transport->kick_work,
++				      msecs_to_jiffies(1));
++}
++
++static long acquire(struct sg2002_rtos_shm_linux *transport,
++	struct file *owner, unsigned long argument)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++	struct sg2002_rtos_shm_info info;
++	u32 previous_generation = 0U;
++	int notification = 0;
++	bool quiesce = false;
++	long wait_result;
++	int ret;
++
++	ret = mutex_lock_interruptible(&transport->owner_lock);
++	if (ret)
++		return ret;
++	if (transport->owner && transport->owner != owner) {
++		mutex_unlock(&transport->owner_lock);
++		return -EBUSY;
++	}
++	if (!transport->owner) {
++		if (layout_valid(transport)) {
++			previous_generation =
++				readl(&control->layout.generation);
++			quiesce = previous_generation != 0U &&
++				readl(&control->rtos_peer.state) ==
++					SG2002_RTOS_SHM_STATE_READY &&
++				readl(&control->rtos_peer.generation) ==
++					previous_generation;
++		}
++		WRITE_ONCE(transport->owner, owner);
++		if (quiesce) {
++			writel(SG2002_RTOS_SHM_STATE_OFFLINE,
++			       &control->linux_peer.state);
++			wmb();
++			writel(0U, &control->layout.magic);
++			wmb();
++			WRITE_ONCE(transport->generation, 0U);
++			notification = atomic_read(&transport->notifications);
++			request_kick(transport);
++			wait_result = wait_event_interruptible_timeout(
++				transport->wait,
++				atomic_read(&transport->notifications) !=
++					notification,
++				msecs_to_jiffies(
++					SG2002_RTOS_SHM_DEFAULT_TIMEOUT_MS));
++			if (wait_result <= 0L) {
++				mutex_unlock(&transport->owner_lock);
++				sg2002_rtos_shm_linux_release(
++					transport, owner);
++				return wait_result == 0L ?
++					-ETIMEDOUT : wait_result;
++			}
++		}
++		initialize_generation(transport, previous_generation);
++		request_kick(transport);
++	}
++	mutex_unlock(&transport->owner_lock);
++
++	wait_result = wait_event_interruptible_timeout(
++		transport->wait, rtos_ready(transport),
++		msecs_to_jiffies(SG2002_RTOS_SHM_DEFAULT_TIMEOUT_MS));
++	if (wait_result <= 0) {
++		sg2002_rtos_shm_linux_release(transport, owner);
++		return wait_result == 0 ? -ETIMEDOUT : wait_result;
++	}
++	fill_info(transport, &info);
++	if (copy_to_user((void __user *)argument, &info, sizeof(info))) {
++		sg2002_rtos_shm_linux_release(transport, owner);
++		return -EFAULT;
++	}
++	return 0;
++}
++
++static long send_message(struct sg2002_rtos_shm_linux *transport,
++	struct file *owner, unsigned long argument)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++	struct sg2002_rtos_shm_transfer transfer;
++	void __iomem *slot;
++	long remaining;
++	u32 producer;
++	u32 occupancy;
++	u32 sequence;
++	int ret;
++
++	if (!is_owner(transport, owner))
++		return -EPERM;
++	if (copy_from_user(&transfer, (void __user *)argument,
++			   sizeof(transfer)))
++		return -EFAULT;
++	if (transfer.message.length > SG2002_RTOS_SHM_PAYLOAD_SIZE)
++		return -EMSGSIZE;
++
++	ret = mutex_lock_interruptible(&transport->tx_lock);
++	if (ret)
++		return ret;
++	remaining = transfer.timeout_ms == 0U ? 0L :
++		wait_jiffies(transfer.timeout_ms);
++	for (;;) {
++		if (!rtos_ready(transport)) {
++			ret = -ENOTCONN;
++			goto out_unlock;
++		}
++		ret = request_occupancy(transport, &producer, NULL,
++					&occupancy);
++		if (ret)
++			goto out_unlock;
++		if (occupancy < SG2002_RTOS_SHM_SLOT_COUNT)
++			break;
++		if (remaining == 0L) {
++			ret = transfer.timeout_ms == 0U ? -EAGAIN : -ETIMEDOUT;
++			goto out_unlock;
++		}
++		remaining = wait_event_interruptible_timeout(
++			transport->wait, request_wait_done(transport),
++			remaining);
++		if (remaining < 0L) {
++			ret = remaining;
++			goto out_unlock;
++		}
++	}
++
++	do {
++		sequence = transport->next_sequence++;
++	} while (sequence == 0U);
++	transfer.message.sequence = sequence;
++	if (copy_to_user((void __user *)argument, &transfer,
++			 sizeof(transfer))) {
++		ret = -EFAULT;
++		goto out_unlock;
++	}
++
++	slot = transport->base + SG2002_RTOS_SHM_REQUEST_OFFSET +
++	       (producer & (SG2002_RTOS_SHM_SLOT_COUNT - 1U)) *
++		       SG2002_RTOS_SHM_SLOT_SIZE;
++	memcpy_toio(slot, &transfer.message, sizeof(transfer.message));
++	wmb();
++	writel(producer + 1U, &control->request_producer.value);
++	wmb();
++	request_kick(transport);
++	ret = 0;
++
++out_unlock:
++	mutex_unlock(&transport->tx_lock);
++	return ret;
++}
++
++static long receive_message(struct sg2002_rtos_shm_linux *transport,
++	struct file *owner, unsigned long argument)
++{
++	struct sg2002_rtos_shm_control __iomem *control =
++		shm_control(transport);
++	struct sg2002_rtos_shm_transfer transfer;
++	void __iomem *slot;
++	long remaining;
++	u32 consumer;
++	u32 occupancy;
++	u32 pending_requests;
++	int ret;
++
++	if (!is_owner(transport, owner))
++		return -EPERM;
++	if (copy_from_user(&transfer, (void __user *)argument,
++			   sizeof(transfer)))
++		return -EFAULT;
++
++	ret = mutex_lock_interruptible(&transport->rx_lock);
++	if (ret)
++		return ret;
++	remaining = transfer.timeout_ms == 0U ? 0L :
++		wait_jiffies(transfer.timeout_ms);
++	for (;;) {
++		if (!rtos_ready(transport)) {
++			ret = -ENOTCONN;
++			goto out_unlock;
++		}
++		ret = response_occupancy(transport, NULL, &consumer,
++					 &occupancy);
++		if (ret)
++			goto out_unlock;
++		if (occupancy > 0U)
++			break;
++		if (remaining == 0L) {
++			ret = transfer.timeout_ms == 0U ? -EAGAIN : -ETIMEDOUT;
++			goto out_unlock;
++		}
++		remaining = wait_event_interruptible_timeout(
++			transport->wait, response_wait_done(transport),
++			remaining);
++		if (remaining < 0L) {
++			ret = remaining;
++			goto out_unlock;
++		}
++	}
++
++	slot = transport->base + SG2002_RTOS_SHM_RESPONSE_OFFSET +
++	       (consumer & (SG2002_RTOS_SHM_SLOT_COUNT - 1U)) *
++		       SG2002_RTOS_SHM_SLOT_SIZE;
++	rmb();
++	memcpy_fromio(&transfer.message, slot, sizeof(transfer.message));
++	if (transfer.message.length > SG2002_RTOS_SHM_PAYLOAD_SIZE) {
++		ret = -EPROTO;
++	} else if (copy_to_user((void __user *)argument, &transfer,
++					 sizeof(transfer))) {
++		ret = -EFAULT;
++		goto out_unlock;
++	} else {
++		ret = 0;
++	}
++	wmb();
++	writel(consumer + 1U, &control->response_consumer.value);
++	wmb();
++	if (!request_occupancy(transport, NULL, NULL,
++			       &pending_requests) && pending_requests > 0U)
++		request_kick(transport);
++
++out_unlock:
++	mutex_unlock(&transport->rx_lock);
++	return ret;
++}
++
++struct sg2002_rtos_shm_linux *sg2002_rtos_shm_linux_create(
++	struct device *device, resource_size_t start, resource_size_t size,
++	sg2002_rtos_shm_kick_fn kick, void *kick_context)
++{
++	struct sg2002_rtos_shm_linux *transport;
++
++	if (!device || !kick)
++		return ERR_PTR(-EINVAL);
++	if (size != SG2002_RTOS_SHM_REGION_SIZE)
++		return ERR_PTR(-EINVAL);
++	transport = devm_kzalloc(device, sizeof(*transport), GFP_KERNEL);
++	if (!transport)
++		return ERR_PTR(-ENOMEM);
++	transport->base = devm_ioremap(device, start, size);
++	if (!transport->base)
++		return ERR_PTR(-ENOMEM);
++	transport->device = device;
++	transport->size = size;
++	transport->kick = kick;
++	transport->kick_context = kick_context;
++	mutex_init(&transport->owner_lock);
++	mutex_init(&transport->tx_lock);
++	mutex_init(&transport->rx_lock);
++	init_waitqueue_head(&transport->wait);
++	INIT_DELAYED_WORK(&transport->kick_work, kick_work);
++	atomic_set(&transport->kick_attempts, 0);
++	atomic_set(&transport->notifications, 0);
++	return transport;
++}
++
++void sg2002_rtos_shm_linux_destroy(
++	struct sg2002_rtos_shm_linux *transport)
++{
++	struct sg2002_rtos_shm_control __iomem *control;
++
++	if (!transport)
++		return;
++	cancel_delayed_work_sync(&transport->kick_work);
++	mutex_lock(&transport->owner_lock);
++	control = shm_control(transport);
++	writel(SG2002_RTOS_SHM_STATE_OFFLINE,
++	       &control->linux_peer.state);
++	wmb();
++	WRITE_ONCE(transport->owner, NULL);
++	wake_up_interruptible(&transport->wait);
++	mutex_unlock(&transport->owner_lock);
++}
++
++void sg2002_rtos_shm_linux_notify(
++	struct sg2002_rtos_shm_linux *transport)
++{
++	if (transport) {
++		atomic_inc(&transport->notifications);
++		wake_up_interruptible(&transport->wait);
++	}
++}
++
++void sg2002_rtos_shm_linux_release(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner)
++{
++	struct sg2002_rtos_shm_control __iomem *control;
++
++	if (!transport || !owner)
++		return;
++	mutex_lock(&transport->owner_lock);
++	if (transport->owner == owner) {
++		control = shm_control(transport);
++		writel(SG2002_RTOS_SHM_STATE_OFFLINE,
++		       &control->linux_peer.state);
++		wmb();
++		WRITE_ONCE(transport->owner, NULL);
++		wake_up_interruptible(&transport->wait);
++	}
++	mutex_unlock(&transport->owner_lock);
++}
++
++long sg2002_rtos_shm_linux_ioctl(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner,
++	unsigned int command, unsigned long argument)
++{
++	if (!transport)
++		return -ENODEV;
++	switch (command) {
++	case SG2002_RTOS_SHM_ACQUIRE:
++		return acquire(transport, owner, argument);
++	case SG2002_RTOS_SHM_SEND:
++		return send_message(transport, owner, argument);
++	case SG2002_RTOS_SHM_RECEIVE:
++		return receive_message(transport, owner, argument);
++	default:
++		return -ENOTTY;
++	}
++}
++
++__poll_t sg2002_rtos_shm_linux_poll(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner,
++	struct poll_table_struct *wait)
++{
++	__poll_t mask = 0;
++	u32 occupancy;
++
++	if (!transport || !is_owner(transport, owner))
++		return EPOLLERR;
++	poll_wait(owner, &transport->wait, wait);
++	if (!rtos_ready(transport))
++		return EPOLLERR | EPOLLHUP;
++	if (response_occupancy(transport, NULL, NULL, &occupancy))
++		return EPOLLERR;
++	if (occupancy > 0U)
++		mask |= EPOLLIN | EPOLLRDNORM;
++	if (request_occupancy(transport, NULL, NULL, &occupancy))
++		return EPOLLERR;
++	if (occupancy < SG2002_RTOS_SHM_SLOT_COUNT)
++		mask |= EPOLLOUT | EPOLLWRNORM;
++	return mask;
++}
+diff --git a/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h
+new file mode 100644
+index 0000000..9c35897
+--- /dev/null
++++ b/interdrv/rtos_cmdqu/sg2002_rtos_shm_linux.h
+@@ -0,0 +1,35 @@
++#ifndef __SG2002_RTOS_SHM_LINUX_H__
++#define __SG2002_RTOS_SHM_LINUX_H__
++
++#include <linux/fs.h>
++#include <linux/ioport.h>
++#include <linux/poll.h>
++#include <linux/types.h>
++
++struct device;
++struct sg2002_rtos_shm_linux;
++
++typedef int (*sg2002_rtos_shm_kick_fn)(void *context, u32 generation);
++
++struct sg2002_rtos_shm_linux *sg2002_rtos_shm_linux_create(
++	struct device *device, resource_size_t start, resource_size_t size,
++	sg2002_rtos_shm_kick_fn kick, void *kick_context);
++
++void sg2002_rtos_shm_linux_destroy(
++	struct sg2002_rtos_shm_linux *transport);
++
++void sg2002_rtos_shm_linux_notify(
++	struct sg2002_rtos_shm_linux *transport);
++
++void sg2002_rtos_shm_linux_release(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner);
++
++long sg2002_rtos_shm_linux_ioctl(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner,
++	unsigned int command, unsigned long argument);
++
++__poll_t sg2002_rtos_shm_linux_poll(
++	struct sg2002_rtos_shm_linux *transport, struct file *owner,
++	struct poll_table_struct *wait);
++
++#endif /* __SG2002_RTOS_SHM_LINUX_H__ */
+-- 
+2.53.0.windows.1
+

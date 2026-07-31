@@ -123,6 +123,7 @@ $(BUILDDIR)/linux-prepare-patch-stamp: $(BUILDDIR)/linux-prepare-checkout-stamp
 	@grep -Fq "failed to %s C906L via SBI: %d" $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@grep -Fq "boot trace host sentinel at 0x%llx" $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@grep -Fq 'return "reply_posted"' $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
+	@grep -Fq 'cvitek,boot-trace' $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@cp /configs/$(BOARD)/linux/defconfig $(BUILDDIR)/kernel/arch/riscv/configs/${BOARD}_defconfig
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)/*), cp $(file) $(BUILDDIR)/kernel/arch/riscv/boot/dts/cvitek/;)
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)_$(ARCH)/*), cp $(file) $(BUILDDIR)/kernel/arch/riscv/boot/dts/cvitek/;)
@@ -166,10 +167,12 @@ $(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp 
 	$(call copy_ko_action, $(BUILDDIR)/kernel/modules)
 	@$(foreach file, $(wildcard /configs/common/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
 	@$(foreach file, $(wildcard /configs/$(BOARD)/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
+	@cp /builder/addons/rtos-firmware/include/sg2002_rtos_shm.h $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/
 	@grep -Fq '(cmdq->cmd_id >= SYS_CMD_INFO_LIMIT && cmdq->ip_id != IP_SYSTEM)' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@grep -Fq 'static DEFINE_MUTEX(send_wait_lock);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@grep -Fq 'wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@grep -Fq 'ret = rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+	@grep -Fq 'SG2002_RTOS_SHM_ACQUIRE' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@touch $@
 
 $(BUILDDIR)/osdrv-prepare-configure-stamp: $(BUILDDIR)/osdrv-prepare-patch-stamp

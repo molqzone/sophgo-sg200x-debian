@@ -19,6 +19,10 @@
         //max-frequency = <5000000>; // 5Mhz
 };
 
+&fast_image {
+	reg = <0x0 CVIMMAP_FREERTOS_ADDR 0x0 CVIMMAP_RTOS_FIRMWARE_SIZE>;
+};
+
 
 &uart1 {
         status = "okay";
@@ -70,6 +74,19 @@
 
 / {
         model = "LicheeRv Nano";
+
+	reserved-memory {
+		rtos_shm: shared-memory@8ffee000 {
+			reg = <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
+			no-map;
+		};
+
+		rtos_boot_trace: boot-trace@8ffff000 {
+			reg = <0x0 CVIMMAP_RTOS_BOOT_TRACE_ADDR 0x0 CVIMMAP_RTOS_BOOT_TRACE_SIZE>;
+			no-map;
+			cvitek,boot-trace;
+		};
+	};
 
 	/delete-node/ saradc;
 	/delete-node/ rtc;
@@ -128,6 +145,12 @@
 	        };
         };
 #ifndef __UBOOT__        
+	rtos_cmdqu {
+		reg = <0x0 0x01900000 0x0 0x1000>,
+		      <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
+		reg-names = "mailbox", "shared-memory";
+	};
+
         mbox: mbox@0x01900000 {
                 compatible = "cvitek,sg200x-mailbox";
 		reg = <0x0 0x01900000 0x0 0x1000>;
@@ -140,7 +163,8 @@
 
         cv181x-c906_1 {
 		compatible	= "cvitek,cv181x-c906_1";
-		memory-region	= <&fast_image &vdev0vring0 &vdev0vring1 &vdev0buffer>;
+		memory-region	= <&fast_image &rtos_boot_trace &vdev0vring0
+				   &vdev0vring1 &vdev0buffer>;
                 firmware        = "c906-mcu.elf";
                 resets		= <&rst RST_C906_1>;
 		reset-names	= "sw_reset";

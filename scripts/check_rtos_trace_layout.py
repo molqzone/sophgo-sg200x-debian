@@ -18,11 +18,12 @@ def run_readelf(readelf, option, elf):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Verify that a C906L ELF leaves the reserved boot-trace page untouched."
+        description="Verify the C906L firmware, shared-memory, and boot-trace layout."
     )
     parser.add_argument("elf")
     parser.add_argument("--readelf", default="readelf")
     parser.add_argument("--trace-start", type=lambda value: int(value, 0), default=0x8FFFF000)
+    parser.add_argument("--shm-start", type=lambda value: int(value, 0), default=0x8FFEE000)
     args = parser.parse_args()
 
     program_headers = run_readelf(args.readelf, "-lW", args.elf)
@@ -49,16 +50,16 @@ def main():
     errors = []
     if not load_end:
         errors.append("ELF has no LOAD segment")
-    if load_end > args.trace_start:
+    if load_end > args.shm_start:
         errors.append(
-            f"LOAD end 0x{load_end:x} overlaps trace page at 0x{args.trace_start:x}"
+            f"LOAD end 0x{load_end:x} overlaps shared memory at 0x{args.shm_start:x}"
         )
     if trace_symbol != args.trace_start:
         actual = "missing" if trace_symbol is None else f"0x{trace_symbol:x}"
         errors.append(
             f"__boot_trace_start is {actual}, expected 0x{args.trace_start:x}"
         )
-    if entry is None or not 0x8FE00000 <= entry < args.trace_start:
+    if entry is None or not 0x8FE00000 <= entry < args.shm_start:
         actual = "missing" if entry is None else f"0x{entry:x}"
         errors.append(f"entry point {actual} is outside the C906L firmware window")
 
@@ -66,6 +67,7 @@ def main():
         "elf": str(args.elf),
         "entry": None if entry is None else f"0x{entry:x}",
         "load_end": f"0x{load_end:x}",
+        "shm_start": f"0x{args.shm_start:x}",
         "trace_start": f"0x{args.trace_start:x}",
         "trace_symbol": None if trace_symbol is None else f"0x{trace_symbol:x}",
         "status": "fail" if errors else "pass",

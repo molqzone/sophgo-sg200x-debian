@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex-rtos-mailbox-fix-20260731
+      - codex/rtos-comm-hardening-20260801
     paths:
       - .github/workflows/riscv-rtos-probe.yml
       - configs/common/patches/linux/**
@@ -93,6 +94,7 @@ jobs:
           cp probe-output/licheervnano_libsg2002-rtos.a artifact/libsg2002-rtos.a
           cp probe-output/sg2002_rtos.h artifact/
           cp probe-output/sg2002_rtos_protocol.h artifact/
+          cp probe-output/sg2002_rtos_shm.h artifact/
           cp probe-output/licheervnano_boot-trace-layout.json artifact/
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
           cp probe-output/host-tests/host-tests.txt artifact/
@@ -113,7 +115,10 @@ jobs:
           grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'recovery' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_irq_v2' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'layering=PASS' artifact/host-tests.txt
           grep -Fqx 'protocol=PASS' artifact/host-tests.txt
+          grep -Fqx 'shm_ring=PASS' artifact/host-tests.txt
+          grep -Fqx 'shm_transport=PASS' artifact/host-tests.txt
           grep -Fqx 'rtos_app=PASS' artifact/host-tests.txt
           grep -Fqx 'linux_comm=PASS' artifact/host-tests.txt
           test -x artifact/rtos-cmd
@@ -137,6 +142,7 @@ jobs:
               libsg2002-rtos.a \
               sg2002_rtos.h \
               sg2002_rtos_protocol.h \
+              sg2002_rtos_shm.h \
               host-tests.txt \
               licheervnano_boot-trace-layout.json \
               rtos-sdk-commit.txt \

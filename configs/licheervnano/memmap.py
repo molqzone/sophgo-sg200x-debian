@@ -20,6 +20,23 @@ class MemoryMap:
     FREERTOS_ADDR = DRAM_BASE + DRAM_SIZE - FREERTOS_SIZE
     FSBL_C906L_START_ADDR = FREERTOS_ADDR
 
+    # The final page remains the boot trace. The two fixed-slot queues live
+    # immediately below it and are excluded from the FreeRTOS linker region.
+    RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
+    RTOS_SHM_SIZE = 68 * SIZE_1K
+    RTOS_SHM_ADDR = (
+        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - RTOS_SHM_SIZE
+    )
+    RTOS_FIRMWARE_SIZE = RTOS_SHM_ADDR - FREERTOS_ADDR
+    RTOS_BOOT_TRACE_ADDR = RTOS_SHM_ADDR + RTOS_SHM_SIZE
+    assert RTOS_SHM_ADDR >= FREERTOS_ADDR
+    assert RTOS_SHM_ADDR + RTOS_SHM_SIZE == (
+        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
+    )
+    assert RTOS_BOOT_TRACE_ADDR + RTOS_BOOT_TRACE_SIZE == (
+        FREERTOS_ADDR + FREERTOS_SIZE
+    )
+
     # ==============================
     # OpenSBI | arm-trusted-firmware
     # ==============================

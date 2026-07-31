@@ -24,6 +24,7 @@ COMMON_FLAGS=(
 	-Wall
 	-Wextra
 	-Werror
+	-pthread
 	-I"$ADDON_ROOT/include"
 	-I"$ADDON_ROOT/linux/include"
 	-I"$VENDOR_INCLUDE"

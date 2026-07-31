@@ -25,6 +25,8 @@
 #include "comm.h"
 #include "sg2002_rtos_app.h"
 #include "sg2002_rtos_mailbox.h"
+#include "sg2002_rtos_shm.h"
+#include "sg2002_rtos_shm_transport.h"
 
 //#define __DEBUG__
 
@@ -168,6 +170,7 @@ void main_cvirtos(void)
 	printf("create cvi task\n");
 
 	sg2002_rtos_mailbox_init();
+	sg2002_rtos_shm_transport_init();
 	sg2002_rtos_mailbox_get_diagnostics(&initial_mailbox_diagnostics);
 	sg2002_rtos_mailbox_enable_receiver();
 
@@ -239,6 +242,13 @@ void prvCmdQuRunTask(void *pvParameters)
 					((uint32_t)rtos_cmdq.ip_id << 8) |
 					rtos_cmdq.cmd_id);
 #endif
+		if (rtos_cmdq.ip_id == IP_SYSTEM &&
+		    rtos_cmdq.cmd_id == SG2002_RTOS_SHM_DOORBELL_COMMAND) {
+			(void)sg2002_rtos_shm_process(NULL);
+			rtos_cmdq.param_ptr = sg2002_rtos_shm_generation();
+			rtos_cmdq.block = 0;
+			goto send_label;
+		}
 		if (rtos_cmdq.ip_id == IP_SYSTEM &&
 		    sg2002_rtos_app_handle(rtos_cmdq.cmd_id,
 					   &rtos_cmdq.param_ptr) ==

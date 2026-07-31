@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "sg2002_rtos_app.h"
 #include "sg2002_rtos_protocol.h"
@@ -28,6 +29,10 @@ int gpio_get_value(int pin)
 
 int main(void)
 {
+	uint8_t request[SG2002_RTOS_VALUE_MESSAGE_SIZE];
+	uint8_t response[SG2002_RTOS_VALUE_MESSAGE_SIZE];
+	uint16_t response_length;
+	uint8_t echo[32];
 	uint32_t value;
 
 	value = 0x13579bdfU;
@@ -67,5 +72,50 @@ int main(void)
 	assert(value == SG2002_RTOS_RESPONSE_UNSUPPORTED);
 	assert(sg2002_rtos_app_handle(0x10, &value) ==
 	       SG2002_RTOS_APP_UNHANDLED);
+
+	request[SG2002_RTOS_VALUE_MESSAGE_COMMAND_OFFSET] =
+		SG2002_RTOS_CMD_PING;
+	value = 0x13579bdfU;
+	memcpy(request + SG2002_RTOS_VALUE_MESSAGE_VALUE_OFFSET, &value,
+	       sizeof(value));
+	response_length = sizeof(response);
+	assert(sg2002_rtos_app_handle_message(
+		       request, sizeof(request), response, &response_length) ==
+	       SG2002_RTOS_APP_HANDLED);
+	assert(response_length == sizeof(response));
+	assert(response[SG2002_RTOS_VALUE_MESSAGE_COMMAND_OFFSET] ==
+	       SG2002_RTOS_CMD_PING);
+	memcpy(&value,
+	       response + SG2002_RTOS_VALUE_MESSAGE_VALUE_OFFSET,
+	       sizeof(value));
+	assert(value == (0x13579bdfU ^ SG2002_RTOS_PING_XOR));
+
+	response_length = sizeof(response);
+	assert(sg2002_rtos_app_handle_message(request, 1U, response,
+					      &response_length) ==
+	       SG2002_RTOS_APP_HANDLED);
+	memcpy(&value,
+	       response + SG2002_RTOS_VALUE_MESSAGE_VALUE_OFFSET,
+	       sizeof(value));
+	assert(value == SG2002_RTOS_RESPONSE_INVALID_ARGUMENT);
+
+	memset(echo, 0x5a, sizeof(echo));
+	echo[0] = SG2002_RTOS_CMD_ECHO;
+	response_length = 1U;
+	assert(sg2002_rtos_app_handle_message(
+		       echo, 1U, response, &response_length) ==
+	       SG2002_RTOS_APP_HANDLED);
+	assert(response_length == 1U);
+	assert(response[0] == SG2002_RTOS_CMD_ECHO);
+	response_length = sizeof(response);
+	assert(sg2002_rtos_app_handle_message(
+		       echo, sizeof(echo), echo, &response_length) ==
+	       SG2002_RTOS_APP_UNHANDLED);
+	response_length = sizeof(echo);
+	assert(sg2002_rtos_app_handle_message(
+		       echo, sizeof(echo), echo, &response_length) ==
+	       SG2002_RTOS_APP_HANDLED);
+	assert(response_length == sizeof(echo));
+	assert(echo[0] == SG2002_RTOS_CMD_ECHO);
 	return 0;
 }

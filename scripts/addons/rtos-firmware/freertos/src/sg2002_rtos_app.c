@@ -1,6 +1,7 @@
 #include "sg2002_rtos_app.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #include "gpio.h"
 #include "sg2002_rtos_protocol.h"
@@ -47,6 +48,8 @@ enum sg2002_rtos_app_result sg2002_rtos_app_handle(uint8_t command,
 	case SG2002_RTOS_CMD_GET_INFO:
 		*value = SG2002_RTOS_INFO_VALUE;
 		return SG2002_RTOS_APP_HANDLED;
+	case SG2002_RTOS_CMD_ECHO:
+		return SG2002_RTOS_APP_HANDLED;
 	default:
 		if (command >= SG2002_RTOS_CMD_FIRST &&
 		    command <= SG2002_RTOS_CMD_LAST) {
@@ -55,4 +58,54 @@ enum sg2002_rtos_app_result sg2002_rtos_app_handle(uint8_t command,
 		}
 		return SG2002_RTOS_APP_UNHANDLED;
 	}
+}
+
+enum sg2002_rtos_app_result sg2002_rtos_app_handle_message(
+	const uint8_t *request, uint16_t request_length, uint8_t *response,
+	uint16_t *response_length)
+{
+	enum sg2002_rtos_app_result result;
+	uint16_t response_capacity;
+	uint32_t value;
+	uint8_t command;
+
+	if (response_length == NULL)
+		return SG2002_RTOS_APP_UNHANDLED;
+	response_capacity = *response_length;
+	*response_length = 0U;
+	if (request == NULL || response == NULL || request_length == 0U)
+		return SG2002_RTOS_APP_UNHANDLED;
+
+	command = request[SG2002_RTOS_VALUE_MESSAGE_COMMAND_OFFSET];
+	if (command < SG2002_RTOS_CMD_FIRST ||
+	    command > SG2002_RTOS_CMD_LAST) {
+		return SG2002_RTOS_APP_UNHANDLED;
+	}
+	if (command == SG2002_RTOS_CMD_ECHO) {
+		if (request_length > response_capacity)
+			return SG2002_RTOS_APP_UNHANDLED;
+		memcpy(response, request, request_length);
+		*response_length = request_length;
+		return SG2002_RTOS_APP_HANDLED;
+	}
+	if (response_capacity < SG2002_RTOS_VALUE_MESSAGE_SIZE)
+		return SG2002_RTOS_APP_UNHANDLED;
+
+	if (request_length == SG2002_RTOS_VALUE_MESSAGE_SIZE) {
+		memcpy(&value,
+		       request + SG2002_RTOS_VALUE_MESSAGE_VALUE_OFFSET,
+		       sizeof(value));
+		result = sg2002_rtos_app_handle(command, &value);
+	} else {
+		value = SG2002_RTOS_RESPONSE_INVALID_ARGUMENT;
+		result = SG2002_RTOS_APP_HANDLED;
+	}
+	if (result != SG2002_RTOS_APP_HANDLED)
+		return result;
+
+	response[SG2002_RTOS_VALUE_MESSAGE_COMMAND_OFFSET] = command;
+	memcpy(response + SG2002_RTOS_VALUE_MESSAGE_VALUE_OFFSET, &value,
+	       sizeof(value));
+	*response_length = SG2002_RTOS_VALUE_MESSAGE_SIZE;
+	return SG2002_RTOS_APP_HANDLED;
 }

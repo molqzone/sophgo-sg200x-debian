@@ -49,6 +49,7 @@ $(BUILDDIR)/rtos-firmware-stamp: $(BUILDDIR)/rtos-firmware-build-stamp
 	@cp -a $(RTOS_LINUX_TOOLS)/libsg2002-rtos.a /rootfs/usr/lib/
 	@cp -a /builder/addons/rtos-firmware/linux/include/sg2002_rtos.h /rootfs/usr/include/
 	@cp -a /builder/addons/rtos-firmware/include/sg2002_rtos_protocol.h /rootfs/usr/include/
+	@cp -a /builder/addons/rtos-firmware/include/sg2002_rtos_shm.h /rootfs/usr/include/
 	@cp -a addons/rtos-firmware/rtos-mode /rootfs/usr/bin/
 	@chmod +x /rootfs/usr/bin/rtos-cmd
 	@chmod +x /rootfs/usr/bin/rtos-bench
@@ -58,4 +59,5 @@ $(BUILDDIR)/rtos-firmware-stamp: $(BUILDDIR)/rtos-firmware-build-stamp
 	@cp -a $(RTOS_LINUX_TOOLS)/libsg2002-rtos.a /output/$(BOARD)_libsg2002-rtos.a
 	@cp -a /builder/addons/rtos-firmware/linux/include/sg2002_rtos.h /output/
 	@cp -a /builder/addons/rtos-firmware/include/sg2002_rtos_protocol.h /output/
+	@cp -a /builder/addons/rtos-firmware/include/sg2002_rtos_shm.h /output/
 	@touch $@

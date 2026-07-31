@@ -23,6 +23,7 @@ COMMON_FLAGS=(
 	-Wall
 	-Wextra
 	-Werror
+	-pthread
 	-I"$ADDON_ROOT/tests/stubs"
 	-I"$ADDON_ROOT/include"
 	-I"$ADDON_ROOT/freertos/include"
@@ -31,21 +32,51 @@ COMMON_FLAGS=(
 )
 
 mkdir -p "$OUT_DIR"
+
+if grep -Eq '#include "(rtos_cmdqu|sg2002_rtos_mailbox|sg2002_rtos_shm|sg2002_rtos_ring)\.h"' \
+	"$ADDON_ROOT/freertos/include/sg2002_rtos_app.h" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c"; then
+	echo "application layer depends on transport internals" >&2
+	exit 1
+fi
+if grep -Fq '#include "sg2002_rtos_protocol.h"' \
+	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
+	"$ADDON_ROOT/include/sg2002_rtos_ring.h"; then
+	echo "generic ring depends on the application protocol" >&2
+	exit 1
+fi
+if grep -Fq '#include "rtos_cmdqu.h"' \
+	"$ADDON_ROOT/linux/include/sg2002_rtos.h"; then
+	echo "public Linux API exposes the vendor CMDQU transport" >&2
+	exit 1
+fi
 "$CC" "${COMMON_FLAGS[@]}" \
 	"$ADDON_ROOT/tests/test_protocol.c" \
 	-o "$OUT_DIR/test_protocol"
+"$CC" "${COMMON_FLAGS[@]}" \
+	"$ADDON_ROOT/tests/test_shm_ring.c" \
+	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
+	-o "$OUT_DIR/test_shm_ring"
 "$CC" "${COMMON_FLAGS[@]}" \
 	"$ADDON_ROOT/tests/test_rtos_app.c" \
 	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
 	-o "$OUT_DIR/test_rtos_app"
 "$CC" "${COMMON_FLAGS[@]}" \
+	"$ADDON_ROOT/tests/test_shm_transport.c" \
+	"$ADDON_ROOT/common/sg2002_rtos_ring.c" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
+	"$ADDON_ROOT/freertos/src/sg2002_rtos_shm_transport.c" \
+	-o "$OUT_DIR/test_shm_transport"
+"$CC" "${COMMON_FLAGS[@]}" \
 	"$ADDON_ROOT/tests/test_linux_comm.c" \
 	"$ADDON_ROOT/linux/src/sg2002_rtos.c" \
-	-Wl,--wrap=ioctl \
+	-Wl,--wrap=ioctl -Wl,--wrap=open -Wl,--wrap=close \
 	-o "$OUT_DIR/test_linux_comm"
 
 "$OUT_DIR/test_protocol"
+"$OUT_DIR/test_shm_ring"
 "$OUT_DIR/test_rtos_app"
+"$OUT_DIR/test_shm_transport"
 "$OUT_DIR/test_linux_comm"
-printf 'protocol=PASS\nrtos_app=PASS\nlinux_comm=PASS\n' > \
+printf 'layering=PASS\nprotocol=PASS\nshm_ring=PASS\nrtos_app=PASS\nshm_transport=PASS\nlinux_comm=PASS\n' > \
 	"$OUT_DIR/host-tests.txt"
