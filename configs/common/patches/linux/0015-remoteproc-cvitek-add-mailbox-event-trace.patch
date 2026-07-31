@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 18:05:00 +0800
+Subject: [PATCH] remoteproc: cvitek: expose C906L mailbox event trace
+
+Decode the event fields stored in the second half of the existing boot
+trace cache line. Initialize every field with an inverse copy and reject
+torn snapshots through the existing read-only sysfs attribute.
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 79 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 75 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+index 3b220e4..75ea3e6 100644
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -40,7 +40,7 @@
+ 
+ #define CVITEK_BOOT_TRACE_PAGE_SIZE 0x1000
+ #define CVITEK_BOOT_TRACE_MAGIC 0x43565452
+-#define CVITEK_BOOT_TRACE_VERSION 1
++#define CVITEK_BOOT_TRACE_VERSION 2
+ #define CVITEK_BOOT_TRACE_HOST_COOKIE 0x48535431
+ 
+ struct cvitek_boot_trace {
+@@ -52,6 +52,14 @@ struct cvitek_boot_trace {
+ 	u32 stage_inverse;
+ 	u32 hart_id;
+ 	u32 hart_id_inverse;
++	u32 event_sequence;
++	u32 event_sequence_inverse;
++	u32 event;
++	u32 event_inverse;
++	u32 event_arg;
++	u32 event_arg_inverse;
++	u32 event_seen;
++	u32 event_seen_inverse;
+ };
+ 
+ struct cvitek_rproc_config {};
+@@ -88,6 +96,40 @@ static const char *cvitek_boot_trace_stage_name(u32 stage)
+ 	}
+ }
+ 
++static const char *cvitek_boot_trace_event_name(u32 event)
++{
++	switch (event) {
++	case 0:
++		return "none";
++	case 1:
++		return "irq_result";
++	case 2:
++		return "task_ready";
++	case 3:
++		return "isr_entry";
++	case 4:
++		return "isr_set";
++	case 5:
++		return "linux_valid";
++	case 6:
++		return "queue_sent";
++	case 7:
++		return "dequeue";
++	case 8:
++		return "ping_handled";
++	case 9:
++		return "reply_slot";
++	case 10:
++		return "reply_posted";
++	case 11:
++		return "spinlock_fail";
++	case 12:
++		return "reply_no_slot";
++	default:
++		return "unknown";
++	}
++}
++
+ static struct cvitek_boot_trace __iomem *
+ cvitek_boot_trace_ptr(struct rproc *rproc)
+ {
+@@ -117,6 +159,14 @@ static int cvitek_boot_trace_init(struct rproc *rproc)
+ 	writel(~0U, &trace->stage_inverse);
+ 	writel(~0U, &trace->hart_id);
+ 	writel(0, &trace->hart_id_inverse);
++	writel(0, &trace->event_sequence);
++	writel(~0U, &trace->event_sequence_inverse);
++	writel(0, &trace->event);
++	writel(~0U, &trace->event_inverse);
++	writel(0, &trace->event_arg);
++	writel(~0U, &trace->event_arg_inverse);
++	writel(0, &trace->event_seen);
++	writel(~0U, &trace->event_seen_inverse);
+ 	wmb();
+ 
+ 	if (readl(&trace->magic) != CVITEK_BOOT_TRACE_MAGIC ||
+@@ -137,6 +187,8 @@ static ssize_t boot_trace_show(struct device *dev,
+ 	struct cvitek_boot_trace __iomem *trace;
+ 	u32 magic, version, cookie, cookie_inverse;
+ 	u32 stage, stage_inverse, hart_id, hart_id_inverse;
++	u32 event_sequence, event_sequence_inverse, event, event_inverse;
++	u32 event_arg, event_arg_inverse, event_seen, event_seen_inverse;
+ 	ssize_t ret;
+ 	bool valid;
+ 
+@@ -169,22 +221,41 @@ static ssize_t boot_trace_show(struct device *dev,
+ 	stage_inverse = readl(&trace->stage_inverse);
+ 	hart_id = readl(&trace->hart_id);
+ 	hart_id_inverse = readl(&trace->hart_id_inverse);
++	event_sequence = readl(&trace->event_sequence);
++	event_sequence_inverse = readl(&trace->event_sequence_inverse);
++	event = readl(&trace->event);
++	event_inverse = readl(&trace->event_inverse);
++	event_arg = readl(&trace->event_arg);
++	event_arg_inverse = readl(&trace->event_arg_inverse);
++	event_seen = readl(&trace->event_seen);
++	event_seen_inverse = readl(&trace->event_seen_inverse);
+ 	rmb();
+ 
+ 	valid = magic == CVITEK_BOOT_TRACE_MAGIC &&
+ 		version == CVITEK_BOOT_TRACE_VERSION &&
+ 		(cookie ^ cookie_inverse) == ~0U &&
+ 		(stage ^ stage_inverse) == ~0U &&
+-		(hart_id ^ hart_id_inverse) == ~0U;
++		(hart_id ^ hart_id_inverse) == ~0U &&
++		(event_sequence ^ event_sequence_inverse) == ~0U &&
++		(event ^ event_inverse) == ~0U &&
++		(event_arg ^ event_arg_inverse) == ~0U &&
++		(event_seen ^ event_seen_inverse) == ~0U;
+ 
+ 	ret = scnprintf(buf, PAGE_SIZE,
+ 		"available=1 valid=%u trace_da=0x%llx magic=0x%08x "
+ 		"version=%u host_cookie=0x%08x host_cookie_inverse=0x%08x "
+ 		"stage=%u stage_inverse=0x%08x stage_name=%s "
+-		"hart_id=%u hart_id_inverse=0x%08x\n",
++		"hart_id=%u hart_id_inverse=0x%08x "
++		"event_sequence=%u event_sequence_inverse=0x%08x "
++		"event=%u event_inverse=0x%08x event_name=%s "
++		"event_arg=0x%08x event_arg_inverse=0x%08x "
++		"event_seen=0x%08x event_seen_inverse=0x%08x\n",
+ 		valid, ddata->boot_trace_da, magic, version, cookie,
+ 		cookie_inverse, stage, stage_inverse,
+-		cvitek_boot_trace_stage_name(stage), hart_id, hart_id_inverse);
++		cvitek_boot_trace_stage_name(stage), hart_id, hart_id_inverse,
++		event_sequence, event_sequence_inverse, event, event_inverse,
++		cvitek_boot_trace_event_name(event), event_arg, event_arg_inverse,
++		event_seen, event_seen_inverse);
+ 
+ out_unlock:
+ 	mutex_unlock(&rproc->lock);
+-- 
+2.53.0.windows.1

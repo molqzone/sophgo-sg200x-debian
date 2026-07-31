@@ -89,6 +89,10 @@ done
 rm -f "$SDK_DIR/freertos/cvitek/driver/common/include/boot_trace.h"
 git -C "$SDK_DIR" apply --check "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
 git -C "$SDK_DIR" apply "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
+git -C "$SDK_DIR" apply --check "$PATCH_ROOT/0002-cvitek-c906l-mailbox-event-trace.patch"
+git -C "$SDK_DIR" apply "$PATCH_ROOT/0002-cvitek-c906l-mailbox-event-trace.patch"
+grep -Fq "CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED" \
+  "$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/comm_main.c"
 
 rm -rf "$SDK_DIR/freertos/cvitek/build" "$SDK_DIR/freertos/cvitek/install"
 

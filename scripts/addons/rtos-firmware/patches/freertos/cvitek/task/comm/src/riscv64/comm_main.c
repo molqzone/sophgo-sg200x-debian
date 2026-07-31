@@ -48,6 +48,7 @@ typedef struct _TASK_CTX_S {
 void prvQueueISR(void);
 void prvCmdQuRunTask(void *pvParameters);
 static int prvHandleUserCmd(cmdqu_t *rtos_cmdq);
+static uint32_t prvCmdHeader(const cmdqu_t *cmdq);
 
 /****************************************************************************
  * Global parameters
@@ -146,11 +147,22 @@ do { \
 
 DEFINE_CVI_SPINLOCK(mailbox_lock, SPIN_MBOX);
 
+static uint32_t prvCmdHeader(const cmdqu_t *cmdq)
+{
+	return ((uint32_t)cmdq->ip_id << 0) |
+	       ((uint32_t)cmdq->cmd_id << 8) |
+	       ((uint32_t)cmdq->block << 15) |
+	       ((uint32_t)cmdq->resv.valid.linux_valid << 16) |
+	       ((uint32_t)cmdq->resv.valid.rtos_valid << 24);
+}
+
 static int prvHandleUserCmd(cmdqu_t *rtos_cmdq)
 {
 	switch (rtos_cmdq->cmd_id) {
 	case RTOS_USER_CMD_PING:
 		rtos_cmdq->param_ptr ^= RTOS_USER_PING_XOR;
+		cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_PING_HANDLED,
+					rtos_cmdq->param_ptr);
 		return 0;
 	case RTOS_USER_CMD_GPIO_SET:
 	{
@@ -175,9 +187,14 @@ static int prvHandleUserCmd(cmdqu_t *rtos_cmdq)
 
 void main_cvirtos(void)
 {
+	int irq_ret;
+
 	printf("create cvi task\n");
 
-	request_irq(MBOX_INT_C906_2ND, prvQueueISR, 0, "mailbox", (void *)0);
+	irq_ret = request_irq(MBOX_INT_C906_2ND, prvQueueISR, 0, "mailbox", (void *)0);
+	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_IRQ_RESULT,
+				(((uint32_t)MBOX_INT_C906_2ND & 0xffffU) << 16) |
+				((uint32_t)irq_ret & 0xffffU));
 	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_IRQ_READY);
 
 #ifdef FAST_IMAGE_ENABLE
@@ -232,10 +249,16 @@ void prvCmdQuRunTask(void *pvParameters)
 	mailbox_context = (unsigned long *) (MAILBOX_REG_BUFF);
 
 	cvi_spinlock_init();
-	printf("prvCmdQuRunTask run\n");
+	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_TASK_READY,
+				(((uint32_t)RECEIVE_CPU & 0xffffU) << 16) |
+				((uint32_t)send_to_cpu & 0xffffU));
+	printf("prvCmdQuRunTask run; c906l_mailbox_event_trace_v2\n");
 
 	for (;;) {
 			xQueueReceive(gTaskCtx[E_QUEUE_CMDQU].queHandle, &rtos_cmdq, portMAX_DELAY);
+			if (rtos_cmdq.cmd_id == RTOS_USER_CMD_PING)
+				cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_DEQUEUE,
+							prvCmdHeader(&rtos_cmdq));
 
 			if (prvHandleUserCmd(&rtos_cmdq) == 0) {
 				rtos_cmdq.ip_id = IP_SYSTEM;
@@ -321,6 +344,10 @@ send_label:
 
 				drv_spin_lock_irqsave(&mailbox_lock, flags);
 				if (flags == MAILBOX_LOCK_FAILED) {
+					if (cmdq->cmd_id == RTOS_USER_CMD_PING)
+						cvitek_boot_trace_event(
+							CVITEK_BOOT_TRACE_EVENT_SPINLOCK_FAIL,
+							prvCmdHeader(cmdq));
 					printf("[%s][%d] drv_spin_lock_irqsave failed! ip_id = %d , cmd_id = %d\n" , cmdq->ip_id , cmdq->cmd_id);
 					break;
 				}
@@ -335,6 +362,11 @@ send_label:
 								(cmdq->resv.valid.linux_valid << 16) |
 								(cmdq->resv.valid.rtos_valid << 24));
 						rtos_cmdqu_t->param_ptr = cmdq->param_ptr;
+						if (cmdq->cmd_id == RTOS_USER_CMD_PING)
+							cvitek_boot_trace_event(
+								CVITEK_BOOT_TRACE_EVENT_REPLY_SLOT,
+								(((uint32_t)send_to_cpu & 0xffffU) << 16) |
+								((uint32_t)valid & 0xffffU));
 						debug_printf("rtos_cmdqu_t->linux_valid = %d\n", rtos_cmdqu_t->resv.valid.linux_valid);
 						debug_printf("rtos_cmdqu_t->rtos_valid = %d\n", rtos_cmdqu_t->resv.valid.rtos_valid);
 						debug_printf("rtos_cmdqu_t->ip_id =%x %d\n", &rtos_cmdqu_t->ip_id, rtos_cmdqu_t->ip_id);
@@ -347,12 +379,20 @@ send_label:
 						// trigger mailbox valid to rtos
 						mbox_reg->cpu_mbox_en[send_to_cpu].mbox_info |= (1 << valid);
 						mbox_reg->mbox_set.mbox_set = (1 << valid);
+						if (cmdq->cmd_id == RTOS_USER_CMD_PING)
+							cvitek_boot_trace_event(
+								CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED,
+								prvCmdHeader(cmdq));
 						break;
 					}
 					rtos_cmdqu_t++;
 				}
 				drv_spin_unlock_irqrestore(&mailbox_lock, flags);
 				if (valid >= MAILBOX_MAX_NUM) {
+					if (cmdq->cmd_id == RTOS_USER_CMD_PING)
+						cvitek_boot_trace_event(
+							CVITEK_BOOT_TRACE_EVENT_REPLY_NO_SLOT,
+							prvCmdHeader(cmdq));
 				    printf("No valid mailbox is available\n");
 				    return -1;
 				}
@@ -371,8 +411,11 @@ void prvQueueISR(void)
 	int i;
 	cmdqu_t *cmdq;
 	BaseType_t YieldRequired = pdFALSE;
+	BaseType_t queue_result;
 
+	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_ISR_ENTRY, 0);
 	set_val = mbox_reg->cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_int.mbox_int;
+	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_ISR_SET, set_val);
 	/* Now, we do not implement info back feature */
 	// done_val = mbox_done_reg->cpu_mbox_done[RECEIVE_CPU].cpu_mbox_int_int.mbox_int;
 
@@ -398,6 +441,10 @@ void prvQueueISR(void)
 
 				/* mailbox buffer context is send from linux*/
 				if (rtos_cmdq.resv.valid.linux_valid == 1) {
+					if (rtos_cmdq.cmd_id == RTOS_USER_CMD_PING)
+						cvitek_boot_trace_event(
+							CVITEK_BOOT_TRACE_EVENT_LINUX_VALID,
+							prvCmdHeader(&rtos_cmdq));
 					debug_printf("cmdq=%x\n", cmdq);
 					debug_printf("cmdq->ip_id =%d\n", rtos_cmdq.ip_id);
 					debug_printf("cmdq->cmd_id =%d\n", rtos_cmdq.cmd_id);
@@ -422,7 +469,13 @@ void prvQueueISR(void)
 						xQueueSendFromISR(gTaskCtx[E_QUEUE_AUDIO].queHandle, &rtos_cmdq, &YieldRequired);
 						break;
 					case IP_SYSTEM:
-						xQueueSendFromISR(gTaskCtx[E_QUEUE_CMDQU].queHandle, &rtos_cmdq, &YieldRequired);
+						queue_result = xQueueSendFromISR(
+							gTaskCtx[E_QUEUE_CMDQU].queHandle,
+							&rtos_cmdq, &YieldRequired);
+						if (rtos_cmdq.cmd_id == RTOS_USER_CMD_PING)
+							cvitek_boot_trace_event(
+								CVITEK_BOOT_TRACE_EVENT_QUEUE_SENT,
+								(uint32_t)queue_result);
 						break;
 					case IP_CAMERA:
 						xQueueSendFromISR(gTaskCtx[E_QUEUE_CAMERA].queHandle, &rtos_cmdq, &YieldRequired);

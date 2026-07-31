@@ -1,9 +1,9 @@
-name: Build C906L staged boot-trace probe
+name: Build C906L mailbox-event probe
 
 on:
   push:
     branches:
-      - codex-rtos-boot-trace-probe-20260731
+      - codex-rtos-mailbox-event-probe-20260731
     paths:
       - .github/workflows/riscv-rtos-probe.yml
       - configs/common/patches/linux/**
@@ -19,7 +19,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: riscv-rtos-probe-${{ github.ref }}
+  group: c906l-mailbox-event-probe-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -70,10 +70,13 @@ jobs:
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
           strings -a artifact/cvitek_remoteproc.ko > artifact/cvitek_remoteproc.strings.txt
+          strings -a artifact/licheervnano_c906-mcu.elf > artifact/c906l-rtos.strings.txt
           grep -Fqx 'firmware has no resource table; using mailbox-only mode' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'failed to %s C906L via SBI: %d' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'boot trace host sentinel at 0x%llx' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_event_trace_v2' artifact/c906l-rtos.strings.txt
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
           (
             cd artifact
@@ -86,13 +89,14 @@ jobs:
               rtos-sdk-commit.txt \
               source-commit.txt \
               vermagic.txt \
-              cvitek_remoteproc.strings.txt > SHA256SUMS.txt
+              cvitek_remoteproc.strings.txt \
+              c906l-rtos.strings.txt > SHA256SUMS.txt
           )
 
       - name: Upload probe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: c906l-boot-trace-probe
+          name: c906l-mailbox-event-probe
           path: artifact/
           if-no-files-found: error
           retention-days: 7

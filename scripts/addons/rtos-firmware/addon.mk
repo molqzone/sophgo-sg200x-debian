@@ -29,6 +29,9 @@ $(BUILDDIR)/rtos-firmware-build-stamp:
 	@rm -f $(RTOS_FIRMWARE_SDK)/freertos/cvitek/driver/common/include/boot_trace.h
 	@git -C $(RTOS_FIRMWARE_SDK) apply --check /builder/addons/rtos-firmware/patches/0001-cvitek-c906l-boot-trace.patch
 	@git -C $(RTOS_FIRMWARE_SDK) apply /builder/addons/rtos-firmware/patches/0001-cvitek-c906l-boot-trace.patch
+	@git -C $(RTOS_FIRMWARE_SDK) apply --check /builder/addons/rtos-firmware/patches/0002-cvitek-c906l-mailbox-event-trace.patch
+	@git -C $(RTOS_FIRMWARE_SDK) apply /builder/addons/rtos-firmware/patches/0002-cvitek-c906l-mailbox-event-trace.patch
+	@grep -Fq "CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED" $(RTOS_FIRMWARE_SDK)/freertos/cvitek/task/comm/src/riscv64/comm_main.c
 	@cd $(RTOS_FIRMWARE_SDK) && bash -lc ' \
 		export PATH=/host-tools/gcc/riscv64-elf-x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$$PATH; \
 		source build/envsetup_milkv.sh milkv-duo256m-musl-riscv64-sd >/dev/null; \

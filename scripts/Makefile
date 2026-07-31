@@ -119,6 +119,7 @@ $(BUILDDIR)/linux-prepare-patch-stamp: $(BUILDDIR)/linux-prepare-checkout-stamp
 	@grep -Fq "firmware has no resource table; using mailbox-only mode" $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@grep -Fq "failed to %s C906L via SBI: %d" $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@grep -Fq "boot trace host sentinel at 0x%llx" $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
+	@grep -Fq 'return "reply_posted"' $(BUILDDIR)/kernel/drivers/remoteproc/cvitek_remoteproc.c
 	@cp /configs/$(BOARD)/linux/defconfig $(BUILDDIR)/kernel/arch/riscv/configs/${BOARD}_defconfig
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)/*), cp $(file) $(BUILDDIR)/kernel/arch/riscv/boot/dts/cvitek/;)
 	@$(foreach file, $(wildcard /configs/common/dts/$(CHIP)_$(ARCH)/*), cp $(file) $(BUILDDIR)/kernel/arch/riscv/boot/dts/cvitek/;)

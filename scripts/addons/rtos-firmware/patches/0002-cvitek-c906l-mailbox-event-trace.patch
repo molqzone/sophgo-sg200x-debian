@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 18:00:00 +0800
+Subject: [PATCH] freertos: trace C906L mailbox transaction events
+
+Keep a validated last-event record and cumulative event bitmap in the
+unused half of the existing 64-byte boot-trace cache line. This exposes
+mailbox progress without changing the command protocol or MMIO sequence.
+---
+ .../cvitek/driver/common/include/boot_trace.h | 70 +++++++++++++++++++-
+ 1 file changed, 69 insertions(+), 1 deletion(-)
+
+diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvitek/driver/common/include/boot_trace.h
+--- a/freertos/cvitek/driver/common/include/boot_trace.h
++++ b/freertos/cvitek/driver/common/include/boot_trace.h
+@@ -11,6 +11,20 @@
+ #define CVITEK_BOOT_TRACE_STAGE_IRQ_READY 4U
+ #define CVITEK_BOOT_TRACE_STAGE_CMDQU_TASK 5U
+ 
++#define CVITEK_BOOT_TRACE_EVENT_IRQ_RESULT 1U
++#define CVITEK_BOOT_TRACE_EVENT_TASK_READY 2U
++#define CVITEK_BOOT_TRACE_EVENT_ISR_ENTRY 3U
++#define CVITEK_BOOT_TRACE_EVENT_ISR_SET 4U
++#define CVITEK_BOOT_TRACE_EVENT_LINUX_VALID 5U
++#define CVITEK_BOOT_TRACE_EVENT_QUEUE_SENT 6U
++#define CVITEK_BOOT_TRACE_EVENT_DEQUEUE 7U
++#define CVITEK_BOOT_TRACE_EVENT_PING_HANDLED 8U
++#define CVITEK_BOOT_TRACE_EVENT_REPLY_SLOT 9U
++#define CVITEK_BOOT_TRACE_EVENT_REPLY_POSTED 10U
++#define CVITEK_BOOT_TRACE_EVENT_SPINLOCK_FAIL 11U
++#define CVITEK_BOOT_TRACE_EVENT_REPLY_NO_SLOT 12U
++#define CVITEK_BOOT_TRACE_EVENT_MAX CVITEK_BOOT_TRACE_EVENT_REPLY_NO_SLOT
++
+ struct cvitek_boot_trace {
+ 	volatile uint32_t magic;
+ 	volatile uint32_t version;
+@@ -21,7 +35,14 @@ struct cvitek_boot_trace {
+ 	volatile uint32_t stage_inverse;
+ 	volatile uint32_t hart_id;
+ 	volatile uint32_t hart_id_inverse;
+-	volatile uint32_t reserved[8];
++	volatile uint32_t event_sequence;
++	volatile uint32_t event_sequence_inverse;
++	volatile uint32_t event;
++	volatile uint32_t event_inverse;
++	volatile uint32_t event_arg;
++	volatile uint32_t event_arg_inverse;
++	volatile uint32_t event_seen;
++	volatile uint32_t event_seen_inverse;
+ };
+ 
+ extern unsigned char __boot_trace_start[];
+@@ -37,4 +58,51 @@ static inline void cvitek_boot_trace_mark(uint32_t stage)
+ 	__asm__ volatile ("fence rw, rw" ::: "memory");
+ }
+ 
++static inline uintptr_t cvitek_boot_trace_irq_save(void)
++{
++	uintptr_t state;
++	uintptr_t mask = 1U << 3;
++
++	__asm__ volatile ("csrrc %0, mstatus, %1"
++			  : "=r" (state) : "r" (mask) : "memory");
++	return state;
++}
++
++static inline void cvitek_boot_trace_irq_restore(uintptr_t state)
++{
++	uintptr_t mask = 1U << 3;
++
++	if (state & mask)
++		__asm__ volatile ("csrs mstatus, %0" : : "r" (mask) : "memory");
++}
++
++static inline void cvitek_boot_trace_event(uint32_t event, uint32_t arg)
++{
++	volatile struct cvitek_boot_trace *trace =
++		(volatile struct cvitek_boot_trace *)__boot_trace_start;
++	uintptr_t irq_state = cvitek_boot_trace_irq_save();
++	uint32_t sequence = trace->event_sequence;
++	uint32_t seen = trace->event_seen;
++
++	if ((sequence ^ trace->event_sequence_inverse) != ~0U)
++		sequence = 0;
++	if ((seen ^ trace->event_seen_inverse) != ~0U)
++		seen = 0;
++	if (event > 0 && event <= CVITEK_BOOT_TRACE_EVENT_MAX)
++		seen |= 1U << (event - 1U);
++
++	trace->event_arg = arg;
++	trace->event_arg_inverse = ~arg;
++	trace->event_seen = seen;
++	trace->event_seen_inverse = ~seen;
++	trace->event = event;
++	trace->event_inverse = ~event;
++	trace->event_sequence = ++sequence;
++	trace->event_sequence_inverse = ~sequence;
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++	clean_dcache_range((uintptr_t)trace, sizeof(*trace));
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++	cvitek_boot_trace_irq_restore(irq_state);
++}
++
+ #endif /* CVITEK_BOOT_TRACE_H */
+-- 
+2.53.0.windows.1
