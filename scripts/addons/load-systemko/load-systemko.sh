@@ -3,6 +3,12 @@
 if [ "$1" = "start" ]
 then
 	KERNELRELEASE=$(uname -r)
+	if { [ -n "${RTOS_SHM_START:-}" ] && [ -z "${RTOS_SHM_SIZE:-}" ]; } ||
+	   { [ -z "${RTOS_SHM_START:-}" ] && [ -n "${RTOS_SHM_SIZE:-}" ]; }
+	then
+		echo "RTOS_SHM_START and RTOS_SHM_SIZE must be supplied together" >&2
+		exit 1
+	fi
 
 	rmmod hynitron_touch 2>/dev/null || true
 	rmmod spi_gpio 2>/dev/null || true
@@ -29,10 +35,6 @@ then
 	then
 		if [ -n "${RTOS_SHM_START:-}" ] || [ -n "${RTOS_SHM_SIZE:-}" ]
 		then
-			[ -n "${RTOS_SHM_START:-}" ] && [ -n "${RTOS_SHM_SIZE:-}" ] || {
-				echo "RTOS_SHM_START and RTOS_SHM_SIZE must be supplied together" >&2
-				exit 1
-			}
 			insmod cv181x_rtos_cmdqu.ko \
 				shm_start="$RTOS_SHM_START" shm_size="$RTOS_SHM_SIZE"
 		else
