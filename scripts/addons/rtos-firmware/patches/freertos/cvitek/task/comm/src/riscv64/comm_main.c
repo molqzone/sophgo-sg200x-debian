@@ -1,5 +1,6 @@
 /* Standard includes. */
 #include <stdio.h>
+#include <stdint.h>
 
 /* Kernel includes. */
 #include "FreeRTOS.h"
@@ -12,6 +13,8 @@
 #include "printf.h"
 #include "rtos_cmdqu.h"
 #include "fast_image.h"
+#include "cvi_mailbox.h"
+#include "dump_uart.h"
 #include "intr_conf.h"
 #include "top_reg.h"
 #include "memmap.h"
@@ -224,7 +227,7 @@ void prvCmdQuRunTask(void *pvParameters)
 			snapshot.ptr = xTraceGetTraceBuffer();
 			snapshot.size = uiTraceGetTraceBufferSize();
 			snapshot.type = 0;
-			rtos_cmdq.param_ptr = &snapshot;
+			rtos_cmdq.param_ptr = (uint32_t)(uintptr_t)&snapshot;
 			vTraceStop();
 			flush_dcache_range(&snapshot, sizeof (struct trace_snapshot_t));
 			flush_dcache_range(snapshot.ptr, snapshot.size);
@@ -249,7 +252,8 @@ void prvCmdQuRunTask(void *pvParameters)
 			break;
 		case SYS_CMD_INFO_LINUX_INIT_DONE:
 			rtos_cmdq.cmd_id = SYS_CMD_INFO_RTOS_INIT_DONE;
-			rtos_cmdq.param_ptr = &transfer_config;
+			rtos_cmdq.param_ptr =
+				(uint32_t)(uintptr_t)&transfer_config;
 			goto send_label;
 			break;
 		case SYS_CMD_INFO_STOP_ISR:
@@ -272,6 +276,7 @@ void prvCmdQuRunTask(void *pvParameters)
 			if (stop_ip != STOP_CMD_DONE_ALL)
 				break;
 			rtos_cmdq.ip_id = IP_SYSTEM;
+			/* fall through */
 		case SYS_CMD_INFO_LINUX:
 		default:
 send_label:

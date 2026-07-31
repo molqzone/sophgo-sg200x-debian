@@ -1,5 +1,6 @@
 #include "sg2002_rtos_mailbox.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "cvi_mailbox.h"

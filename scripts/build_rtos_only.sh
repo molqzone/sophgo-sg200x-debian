@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 
 BOARD=${BOARD:-licheervnano}
+ARTIFACT_BOARD=$BOARD
 SDK_REPO=${SDK_REPO:-https://github.com/milkv-duo/duo-buildroot-sdk-v2.git}
 SDK_COMMIT=${SDK_COMMIT:-6f8962c394dd0a05729abb089f0feb7d5cc4aa5e}
 OUT_DIR=${OUT_DIR:-$(pwd)/rtos_out}
@@ -73,22 +74,24 @@ build_rtos
 set -u
 popd >/dev/null
 
-cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.elf" "$OUT_DIR/${BOARD}_c906-mcu.elf"
-cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.bin" "$OUT_DIR/${BOARD}_c906-mcu.bin"
+cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.elf" "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf"
+cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.bin" "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.bin"
 
 python3 "$CHECK_TRACE_SCRIPT" \
   --readelf "$BUILD_HOST_TOOLS/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-readelf" \
-  "$OUT_DIR/${BOARD}_c906-mcu.elf" |
-  tee "$OUT_DIR/${BOARD}_boot-trace-layout.json"
+  "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf" |
+  tee "$OUT_DIR/${ARTIFACT_BOARD}_boot-trace-layout.json"
 
-sha256sum "$OUT_DIR/${BOARD}_c906-mcu.elf" "$OUT_DIR/${BOARD}_c906-mcu.bin" > "$OUT_DIR/SHA256SUMS.txt"
-git -C "$SDK_DIR" rev-parse HEAD > "$OUT_DIR/${BOARD}_rtos-sdk-commit.txt"
+sha256sum "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf" \
+  "$OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.bin" > "$OUT_DIR/SHA256SUMS.txt"
+git -C "$SDK_DIR" rev-parse HEAD > \
+  "$OUT_DIR/${ARTIFACT_BOARD}_rtos-sdk-commit.txt"
 sha256sum \
   "$ADDON_ROOT/include/sg2002_rtos_protocol.h" \
   "$ADDON_ROOT/freertos/src/sg2002_rtos_app.c" \
   "$ADDON_ROOT/freertos/src/sg2002_rtos_mailbox.c" > \
-  "$OUT_DIR/${BOARD}_rtos-source-SHA256SUMS.txt"
+  "$OUT_DIR/${ARTIFACT_BOARD}_rtos-source-SHA256SUMS.txt"
 
 echo "RTOS firmware built:"
-echo "  $OUT_DIR/${BOARD}_c906-mcu.elf"
-echo "  $OUT_DIR/${BOARD}_c906-mcu.bin"
+echo "  $OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.elf"
+echo "  $OUT_DIR/${ARTIFACT_BOARD}_c906-mcu.bin"
