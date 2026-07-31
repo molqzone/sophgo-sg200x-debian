@@ -268,7 +268,7 @@ void prvCmdQuRunTask(void *pvParameters)
 	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_TASK_READY,
 				(((uint32_t)RECEIVE_CPU & 0xffffU) << 16) |
 				((uint32_t)send_to_cpu & 0xffffU));
-	printf("prvCmdQuRunTask run; c906l_mailbox_busy_scan_v3\n");
+	printf("prvCmdQuRunTask run; c906l_mailbox_direction_v5\n");
 
 	for (;;) {
 			if (xQueueReceive(gTaskCtx[E_QUEUE_CMDQU].queHandle,
@@ -379,6 +379,7 @@ send_label:
 						// mailbox buffer context is 4 bytes write access
 						int *ptr = (int *)rtos_cmdqu_t;
 
+						cmdq->resv.valid.linux_valid = 0;
 						cmdq->resv.valid.rtos_valid = 1;
 						*ptr = ((cmdq->ip_id << 0) | (cmdq->cmd_id << 8) | (cmdq->block << 15) |
 								(cmdq->resv.valid.linux_valid << 16) |
@@ -477,7 +478,8 @@ static void prvPollMailbox(void)
 	for (i = 0; i < MAILBOX_MAX_NUM; i++) {
 		cmdqu_t *cmdq = (cmdqu_t *)mailbox_context + i;
 
-		if (cmdq->resv.valid.linux_valid != 1)
+		if (cmdq->resv.valid.linux_valid != 1 ||
+		    cmdq->resv.valid.rtos_valid != 0)
 			continue;
 		*((unsigned long *)&pending[pending_count]) = *((unsigned long *)cmdq);
 		*((unsigned long *)cmdq) = 0;
@@ -546,7 +548,8 @@ int prvQueueISR(int irq, void *dev_id)
 				*((unsigned long*) cmdq) = 0;
 
 				/* mailbox buffer context is send from linux*/
-				if (rtos_cmdq.resv.valid.linux_valid == 1) {
+				if (rtos_cmdq.resv.valid.linux_valid == 1 &&
+				    rtos_cmdq.resv.valid.rtos_valid == 0) {
 					if (rtos_cmdq.cmd_id == RTOS_USER_CMD_PING)
 						cvitek_boot_trace_event(
 							CVITEK_BOOT_TRACE_EVENT_LINUX_VALID,
