@@ -34,6 +34,7 @@ if [ ! -d "$PATCH_ROOT" ]; then
   echo "RTOS patch root not found: $PATCH_ROOT" >&2
   exit 1
 fi
+PATCH_ROOT=$(cd "$PATCH_ROOT" && pwd)
 
 if [ ! -d "$SDK_DIR/.git" ]; then
   mkdir -p "$SDK_DIR"
@@ -85,6 +86,10 @@ do
   stage_patch_file "$rel"
 done
 
+rm -f "$SDK_DIR/freertos/cvitek/driver/common/include/boot_trace.h"
+git -C "$SDK_DIR" apply --check "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
+git -C "$SDK_DIR" apply "$PATCH_ROOT/0001-cvitek-c906l-boot-trace.patch"
+
 rm -rf "$SDK_DIR/freertos/cvitek/build" "$SDK_DIR/freertos/cvitek/install"
 
 export PATH="$BUILD_HOST_TOOLS/gcc/riscv64-elf-x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
@@ -99,6 +104,11 @@ popd >/dev/null
 
 cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.elf" "$OUT_DIR/${BOARD}_c906-mcu.elf"
 cp "$SDK_DIR/freertos/cvitek/install/bin/cvirtos.bin" "$OUT_DIR/${BOARD}_c906-mcu.bin"
+
+python3 scripts/check_rtos_trace_layout.py \
+  --readelf "$BUILD_HOST_TOOLS/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-readelf" \
+  "$OUT_DIR/${BOARD}_c906-mcu.elf" |
+  tee "$OUT_DIR/${BOARD}_boot-trace-layout.json"
 
 sha256sum "$OUT_DIR/${BOARD}_c906-mcu.elf" "$OUT_DIR/${BOARD}_c906-mcu.bin" > "$OUT_DIR/SHA256SUMS.txt"
 git -C "$SDK_DIR" rev-parse HEAD > "$OUT_DIR/${BOARD}_rtos-sdk-commit.txt"

@@ -1,9 +1,9 @@
-name: Build RISC-V RTOS remoteproc probe
+name: Build C906L staged boot-trace probe
 
 on:
   push:
     branches:
-      - codex-usbnet-ssh-unattended-20260730
+      - codex-rtos-boot-trace-probe-20260731
     paths:
       - .github/workflows/riscv-rtos-probe.yml
       - configs/common/patches/linux/**
@@ -11,6 +11,7 @@ on:
       - scripts/Makefile
       - scripts/addons/rtos-firmware/**
       - scripts/build_rtos_only.sh
+      - scripts/check_rtos_trace_layout.py
   workflow_dispatch:
 
 permissions:
@@ -65,6 +66,7 @@ jobs:
           cp "${modules[0]}" artifact/cvitek_remoteproc.ko
           cp probe-output/licheervnano_c906-mcu.elf artifact/
           cp probe-output/licheervnano_c906-mcu.bin artifact/
+          cp probe-output/licheervnano_boot-trace-layout.json artifact/
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
           printf '%s\n' "${GITHUB_SHA}" > artifact/source-commit.txt
@@ -75,6 +77,7 @@ jobs:
               cvitek_remoteproc.ko \
               licheervnano_c906-mcu.elf \
               licheervnano_c906-mcu.bin \
+              licheervnano_boot-trace-layout.json \
               rtos-sdk-commit.txt \
               source-commit.txt \
               vermagic.txt > SHA256SUMS.txt
@@ -83,7 +86,7 @@ jobs:
       - name: Upload probe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: riscv-rtos-probe
+          name: c906l-boot-trace-probe
           path: artifact/
           if-no-files-found: error
           retention-days: 7

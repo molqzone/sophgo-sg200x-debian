@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 10:00:00 +0800
+Subject: [PATCH] freertos: add C906L staged boot trace
+
+Reserve the final 4 KiB of the FreeRTOS carveout for a cache-line-sized
+boot record. Record entry before the primary-hart gate, then record the
+post-BSS and C-runtime boundaries. Linux initializes and reads the same
+record, so an unchanged host sentinel distinguishes a core that never
+executed from one that failed later in startup.
+---
+ freertos/cvitek/arch/riscv64/src/start.S       | 30 ++++++++++++++++++
+ .../cvitek/driver/common/include/boot_trace.h  | 42 +++++++++++++++++++++++++
+ freertos/cvitek/scripts/cv181x_lscript.ld      | 10 ++++--
+ freertos/cvitek/task/main/src/main.c           |  3 ++
+ 4 files changed, 83 insertions(+), 2 deletions(-)
+ create mode 100644 freertos/cvitek/driver/common/include/boot_trace.h
+
+diff --git a/freertos/cvitek/arch/riscv64/src/start.S b/freertos/cvitek/arch/riscv64/src/start.S
+--- a/freertos/cvitek/arch/riscv64/src/start.S
++++ b/freertos/cvitek/arch/riscv64/src/start.S
+@@ -39,6 +39,17 @@ _start:
+ 
+ 	// Continue primary hart
+ 	csrr a0, mhartid
++	// BOOT0 is deliberately before the primary-hart gate and cache enable.
++	la   t0, __boot_trace_start
++	li   t1, 1
++	sw   t1, 16(t0)
++	not  t2, t1
++	sw   t2, 20(t0)
++	sw   a0, 24(t0)
++	not  t2, a0
++	sw   t2, 28(t0)
++	fence rw, rw
++
+ 	li   a1, PRIM_HART
+ 	bne  a0, a1, secondary
+ 
+@@ -128,6 +139,20 @@ _start:
+ 	bltu a0, a1, 1b
+ 2:
+ 
++	// BOOT1 means the primary hart completed data/BSS initialization.
++	la   t0, __boot_trace_start
++	li   t1, 2
++	sw   t1, 16(t0)
++	not  t2, t1
++	sw   t2, 20(t0)
++	fence rw, rw
++
++	// D-cache is enabled at this point; publish the complete cache line.
++	mv   a0, t0
++	li   a1, 64
++	call clean_dcache_range
++	fence rw, rw
++
+ 	// argc, argv, envp is 0
+ 	li  a0, 0
+ 	li  a1, 0
+diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvitek/driver/common/include/boot_trace.h
+new file mode 100644
+--- /dev/null
++++ b/freertos/cvitek/driver/common/include/boot_trace.h
+@@ -0,0 +1,40 @@
++#ifndef CVITEK_BOOT_TRACE_H
++#define CVITEK_BOOT_TRACE_H
++
++#include <stdint.h>
++#include <arch_helpers.h>
++
++#define CVITEK_BOOT_TRACE_STAGE_HOST_READY 0U
++#define CVITEK_BOOT_TRACE_STAGE_ENTRY 1U
++#define CVITEK_BOOT_TRACE_STAGE_BSS_READY 2U
++#define CVITEK_BOOT_TRACE_STAGE_MAIN 3U
++#define CVITEK_BOOT_TRACE_STAGE_IRQ_READY 4U
++#define CVITEK_BOOT_TRACE_STAGE_CMDQU_TASK 5U
++
++struct cvitek_boot_trace {
++	volatile uint32_t magic;
++	volatile uint32_t version;
++	volatile uint32_t host_cookie;
++	volatile uint32_t host_cookie_inverse;
++	volatile uint32_t stage;
++	volatile uint32_t stage_inverse;
++	volatile uint32_t hart_id;
++	volatile uint32_t hart_id_inverse;
++	volatile uint32_t reserved[8];
++};
++
++extern unsigned char __boot_trace_start[];
++
++static inline void cvitek_boot_trace_mark(uint32_t stage)
++{
++	volatile struct cvitek_boot_trace *trace =
++		(volatile struct cvitek_boot_trace *)__boot_trace_start;
++
++	trace->stage = stage;
++	trace->stage_inverse = ~stage;
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++	clean_dcache_range((uintptr_t)trace, sizeof(*trace));
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++}
++
++#endif /* CVITEK_BOOT_TRACE_H */
+diff --git a/freertos/cvitek/scripts/cv181x_lscript.ld b/freertos/cvitek/scripts/cv181x_lscript.ld
+--- a/freertos/cvitek/scripts/cv181x_lscript.ld
++++ b/freertos/cvitek/scripts/cv181x_lscript.ld
+@@ -21,9 +21,11 @@
+ 
+ /* Define Memories in the system */
+ 
++_BOOT_TRACE_SIZE = 0x1000;
++
+ MEMORY
+ {
+-   psu_ddr_0_MEM_0 : ORIGIN = CVIMMAP_FREERTOS_ADDR , LENGTH = CVIMMAP_FREERTOS_SIZE
++   psu_ddr_0_MEM_0 : ORIGIN = CVIMMAP_FREERTOS_ADDR , LENGTH = CVIMMAP_FREERTOS_SIZE - _BOOT_TRACE_SIZE
+ }
+ 
+ /* Specify the default entry point to the program */
+@@ -198,4 +200,8 @@ SECTIONS
+ } > psu_ddr_0_MEM_0
+ 
+ _end = .;
++__boot_trace_start = CVIMMAP_FREERTOS_ADDR + CVIMMAP_FREERTOS_SIZE - _BOOT_TRACE_SIZE;
++__boot_trace_end = __boot_trace_start + _BOOT_TRACE_SIZE;
++
++ASSERT(_end <= __boot_trace_start, "FreeRTOS image overlaps C906L boot trace")
+ }
+diff --git a/freertos/cvitek/task/main/src/main.c b/freertos/cvitek/task/main/src/main.c
+--- a/freertos/cvitek/task/main/src/main.c
++++ b/freertos/cvitek/task/main/src/main.c
+@@ -45,6 +45,7 @@
+ #include <stdio.h>
+ /* Scheduler include files. */
+ #include "FreeRTOS.h"
++#include "boot_trace.h"
+ #include "task.h"
+ 
+ #else
+@@ -119,6 +120,8 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__ ( ( section( ".heap" ) ) );
+ 
+ int main(void)
+ {
++	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_MAIN);
++
+ 	pre_system_init();
+ 	printf("CVIRTOS Build Date:%s  (Time :%s) \n", __DATE__, __TIME__);
+ #ifndef __riscv
+-- 
+2.53.0.windows.1

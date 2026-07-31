@@ -26,12 +26,18 @@ $(BUILDDIR)/rtos-firmware-build-stamp:
 	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/rtos_cmdqu.h $(RTOS_FIRMWARE_SDK)/freertos/cvitek/driver/rtos_cmdqu.h
 	@cp -a /builder/addons/rtos-firmware/patches/freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h $(RTOS_FIRMWARE_SDK)/freertos/cvitek/driver/rtos_cmdqu/include/rtos_cmdqu.h
 	@cp -a /builder/addons/rtos-firmware/patches/cvi_mpi/include/rtos_cmdqu.h $(RTOS_FIRMWARE_SDK)/cvi_mpi/include/rtos_cmdqu.h
+	@rm -f $(RTOS_FIRMWARE_SDK)/freertos/cvitek/driver/common/include/boot_trace.h
+	@git -C $(RTOS_FIRMWARE_SDK) apply --check /builder/addons/rtos-firmware/patches/0001-cvitek-c906l-boot-trace.patch
+	@git -C $(RTOS_FIRMWARE_SDK) apply /builder/addons/rtos-firmware/patches/0001-cvitek-c906l-boot-trace.patch
 	@cd $(RTOS_FIRMWARE_SDK) && bash -lc ' \
 		export PATH=/host-tools/gcc/riscv64-elf-x86_64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$$PATH; \
 		source build/envsetup_milkv.sh milkv-duo256m-musl-riscv64-sd >/dev/null; \
 		build_rtos'
 	@test -s $(RTOS_FIRMWARE_ELF)
 	@test -s $(RTOS_FIRMWARE_BIN)
+	@python3 /builder/check_rtos_trace_layout.py \
+		--readelf /host-tools/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-readelf \
+		$(RTOS_FIRMWARE_ELF) | tee /output/$(BOARD)_boot-trace-layout.json
 	@sha256sum $(RTOS_FIRMWARE_ELF) $(RTOS_FIRMWARE_BIN)
 	@touch $@
 

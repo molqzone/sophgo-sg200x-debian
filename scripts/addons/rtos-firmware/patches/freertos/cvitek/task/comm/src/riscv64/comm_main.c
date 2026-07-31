@@ -17,6 +17,7 @@
 #include "top_reg.h"
 #include "memmap.h"
 #include "gpio.h"
+#include "boot_trace.h"
 
 #include "comm.h"
 #include "cvi_spinlock.h"
@@ -177,6 +178,7 @@ void main_cvirtos(void)
 	printf("create cvi task\n");
 
 	request_irq(MBOX_INT_C906_2ND, prvQueueISR, 0, "mailbox", (void *)0);
+	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_IRQ_READY);
 
 #ifdef FAST_IMAGE_ENABLE
 	start_camera(0);
@@ -203,6 +205,7 @@ void prvCmdQuRunTask(void *pvParameters)
 {
 	/* Remove compiler warning about unused parameter. */
 	(void)pvParameters;
+	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_CMDQU_TASK);
 
 	cmdqu_t rtos_cmdq;
 	cmdqu_t *cmdq;
