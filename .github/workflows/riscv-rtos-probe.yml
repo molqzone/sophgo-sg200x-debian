@@ -111,7 +111,8 @@ jobs:
           grep -Fqx 'boot_trace' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'reply_posted' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'mailbox_poll' artifact/cvitek_remoteproc.strings.txt
-          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_layered_v1' artifact/c906l-rtos.strings.txt
+          grep -Fqx 'recovery' artifact/cvitek_remoteproc.strings.txt
+          grep -Fqx 'prvCmdQuRunTask run; c906l_mailbox_irq_v2' artifact/c906l-rtos.strings.txt
           grep -Fqx 'protocol=PASS' artifact/host-tests.txt
           grep -Fqx 'rtos_app=PASS' artifact/host-tests.txt
           grep -Fqx 'linux_comm=PASS' artifact/host-tests.txt

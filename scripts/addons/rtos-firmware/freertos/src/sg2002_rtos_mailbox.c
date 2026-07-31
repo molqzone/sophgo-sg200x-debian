@@ -50,26 +50,48 @@ void sg2002_rtos_mailbox_init(void)
 	cvi_spinlock_init();
 }
 
-unsigned int sg2002_rtos_mailbox_receive(cmdqu_t *commands,
-					 unsigned int capacity)
+void sg2002_rtos_mailbox_enable_receiver(void)
 {
-	unsigned char interrupt_mask;
+	/* Quiesce stale state before unmasking all eight C906L channels. */
+	mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_mask.mbox_int_mask = 0xffU;
+	mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_clr.mbox_int_clr = 0xffU;
+	mailbox_registers->cpu_mbox_en[RECEIVE_CPU].mbox_info = 0U;
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+	mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_mask.mbox_int_mask = 0U;
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+}
+
+void sg2002_rtos_mailbox_get_diagnostics(
+	struct sg2002_rtos_mailbox_diagnostics *diagnostics)
+{
+	if (diagnostics == NULL)
+		return;
+
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+	diagnostics->enabled = mailbox_registers->
+		cpu_mbox_en[RECEIVE_CPU].mbox_info;
+	diagnostics->raw = mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_raw.mbox_int_raw;
+	diagnostics->mask = mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_mask.mbox_int_mask;
+	diagnostics->pending = mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_int.mbox_int;
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+}
+
+static unsigned int receive_commands(cmdqu_t *commands,
+				      unsigned int capacity,
+				      unsigned char interrupt_mask)
+{
 	unsigned char consumed_mask = 0;
 	unsigned int count = 0;
 	unsigned int slot;
-	int flags;
 
 	if (commands == NULL || capacity == 0)
 		return 0;
-
-	/* Linux publishes slots while holding the same hardware spinlock. */
-	drv_spin_lock_irqsave(&mailbox_lock, flags);
-	if (flags == MAILBOX_LOCK_FAILED)
-		return 0;
-
-	interrupt_mask = mailbox_registers->
-		cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_int.mbox_int;
-	__asm__ volatile ("fence iorw, iorw" ::: "memory");
 
 	for (slot = 0; slot < MAILBOX_MAX_NUM; slot++) {
 		unsigned char slot_mask = interrupt_mask & (1U << slot);
@@ -99,12 +121,48 @@ unsigned int sg2002_rtos_mailbox_receive(cmdqu_t *commands,
 			      command_header(&commands[count]));
 		count++;
 	}
-	drv_spin_unlock_irqrestore(&mailbox_lock, flags);
 
 	if (interrupt_mask || consumed_mask)
 		MAILBOX_TRACE(CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL,
 			      ((uint32_t)consumed_mask << 8) | interrupt_mask);
 	return count;
+}
+
+unsigned int sg2002_rtos_mailbox_receive(cmdqu_t *commands,
+					 unsigned int capacity)
+{
+	unsigned char interrupt_mask;
+	unsigned int count;
+	int flags;
+
+	if (commands == NULL || capacity == 0)
+		return 0;
+
+	/* Linux publishes slots while holding the same hardware spinlock. */
+	drv_spin_lock_irqsave(&mailbox_lock, flags);
+	if (flags == MAILBOX_LOCK_FAILED)
+		return 0;
+
+	interrupt_mask = mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_int.mbox_int;
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+	count = receive_commands(commands, capacity, interrupt_mask);
+	drv_spin_unlock_irqrestore(&mailbox_lock, flags);
+	return count;
+}
+
+unsigned int sg2002_rtos_mailbox_receive_from_isr(cmdqu_t *commands,
+						  unsigned int capacity)
+{
+	unsigned char interrupt_mask;
+
+	if (commands == NULL || capacity == 0)
+		return 0;
+
+	interrupt_mask = mailbox_registers->cpu_mbox_set[RECEIVE_CPU].
+		cpu_mbox_int_int.mbox_int;
+	__asm__ volatile ("fence iorw, iorw" ::: "memory");
+	return receive_commands(commands, capacity, interrupt_mask);
 }
 
 int sg2002_rtos_mailbox_send(const cmdqu_t *command, int send_to_cpu)

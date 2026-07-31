@@ -68,7 +68,9 @@ git -C "$SDK_DIR" apply "$ADDON_ROOT/patches/0001-cvitek-c906l-boot-trace.patch"
 git -C "$SDK_DIR" apply --check "$ADDON_ROOT/patches/0002-cvitek-c906l-mailbox-event-trace.patch"
 git -C "$SDK_DIR" apply "$ADDON_ROOT/patches/0002-cvitek-c906l-mailbox-event-trace.patch"
 
-grep -Fq "c906l_mailbox_layered_v1" \
+grep -Fq "c906l_mailbox_irq_v2" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/comm_main.c"
+grep -Fq "sg2002_rtos_mailbox_receive_from_isr" \
+	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_mailbox.c"
 grep -Fq "sg2002_rtos_mailbox_send" \
 	"$SDK_DIR/freertos/cvitek/task/comm/src/riscv64/sg2002_rtos_mailbox.c"

@@ -16,6 +16,8 @@
 #include "cvi_mailbox.h"
 #include "dump_uart.h"
 #include "intr_conf.h"
+#include "irq.h"
+#include "csr.h"
 #include "top_reg.h"
 #include "memmap.h"
 #include "boot_trace.h"
@@ -48,8 +50,20 @@ typedef struct _TASK_CTX_S {
  * Function prototypes
  ****************************************************************************/
 void prvCmdQuRunTask(void *pvParameters);
+static int prvMailboxISR(int irqn, void *priv);
+static QueueHandle_t prvQueueForIp(unsigned int ip_id);
 static BaseType_t prvQueueCommandFromTask(cmdqu_t *rtos_cmdq);
-static void prvPollMailbox(void);
+static BaseType_t prvQueueCommandFromISR(
+	cmdqu_t *rtos_cmdq, BaseType_t *higher_priority_task_woken);
+static void prvRecoverMailbox(void);
+static uint32_t prvPackMailboxDiagnostics(
+	const struct sg2002_rtos_mailbox_diagnostics *diagnostics);
+static uint32_t prvPlicDiagnostics(void);
+static uint32_t prvCsrDiagnostics(void);
+static void prvTraceMailboxDiagnostics(
+	uint32_t reason,
+	const struct sg2002_rtos_mailbox_diagnostics *diagnostics,
+	uint32_t plic_state, uint32_t csr_state);
 
 /****************************************************************************
  * Global parameters
@@ -113,6 +127,10 @@ TASK_CTX_S gTaskCtx[E_QUEUE_MAX] = {
 	},
 };
 
+static struct sg2002_rtos_mailbox_diagnostics initial_mailbox_diagnostics;
+static volatile uint32_t mailbox_irq_count;
+static uint32_t mailbox_recovery_count;
+
 /****************************************************************************
  * Function definitions
  ****************************************************************************/
@@ -144,22 +162,33 @@ do { \
 
 void main_cvirtos(void)
 {
-	int irq_ret = 0;
+	struct sg2002_rtos_mailbox_diagnostics ready_diagnostics;
+	int irq_ret;
 
 	printf("create cvi task\n");
 
 	sg2002_rtos_mailbox_init();
-	/* IRQ61 is not delivered on SG2002 C906L; the CMDQU task owns RX polling. */
-	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_IRQ_RESULT,
-				(((uint32_t)MBOX_INT_C906_2ND & 0xffffU) << 16) |
-				((uint32_t)irq_ret & 0xffffU));
-	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_IRQ_READY);
+	sg2002_rtos_mailbox_get_diagnostics(&initial_mailbox_diagnostics);
+	sg2002_rtos_mailbox_enable_receiver();
 
 #ifdef FAST_IMAGE_ENABLE
 	start_camera(0);
 #endif
 
 	main_create_tasks();
+	if (gTaskCtx[E_QUEUE_CMDQU].queHandle == NULL)
+		irq_ret = -1;
+	else
+		irq_ret = request_irq(MBOX_INT_C906_2ND, prvMailboxISR, 0,
+				      "mailbox", NULL);
+	sg2002_rtos_mailbox_get_diagnostics(&ready_diagnostics);
+	prvTraceMailboxDiagnostics(CVITEK_BOOT_TRACE_DIAG_REASON_INIT,
+				   &ready_diagnostics, prvPlicDiagnostics(),
+				   prvCsrDiagnostics());
+	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_IRQ_RESULT,
+				(((uint32_t)MBOX_INT_C906_2ND & 0xffffU) << 16) |
+				((uint32_t)irq_ret & 0xffffU));
+	cvitek_boot_trace_mark(CVITEK_BOOT_TRACE_STAGE_IRQ_READY);
 
 	/* Start the tasks and timer running. */
 	vTaskStartScheduler();
@@ -193,14 +222,15 @@ void prvCmdQuRunTask(void *pvParameters)
 	cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_TASK_READY,
 				(((uint32_t)RECEIVE_CPU & 0xffffU) << 16) |
 				((uint32_t)send_to_cpu & 0xffffU));
-	printf("prvCmdQuRunTask run; c906l_mailbox_layered_v1\n");
+	printf("prvCmdQuRunTask run; c906l_mailbox_irq_v2\n");
 
 	for (;;) {
 		if (xQueueReceive(gTaskCtx[E_QUEUE_CMDQU].queHandle,
-				  &rtos_cmdq, 0U) != pdPASS) {
-			prvPollMailbox();
-			udelay(SG2002_RTOS_MAILBOX_POLL_INTERVAL_US);
-			taskYIELD();
+				  &rtos_cmdq,
+				  pdMS_TO_TICKS(
+					  SG2002_RTOS_MAILBOX_RECOVERY_INTERVAL_MS)) !=
+		    pdPASS) {
+			prvRecoverMailbox();
 			continue;
 		}
 
@@ -288,38 +318,154 @@ send_label:
 	}
 }
 
+static QueueHandle_t prvQueueForIp(unsigned int ip_id)
+{
+	switch (ip_id) {
+	case IP_ISP:
+		return gTaskCtx[E_QUEUE_ISP].queHandle;
+	case IP_VCODEC:
+		return gTaskCtx[E_QUEUE_VCODEC].queHandle;
+	case IP_VI:
+		return gTaskCtx[E_QUEUE_VI].queHandle;
+	case IP_RGN:
+		return gTaskCtx[E_QUEUE_RGN].queHandle;
+	case IP_AUDIO:
+		return gTaskCtx[E_QUEUE_AUDIO].queHandle;
+	case IP_SYSTEM:
+		return gTaskCtx[E_QUEUE_CMDQU].queHandle;
+	case IP_CAMERA:
+		return gTaskCtx[E_QUEUE_CAMERA].queHandle;
+	default:
+		return NULL;
+	}
+}
+
 static BaseType_t prvQueueCommandFromTask(cmdqu_t *rtos_cmdq)
 {
-	switch (rtos_cmdq->ip_id) {
-	case IP_ISP:
-		return xQueueSend(gTaskCtx[E_QUEUE_ISP].queHandle, rtos_cmdq, 0U);
-	case IP_VCODEC:
-		return xQueueSend(gTaskCtx[E_QUEUE_VCODEC].queHandle, rtos_cmdq, 0U);
-	case IP_VI:
-		return xQueueSend(gTaskCtx[E_QUEUE_VI].queHandle, rtos_cmdq, 0U);
-	case IP_RGN:
-		return xQueueSend(gTaskCtx[E_QUEUE_RGN].queHandle, rtos_cmdq, 0U);
-	case IP_AUDIO:
-		return xQueueSend(gTaskCtx[E_QUEUE_AUDIO].queHandle, rtos_cmdq, 0U);
-	case IP_SYSTEM:
-		return xQueueSend(gTaskCtx[E_QUEUE_CMDQU].queHandle, rtos_cmdq, 0U);
-	case IP_CAMERA:
-		return xQueueSend(gTaskCtx[E_QUEUE_CAMERA].queHandle, rtos_cmdq, 0U);
-	default:
+	QueueHandle_t queue = prvQueueForIp(rtos_cmdq->ip_id);
+
+	if (queue == NULL) {
 		printf("unknown ip_id=%d cmd_id=%d\n", rtos_cmdq->ip_id,
 		       rtos_cmdq->cmd_id);
 		return pdFAIL;
 	}
+	return xQueueSend(queue, rtos_cmdq, 0U);
 }
 
-static void prvPollMailbox(void)
+static uint32_t prvPackMailboxDiagnostics(
+	const struct sg2002_rtos_mailbox_diagnostics *diagnostics)
 {
+	return ((uint32_t)diagnostics->enabled) |
+	       ((uint32_t)diagnostics->raw << 8) |
+	       ((uint32_t)diagnostics->mask << 16) |
+	       ((uint32_t)diagnostics->pending << 24);
+}
+
+static uint32_t prvPlicDiagnostics(void)
+{
+	uint32_t bit = 1U << (MBOX_INT_C906_2ND % 32U);
+	uint32_t offset = (MBOX_INT_C906_2ND / 32U) * 4U;
+	uint32_t pending = mmio_read_32(PLIC_PENDING1 + offset);
+	uint32_t enabled = mmio_read_32(PLIC_ENABLE1 + offset);
+	uint32_t priority = mmio_read_32(
+		PLIC_PRIORITY0 + MBOX_INT_C906_2ND * 4U);
+	uint32_t threshold = mmio_read_32(PLIC_THRESHOLD);
+
+	return ((pending & bit) ? 1U : 0U) |
+	       ((enabled & bit) ? 2U : 0U) |
+	       ((priority & 0xffU) << 8) |
+	       ((threshold & 0xffU) << 16);
+}
+
+static uint32_t prvCsrDiagnostics(void)
+{
+	uintptr_t mstatus = read_csr(mstatus);
+	uintptr_t mie = read_csr(mie);
+	uintptr_t mip = read_csr(mip);
+
+	return (((mstatus >> 3) & 1U) << 0) |
+	       (((mie >> 11) & 1U) << 1) |
+	       (((mip >> 11) & 1U) << 2);
+}
+
+static void prvTraceMailboxDiagnostics(
+	uint32_t reason,
+	const struct sg2002_rtos_mailbox_diagnostics *diagnostics,
+	uint32_t plic_state, uint32_t csr_state)
+{
+	cvitek_boot_trace_irq_diagnostics(
+		reason, prvPackMailboxDiagnostics(&initial_mailbox_diagnostics),
+		prvPackMailboxDiagnostics(diagnostics), plic_state, csr_state,
+		mailbox_irq_count, mailbox_recovery_count);
+}
+
+static BaseType_t prvQueueCommandFromISR(
+	cmdqu_t *rtos_cmdq, BaseType_t *higher_priority_task_woken)
+{
+	QueueHandle_t queue = prvQueueForIp(rtos_cmdq->ip_id);
+
+	if (queue == NULL)
+		return pdFAIL;
+	return xQueueSendFromISR(queue, rtos_cmdq,
+				 higher_priority_task_woken);
+}
+
+static int prvMailboxISR(int irqn, void *priv)
+{
+	struct sg2002_rtos_mailbox_diagnostics diagnostics;
 	cmdqu_t pending[SG2002_RTOS_MAILBOX_SLOT_COUNT];
+	BaseType_t higher_priority_task_woken = pdFALSE;
+	uint32_t plic_state;
+	uint32_t csr_state;
 	unsigned int count;
 	unsigned int i;
 
+	(void)irqn;
+	(void)priv;
+	sg2002_rtos_mailbox_get_diagnostics(&diagnostics);
+	plic_state = prvPlicDiagnostics();
+	csr_state = prvCsrDiagnostics();
+	count = sg2002_rtos_mailbox_receive_from_isr(
+		pending, SG2002_RTOS_MAILBOX_SLOT_COUNT);
+	mailbox_irq_count++;
+	if (mailbox_irq_count == 1U) {
+		cvitek_boot_trace_event(CVITEK_BOOT_TRACE_EVENT_ISR_ENTRY,
+					prvPackMailboxDiagnostics(&diagnostics));
+	}
+	if (mailbox_irq_count <= 4U ||
+	    (mailbox_irq_count & 0xffU) == 0U) {
+		prvTraceMailboxDiagnostics(CVITEK_BOOT_TRACE_DIAG_REASON_ISR,
+					   &diagnostics, plic_state,
+					   csr_state);
+	}
+
+	for (i = 0; i < count; i++)
+		(void)prvQueueCommandFromISR(&pending[i],
+					     &higher_priority_task_woken);
+	portYIELD_FROM_ISR(higher_priority_task_woken);
+	return 0;
+}
+
+static void prvRecoverMailbox(void)
+{
+	struct sg2002_rtos_mailbox_diagnostics diagnostics;
+	cmdqu_t pending[SG2002_RTOS_MAILBOX_SLOT_COUNT];
+	uint32_t plic_state;
+	uint32_t csr_state;
+	unsigned int count;
+	unsigned int i;
+
+	sg2002_rtos_mailbox_get_diagnostics(&diagnostics);
+	plic_state = prvPlicDiagnostics();
+	csr_state = prvCsrDiagnostics();
 	count = sg2002_rtos_mailbox_receive(
 		pending, SG2002_RTOS_MAILBOX_SLOT_COUNT);
+	if (count > 0U) {
+		mailbox_recovery_count++;
+		prvTraceMailboxDiagnostics(
+			CVITEK_BOOT_TRACE_DIAG_REASON_RECOVERY,
+			&diagnostics, plic_state, csr_state);
+	}
 	for (i = 0; i < count; i++) {
 		BaseType_t result = prvQueueCommandFromTask(&pending[i]);
 

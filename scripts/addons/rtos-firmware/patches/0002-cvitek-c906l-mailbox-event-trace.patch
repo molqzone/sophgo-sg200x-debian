@@ -1,19 +1,20 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
 Date: Fri, 31 Jul 2026 18:00:00 +0800
-Subject: [PATCH] freertos: trace C906L mailbox transaction events
+Subject: [PATCH] freertos: trace C906L mailbox IRQ diagnostics
 
-Keep a validated last-event record and cumulative event bitmap in the
-unused half of the existing 64-byte boot-trace cache line. This exposes
-mailbox progress without changing the command protocol or MMIO sequence.
+Keep transaction events in the second half of the first cache line and
+publish bounded mailbox, PLIC, CSR, IRQ, and recovery diagnostics in a
+separate cache line. The application protocol and mailbox ABI are unchanged.
 ---
- .../cvitek/driver/common/include/boot_trace.h | 71 +++++++++++++++++++-
- 1 file changed, 70 insertions(+), 1 deletion(-)
+ .../cvitek/driver/common/include/boot_trace.h | 108 +++++++++++++++++-
+ 1 file changed, 106 insertions(+), 2 deletions(-)
 
 diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvitek/driver/common/include/boot_trace.h
+index c2968c43..7a7c8a86 100644
 --- a/freertos/cvitek/driver/common/include/boot_trace.h
 +++ b/freertos/cvitek/driver/common/include/boot_trace.h
-@@ -11,6 +11,21 @@
+@@ -11,6 +11,25 @@
  #define CVITEK_BOOT_TRACE_STAGE_IRQ_READY 4U
  #define CVITEK_BOOT_TRACE_STAGE_CMDQU_TASK 5U
  
@@ -32,10 +33,14 @@ diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvite
 +#define CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL 13U
 +#define CVITEK_BOOT_TRACE_EVENT_MAX CVITEK_BOOT_TRACE_EVENT_MAILBOX_POLL
 +
++#define CVITEK_BOOT_TRACE_DIAG_REASON_INIT 1U
++#define CVITEK_BOOT_TRACE_DIAG_REASON_ISR 2U
++#define CVITEK_BOOT_TRACE_DIAG_REASON_RECOVERY 3U
++
  struct cvitek_boot_trace {
  	volatile uint32_t magic;
  	volatile uint32_t version;
-@@ -21,7 +36,14 @@ struct cvitek_boot_trace {
+@@ -20,7 +39,30 @@ struct cvitek_boot_trace {
  	volatile uint32_t stage_inverse;
  	volatile uint32_t hart_id;
  	volatile uint32_t hart_id_inverse;
@@ -48,13 +53,34 @@ diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvite
 +	volatile uint32_t event_arg_inverse;
 +	volatile uint32_t event_seen;
 +	volatile uint32_t event_seen_inverse;
++	volatile uint32_t diag_sequence;
++	volatile uint32_t diag_sequence_inverse;
++	volatile uint32_t diag_reason;
++	volatile uint32_t diag_reason_inverse;
++	volatile uint32_t mailbox_initial;
++	volatile uint32_t mailbox_initial_inverse;
++	volatile uint32_t mailbox_state;
++	volatile uint32_t mailbox_state_inverse;
++	volatile uint32_t plic_state;
++	volatile uint32_t plic_state_inverse;
++	volatile uint32_t csr_state;
++	volatile uint32_t csr_state_inverse;
++	volatile uint32_t irq_count;
++	volatile uint32_t irq_count_inverse;
++	volatile uint32_t recovery_count;
++	volatile uint32_t recovery_count_inverse;
  };
  
  extern unsigned char __boot_trace_start[];
-@@ -37,4 +59,51 @@ static inline void cvitek_boot_trace_mark(uint32_t stage)
+@@ -33,8 +75,90 @@ static inline void cvitek_boot_trace_mark(uint32_t stage)
+ 	trace->stage = stage;
+ 	trace->stage_inverse = ~stage;
  	__asm__ volatile ("fence rw, rw" ::: "memory");
- }
- 
+-	clean_dcache_range((uintptr_t)trace, sizeof(*trace));
++	clean_dcache_range((uintptr_t)trace, 64U);
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++}
++
 +static inline uintptr_t cvitek_boot_trace_irq_save(void)
 +{
 +	uintptr_t state;
@@ -97,11 +123,46 @@ diff --git a/freertos/cvitek/driver/common/include/boot_trace.h b/freertos/cvite
 +	trace->event_sequence = ++sequence;
 +	trace->event_sequence_inverse = ~sequence;
 +	__asm__ volatile ("fence rw, rw" ::: "memory");
-+	clean_dcache_range((uintptr_t)trace, sizeof(*trace));
++	clean_dcache_range((uintptr_t)trace, 64U);
 +	__asm__ volatile ("fence rw, rw" ::: "memory");
 +	cvitek_boot_trace_irq_restore(irq_state);
 +}
 +
++static inline void cvitek_boot_trace_irq_diagnostics(
++	uint32_t reason, uint32_t mailbox_initial, uint32_t mailbox_state,
++	uint32_t plic_state, uint32_t csr_state, uint32_t irq_count,
++	uint32_t recovery_count)
++{
++	volatile struct cvitek_boot_trace *trace =
++		(volatile struct cvitek_boot_trace *)__boot_trace_start;
++	uintptr_t irq_state = cvitek_boot_trace_irq_save();
++	uint32_t sequence = trace->diag_sequence;
++
++	if ((sequence ^ trace->diag_sequence_inverse) != ~0U)
++		sequence = 0;
++
++	trace->diag_reason = reason;
++	trace->diag_reason_inverse = ~reason;
++	trace->mailbox_initial = mailbox_initial;
++	trace->mailbox_initial_inverse = ~mailbox_initial;
++	trace->mailbox_state = mailbox_state;
++	trace->mailbox_state_inverse = ~mailbox_state;
++	trace->plic_state = plic_state;
++	trace->plic_state_inverse = ~plic_state;
++	trace->csr_state = csr_state;
++	trace->csr_state_inverse = ~csr_state;
++	trace->irq_count = irq_count;
++	trace->irq_count_inverse = ~irq_count;
++	trace->recovery_count = recovery_count;
++	trace->recovery_count_inverse = ~recovery_count;
++	trace->diag_sequence = ++sequence;
++	trace->diag_sequence_inverse = ~sequence;
++	__asm__ volatile ("fence rw, rw" ::: "memory");
++	clean_dcache_range((uintptr_t)&trace->diag_sequence, 64U);
+ 	__asm__ volatile ("fence rw, rw" ::: "memory");
++	cvitek_boot_trace_irq_restore(irq_state);
+ }
+ 
  #endif /* CVITEK_BOOT_TRACE_H */
 -- 
 2.53.0.windows.1
