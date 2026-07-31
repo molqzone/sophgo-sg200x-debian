@@ -23,10 +23,11 @@ index 4c3c64f..5f6b585 100644
 @@ -246,7 +246,8 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
  	pr_debug("cmdq->block = %d\n", cmdq->block);
  	pr_debug("cmdq->para_ptr = %d\n", cmdq->param_ptr);
- 	if (cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) {
+-	if (cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) {
 -		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
-+		if (!(cmdq->ip_id == IP_SYSTEM && cmdq->cmd_id <= NR_RTOS_CMD))
-+			pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
++	if ((cmdq->ip_id >= IP_LIMIT || cmdq->cmd_id >= SYS_CMD_INFO_LIMIT) &&
++		!(cmdq->ip_id == IP_SYSTEM && cmdq->cmd_id <= NR_RTOS_CMD)) {
++		pr_err("invalid-id : ip_id = %d cmd_id = %d\n", cmdq->ip_id, cmdq->cmd_id);
  		drv_spin_unlock_irqrestore(&mailbox_lock, mb_flags);
  		spin_unlock_irqrestore(&mailbox_queue_lock, flags);
  		return -ENOBUFS;
@@ -49,4 +50,3 @@ index 4c3c64f..5f6b585 100644
  		case RTOS_CMDQU_REQUEST:
 -- 
 2.34.1
-

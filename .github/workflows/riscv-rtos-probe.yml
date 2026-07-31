@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/riscv-rtos-probe.yml
       - configs/common/patches/linux/**
+      - configs/common/patches/osdrv/**
       - configs/licheervnano/**
       - scripts/Makefile
       - scripts/addons/rtos-firmware/**
@@ -50,26 +51,35 @@ jobs:
             -v "$GITHUB_WORKSPACE/configs:/configs:ro" \
             -v "$GITHUB_WORKSPACE/probe-output:/output" \
             "$BUILDER_IMAGE" \
-            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build//rtos-firmware-stamp'
+            bash -lc 'set -euo pipefail; mkdir -p /rootfs; make BOARD=licheervnano STORAGE_TYPE=sd linux /build//rtos-firmware-stamp; make BOARD=licheervnano STORAGE_TYPE=sd osdrv-clean; make BOARD=licheervnano STORAGE_TYPE=sd osdrv'
 
       - name: Package probe artifact
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifact extracted
+          mkdir -p artifact extracted osdrv-extracted
           mapfile -t image_debs < <(find probe-output -maxdepth 1 -type f -name 'linux-image-licheervnano-*.deb' -print)
           test "${#image_debs[@]}" -eq 1
+          mapfile -t osdrv_debs < <(find probe-output -maxdepth 1 -type f -name 'cvitek-osdrv-licheervnano-*.deb' -print)
+          test "${#osdrv_debs[@]}" -eq 1
           dpkg-deb -x "${image_debs[0]}" extracted
+          dpkg-deb -x "${osdrv_debs[0]}" osdrv-extracted
           mapfile -t modules < <(find extracted -type f -name cvitek_remoteproc.ko -print)
           test "${#modules[@]}" -eq 1
+          mapfile -t cmdqu_modules < <(find osdrv-extracted -type f -name cv181x_rtos_cmdqu.ko -print)
+          test "${#cmdqu_modules[@]}" -eq 1
           cp "${image_debs[0]}" artifact/
+          cp "${osdrv_debs[0]}" artifact/
           cp "${modules[0]}" artifact/cvitek_remoteproc.ko
+          cp "${cmdqu_modules[0]}" artifact/cv181x_rtos_cmdqu.ko
           cp probe-output/licheervnano_c906-mcu.elf artifact/
           cp probe-output/licheervnano_c906-mcu.bin artifact/
           cp probe-output/licheervnano_boot-trace-layout.json artifact/
           cp probe-output/licheervnano_rtos-sdk-commit.txt artifact/rtos-sdk-commit.txt
           modinfo -F vermagic artifact/cvitek_remoteproc.ko > artifact/vermagic.txt
+          modinfo -F vermagic artifact/cv181x_rtos_cmdqu.ko > artifact/cmdqu-vermagic.txt
           strings -a artifact/cvitek_remoteproc.ko > artifact/cvitek_remoteproc.strings.txt
+          strings -a artifact/cv181x_rtos_cmdqu.ko > artifact/cv181x_rtos_cmdqu.strings.txt
           strings -a artifact/licheervnano_c906-mcu.elf > artifact/c906l-rtos.strings.txt
           grep -Fqx 'firmware has no resource table; using mailbox-only mode' artifact/cvitek_remoteproc.strings.txt
           grep -Fqx 'failed to %s C906L via SBI: %d' artifact/cvitek_remoteproc.strings.txt
@@ -83,14 +93,18 @@ jobs:
             cd artifact
             sha256sum \
               "$(basename "${image_debs[0]}")" \
+              "$(basename "${osdrv_debs[0]}")" \
               cvitek_remoteproc.ko \
+              cv181x_rtos_cmdqu.ko \
               licheervnano_c906-mcu.elf \
               licheervnano_c906-mcu.bin \
               licheervnano_boot-trace-layout.json \
               rtos-sdk-commit.txt \
               source-commit.txt \
               vermagic.txt \
+              cmdqu-vermagic.txt \
               cvitek_remoteproc.strings.txt \
+              cv181x_rtos_cmdqu.strings.txt \
               c906l-rtos.strings.txt > SHA256SUMS.txt
           )
 
