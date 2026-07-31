@@ -166,7 +166,9 @@ $(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp 
 	$(call copy_ko_action, $(BUILDDIR)/kernel/modules)
 	@$(foreach file, $(wildcard /configs/common/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
 	@$(foreach file, $(wildcard /configs/$(BOARD)/patches/osdrv/*.patch), cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
-	@grep -Fq '!(cmdq->ip_id == IP_SYSTEM && cmdq->cmd_id <= NR_RTOS_CMD)' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+	@grep -Fq '(cmdq->cmd_id >= SYS_CMD_INFO_LIMIT && cmdq->ip_id != IP_SYSTEM)' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+	@grep -Fq 'static DEFINE_MUTEX(send_wait_lock);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
+	@grep -Fq 'wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@grep -Fq 'ret = rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c
 	@touch $@
 
