@@ -24,6 +24,25 @@ from plan import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_BOARD_FILES = ("linux/defconfig", "memmap.py", "u-boot/defconfig", "u-boot/cvitek.h", "u-boot/cvi_board_init.c")
 UBOOT_TARGET = re.compile(r"^CONFIG_TARGET_[A-Z0-9_]+=y$", re.MULTILINE)
+REMOTEPROC_NODE = re.compile(r"\bcv181x-c906_1\s*\{(?P<body>.*?)\};", re.DOTALL)
+MEMORY_REGION = re.compile(r"\bmemory-region\s*=\s*<(?P<value>.*?)>;", re.DOTALL)
+PHANDLE = re.compile(r"&([A-Za-z_][A-Za-z0-9_]*)")
+LEGACY_RPMSG_REGIONS = ("vdev0vring0", "vdev0vring1", "vdev0buffer")
+RESERVED_MEM_OWNED_NAME = re.compile(
+    r"^\+\s*char\s+name\[(?P<size>\d+)\];", re.MULTILINE
+)
+RESERVED_MEM_NAME_COPY = re.compile(
+    r"^\+\s*if\s*\(strscpy\(rmem->name,\s*uname,\s*sizeof\(rmem->name\)\)\s*<\s*0\)\s*\n"
+    r'^\+\s*panic\("%s: Reserved-memory name is too long: %s\\n",\s*\n'
+    r"^\+\s*__func__,\s*uname\);",
+    re.MULTILINE,
+)
+RESERVED_MEM_PHANDLE_LOOKUP = re.compile(
+    r"^\+\s*rmem\s*=\s*__find_rmem\(np\);\s*\n"
+    r"^\+\s*if\s*\(rmem\)\s*\n"
+    r"^\+\s*return rmem;",
+    re.MULTILINE,
+)
 FALLBACK_EXCLUDED_DIRS = {
     ".cache",
     ".git",
@@ -182,12 +201,89 @@ def validate_uboot_defconfig(board: str, path: Path) -> None:
         fail(f"{board}: U-Boot defconfig must enable exactly one target, got {targets}")
 
 
+def remoteproc_memory_regions(text: str) -> list[str]:
+    node = REMOTEPROC_NODE.search(text)
+    if not node:
+        fail("cv181x-c906_1 node is missing")
+    memory_region = MEMORY_REGION.search(node.group("body"))
+    if not memory_region:
+        fail("cv181x-c906_1 memory-region property is missing")
+    return PHANDLE.findall(memory_region.group("value"))
+
+
+def validate_maixcam_remoteproc_dts(dts_directory: Path) -> None:
+    candidates = sorted(dts_directory.glob("*.dts"))
+    if len(candidates) != 1:
+        fail(f"maixcam: expected one DTS source, got {candidates}")
+    text = candidates[0].read_text(encoding="utf-8")
+    regions = remoteproc_memory_regions(text)
+    expected = ["fast_image", "rtos_boot_trace"]
+    if regions != expected:
+        fail(f"maixcam: mailbox-only remoteproc memory-region must be {expected}, got {regions}")
+    for name in LEGACY_RPMSG_REGIONS:
+        directive = re.compile(
+            rf"^\s*/delete-node/\s+&{re.escape(name)}\s*;", re.MULTILINE
+        )
+        if not directive.search(text):
+            fail(f"maixcam: mailbox-only DTS must delete legacy RPMsg pool {name}")
+
+
+def validate_compiled_maixcam_dts(text: str) -> None:
+    node = REMOTEPROC_NODE.search(text)
+    if not node:
+        fail("compiled MaixCAM DTB has no cv181x-c906_1 node")
+    memory_region = MEMORY_REGION.search(node.group("body"))
+    if not memory_region:
+        fail("compiled MaixCAM remoteproc has no memory-region property")
+    cells = re.findall(r"\b(?:0x[0-9a-fA-F]+|[0-9]+)\b", memory_region.group("value"))
+    if len(cells) != 2:
+        fail(f"compiled MaixCAM remoteproc must reference two regions, got {cells}")
+    for name in LEGACY_RPMSG_REGIONS:
+        active_node = re.compile(
+            rf"^\s*{re.escape(name)}(?:@[0-9a-fA-F]+)?\s*\{{", re.MULTILINE
+        )
+        if active_node.search(text):
+            fail(f"compiled MaixCAM DTB retains legacy RPMsg pool {name}")
+
+
+def validate_compiled_maixcam_dtb(path: Path) -> None:
+    result = subprocess.run(
+        ["dtc", "-I", "dtb", "-O", "dts", str(path)],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    validate_compiled_maixcam_dts(result.stdout)
+
+
+def validate_reserved_memory_name_patch(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    owned_name = RESERVED_MEM_OWNED_NAME.search(text)
+    if not owned_name:
+        fail("reserved-memory patch must use boot-safe owned node-name storage")
+    if int(owned_name.group("size")) < 64:
+        fail("reserved-memory owned node-name storage must be at least 64 bytes")
+    if not RESERVED_MEM_NAME_COPY.search(text):
+        fail("reserved-memory patch must reject names that do not fit owned storage")
+    if not RESERVED_MEM_PHANDLE_LOOKUP.search(text):
+        fail("reserved-memory lookup must prefer the device-tree phandle")
+    if re.search(
+        r"^\+.*(?:strncpy\(rmem->name|rmem->name\s*=\s*(?:uname|memblock_alloc))",
+        text,
+        re.MULTILINE,
+    ):
+        fail("reserved-memory patch must not use truncating or early-pointer storage")
+
+
 def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None:
     for entry in entries:
         board = str(entry["board"])
         storage = str(entry["storage"])
         settings = effective_assignments(config_root, board)
-        resolve_directory(config_root, board, "dts")
+        dts_directory = resolve_directory(config_root, board, "dts")
+        if board == "maixcam":
+            validate_maixcam_remoteproc_dts(dts_directory)
         resolved = {relative: resolve_file(config_root, board, relative) for relative in REQUIRED_BOARD_FILES}
         validate_uboot_defconfig(board, resolved["u-boot/defconfig"])
         partition = settings.get("PARTITION_FILE", "").replace("$(STORAGE_TYPE)", storage).strip('"')
@@ -249,12 +345,25 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "output")
     parser.add_argument("--exclude-path", type=Path, action="append", default=[])
     parser.add_argument("--allow-missing-image", action="store_true")
+    parser.add_argument("--compiled-dtb", type=Path)
     args = parser.parse_args()
+    if args.compiled_dtb:
+        try:
+            validate_compiled_maixcam_dtb(args.compiled_dtb)
+        except (OSError, PlanError, subprocess.CalledProcessError) as exc:
+            print(f"validate.py: {exc}", file=sys.stderr)
+            return 2
+        print(f"compiled-dtb=PASS path={args.compiled_dtb}")
+        return 0
     try:
         config_root = REPO_ROOT / "configs"
         entries = validate(config_root)
         validate_boards(config_root, entries)
         validate_addons(config_root, entries)
+        validate_reserved_memory_name_patch(
+            REPO_ROOT
+            / "configs/common/patches/linux/0002-Add-Reset-for-C906L-ignore-clock-status-for-C906L-an.patch"
+        )
         validate_pins((args.output, *args.exclude_path))
         validate_component()
         validate_workflows()

@@ -37,6 +37,7 @@ $(error $(red)BOARD is not set$(reset))
 endif
 
 PLAN_TOOL ?= /workspace/scripts/ci/plan.py
+VALIDATE_TOOL ?= /workspace/scripts/ci/validate.py
 ENABLE_MEDIA_STACK ?= 0
 ENABLE_SG2002_IPC ?= 0
 ENABLE_LOCAL_PINMUX ?= 0
@@ -64,6 +65,8 @@ BOARD_UBOOT_INIT := $(call resolve-board-file,u-boot/cvi_board_init.c)
 BOARD_PARTITION_FILE := $(call resolve-board-file,$(PARTITION_FILE))
 BOARD_DTS_DIR := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) resolve-dir --board $(BOARD) --path dts)
 BOARD_DTS_FILES := $(wildcard $(BOARD_DTS_DIR)/*)
+BOARD_DTS_SOURCE := $(firstword $(filter %.dts,$(BOARD_DTS_FILES)))
+BOARD_LINUX_DTB := $(patsubst %.dts,%.dtb,$(notdir $(BOARD_DTS_SOURCE)))
 LINUX_PATCHES := $(call board-patches,linux)
 OSDRV_PATCHES := $(call board-patches,osdrv)
 MIDDLEWARE_PATCHES := $(call board-patches,middleware)
@@ -197,6 +200,10 @@ $(BUILDDIR)/linux-compile-stamp: $(BUILDDIR)/linux-prepare-configure-stamp
 	@sed -i 's/packagename=linux-image.*/packagename=linux-image-$(BOARD)/' $(BUILDDIR)/kernel/scripts/package/mkdebian
 	@sed -i 's/packagename=linux-image-$$version/packagename=linux-image-$(BOARD)-$$version/' $(BUILDDIR)/kernel/scripts/package/builddeb
 	@cd $(BUILDDIR)/kernel && KCFLAGS=-Wno-attribute-alias ARCH=riscv CROSS_COMPILE="$(CROSS_COMPILE)" KDEB_SOURCENAME=linux-$(BOARD) $(MAKE) -j$(NPROCS) O=$(BUILDDIR)/kernel/ bindeb-pkg
+	@if [ "$(ENABLE_SG2002_IPC)" = "1" ]; then \
+		python3 $(VALIDATE_TOOL) --compiled-dtb \
+			$(BUILDDIR)/kernel/arch/riscv/boot/dts/cvitek/$(BOARD_LINUX_DTB); \
+	fi
 	@cd $(BUILDDIR)/kernel && KCFLAGS=-Wno-attribute-alias ARCH=riscv CROSS_COMPILE="$(CROSS_COMPILE)" KDEB_SOURCENAME=linux-$(BOARD) $(MAKE) -j$(NPROCS) O=$(BUILDDIR)/kernel/ modules_install INSTALL_MOD_PATH=$(BUILDDIR)/kernel/modules headers_install INSTALL_HDR_PATH=$(BUILDDIR)/kernel/riscv/usr
 	@cp $(BUILDDIR)/*.deb $(OUTPUT_DIR)/
 	@touch $@

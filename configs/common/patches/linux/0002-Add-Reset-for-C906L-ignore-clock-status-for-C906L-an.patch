@@ -2,14 +2,14 @@ From e1df28259ed82f46dc9059eae86bc26a3b4a2c4d Mon Sep 17 00:00:00 2001
 From: Justin Hammond <justin@dynam.ac>
 Date: Sat, 6 Apr 2024 14:29:47 +0800
 Subject: [PATCH 2/4] Add Reset for C906L, ignore clock status for C906L, and
- Fix up reserved memory name size (in preperation for remoteproc driver)
+ use owned reserved-memory names with phandle-first lookup
 
 ---
- drivers/clk/cvitek/clk-cv181x.c           | 2 +-
- drivers/of/of_reserved_mem.c              | 4 ++--
- include/dt-bindings/reset/cv181x-resets.h | 3 +++
- include/linux/of_reserved_mem.h           | 2 +-
- 4 files changed, 7 insertions(+), 4 deletions(-)
+ drivers/clk/cvitek/clk-cv181x.c           |  2 +-
+ drivers/of/of_reserved_mem.c              | 14 ++++++++++++--
+ include/dt-bindings/reset/cv181x-resets.h |  3 +++
+ include/linux/of_reserved_mem.h           |  2 +-
+ 4 files changed, 17 insertions(+), 4 deletions(-)
 
 diff --git a/drivers/clk/cvitek/clk-cv181x.c b/drivers/clk/cvitek/clk-cv181x.c
 index 561fb1fcb832..3afce30df616 100644
@@ -25,7 +25,7 @@ index 561fb1fcb832..3afce30df616 100644
  		((const char *[]) {"osc", "clk_mipimpll", "clk_cam0pll", "clk_disppll", "clk_fpll"}),
  		REG_CLK_EN_4, 15,
 diff --git a/drivers/of/of_reserved_mem.c b/drivers/of/of_reserved_mem.c
-index 8093bbbe875c..1336c2d23bd6 100644
+index 29750d724e21..c3deda376c1b 100644
 --- a/drivers/of/of_reserved_mem.c
 +++ b/drivers/of/of_reserved_mem.c
 @@ -22,7 +22,7 @@
@@ -37,15 +37,55 @@ index 8093bbbe875c..1336c2d23bd6 100644
  
  #if defined(CONFIG_ARCH_CVITEK)
  struct reserved_mem_size_entry {
-@@ -69,7 +69,7 @@ void __init fdt_reserved_mem_save_node(unsigned long node, const char *uname,
+@@ -69,7 +69,9 @@ void __init fdt_reserved_mem_save_node(unsigned long node, const char *uname,
  	}
  
  	rmem->fdt_node = node;
 -	strncpy(rmem->name, uname, 8);
-+	strncpy(rmem->name, uname, 16);
++	if (strscpy(rmem->name, uname, sizeof(rmem->name)) < 0)
++		panic("%s: Reserved-memory name is too long: %s\n",
++		      __func__, uname);
  	rmem->base = base;
  	rmem->size = size;
  
+@@ -525,17 +528,25 @@ EXPORT_SYMBOL_GPL(of_reserved_mem_device_release);
+  */
+ struct reserved_mem *of_reserved_mem_lookup(struct device_node *np)
+ {
+-	const char *name;
+-	int i;
+-
+-	if (!np->full_name)
+-		return NULL;
+-
+-	name = kbasename(np->full_name);
+-	for (i = 0; i < reserved_mem_count; i++)
+-		if (!strcmp(reserved_mem[i].name, name))
+-			return &reserved_mem[i];
+-
+-	return NULL;
++	struct reserved_mem *rmem;
++	const char *name;
++	int i;
++
++	if (!np)
++		return NULL;
++
++	rmem = __find_rmem(np);
++	if (rmem)
++		return rmem;
++
++	if (!np->full_name)
++		return NULL;
++
++	name = kbasename(np->full_name);
++	for (i = 0; i < reserved_mem_count; i++)
++		if (!strcmp(reserved_mem[i].name, name))
++			return &reserved_mem[i];
++
++	return NULL;
+ }
+ EXPORT_SYMBOL_GPL(of_reserved_mem_lookup);
 diff --git a/include/dt-bindings/reset/cv181x-resets.h b/include/dt-bindings/reset/cv181x-resets.h
 index e10d33b35446..c89f79418df4 100644
 --- a/include/dt-bindings/reset/cv181x-resets.h
@@ -61,7 +101,7 @@ index e10d33b35446..c89f79418df4 100644
  #define CLK_RST_50M_A53		1
  #define CLK_RST_AHB_ROM		2
 diff --git a/include/linux/of_reserved_mem.h b/include/linux/of_reserved_mem.h
-index e418313a5085..5ac862bbea7b 100644
+index e418313a5085..6ea4baf4549e 100644
 --- a/include/linux/of_reserved_mem.h
 +++ b/include/linux/of_reserved_mem.h
 @@ -9,7 +9,7 @@ struct of_phandle_args;
@@ -69,10 +109,9 @@ index e418313a5085..5ac862bbea7b 100644
  
  struct reserved_mem {
 -	char				name[8];
-+	char				name[16];
++	char				name[64];
  	unsigned long			fdt_node;
  	unsigned long			phandle;
  	const struct reserved_mem_ops	*ops;
 -- 
 2.44.0
-

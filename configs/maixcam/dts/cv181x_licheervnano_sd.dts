@@ -23,6 +23,10 @@
 	reg = <0x0 CVIMMAP_FREERTOS_ADDR 0x0 CVIMMAP_RTOS_FIRMWARE_SIZE>;
 };
 
+/delete-node/ &vdev0vring0;
+/delete-node/ &vdev0vring1;
+/delete-node/ &vdev0buffer;
+
 
 &uart1 {
         status = "okay";
@@ -163,8 +167,8 @@
 
         cv181x-c906_1 {
 		compatible	= "cvitek,cv181x-c906_1";
-		memory-region	= <&fast_image &rtos_boot_trace &vdev0vring0
-				   &vdev0vring1 &vdev0buffer>;
+		/* The mailbox-only firmware has no RPMsg resource table. */
+		memory-region	= <&fast_image &rtos_boot_trace>;
                 firmware        = "c906-mcu.elf";
                 resets		= <&rst RST_C906_1>;
 		reset-names	= "sw_reset";

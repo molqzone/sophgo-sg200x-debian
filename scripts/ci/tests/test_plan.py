@@ -272,6 +272,125 @@ class PlanTests(unittest.TestCase):
         )
         validation.validate_uboot_defconfig("child", defconfig)
 
+    def test_mailbox_only_remoteproc_regions(self) -> None:
+        dts_directory = self.config / "maixcam-dts"
+        dts_directory.mkdir()
+        dts = dts_directory / "maixcam.dts"
+        valid = """
+        /delete-node/ &vdev0vring0;
+        /delete-node/ &vdev0vring1;
+        /delete-node/ &vdev0buffer;
+        cv181x-c906_1 {
+            memory-region = <&fast_image &rtos_boot_trace>;
+        };
+        """
+        self.assertEqual(
+            validation.remoteproc_memory_regions(valid),
+            ["fast_image", "rtos_boot_trace"],
+        )
+        dts.write_text(valid, encoding="utf-8")
+        validation.validate_maixcam_remoteproc_dts(dts_directory)
+
+        invalid = """
+        /delete-node/ &vdev0vring0;
+        /delete-node/ &vdev0vring1;
+        /delete-node/ &vdev0buffer;
+        cv181x-c906_1 {
+            memory-region = <&fast_image &rtos_boot_trace
+                             &vdev0vring0 &vdev0vring1 &vdev0buffer>;
+        };
+        """
+        self.assertEqual(
+            validation.remoteproc_memory_regions(invalid),
+            [
+                "fast_image",
+                "rtos_boot_trace",
+                "vdev0vring0",
+                "vdev0vring1",
+                "vdev0buffer",
+            ],
+        )
+        dts.write_text(invalid, encoding="utf-8")
+        with self.assertRaisesRegex(plan.PlanError, "mailbox-only remoteproc"):
+            validation.validate_maixcam_remoteproc_dts(dts_directory)
+
+        dts.write_text(
+            """
+            cv181x-c906_1 {
+                memory-region = <&fast_image &rtos_boot_trace>;
+            };
+            """,
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(plan.PlanError, "delete legacy RPMsg pool"):
+            validation.validate_maixcam_remoteproc_dts(dts_directory)
+
+    def test_compiled_mailbox_only_remoteproc_regions(self) -> None:
+        valid = """
+        reserved-memory {
+            rproc { phandle = <0x10>; };
+            boot-trace@8ffff000 { phandle = <0x11>; };
+        };
+        cv181x-c906_1 {
+            memory-region = <0x10 0x11>;
+        };
+        """
+        validation.validate_compiled_maixcam_dts(valid)
+
+        with self.assertRaisesRegex(plan.PlanError, "retains legacy RPMsg pool"):
+            validation.validate_compiled_maixcam_dts(
+                valid + "\nvdev0buffer { compatible = \"shared-dma-pool\"; };\n"
+            )
+
+        with self.assertRaisesRegex(plan.PlanError, "reference two regions"):
+            validation.validate_compiled_maixcam_dts(
+                valid.replace("<0x10 0x11>", "<0x10 0x11 0x12>")
+            )
+
+    def test_reserved_memory_names_use_boot_safe_storage(self) -> None:
+        patch = self.config / "reserved-memory.patch"
+        patch.write_text(
+            "+\tchar\t\t\t\tname[64];\n"
+            "+\tif (strscpy(rmem->name, uname, sizeof(rmem->name)) < 0)\n"
+            "+\t\tpanic(\"%s: Reserved-memory name is too long: %s\\n\",\n"
+            "+\t\t      __func__, uname);\n"
+            "+\trmem = __find_rmem(np);\n"
+            "+\tif (rmem)\n"
+            "+\t\treturn rmem;\n",
+            encoding="utf-8",
+        )
+        validation.validate_reserved_memory_name_patch(patch)
+
+        invalid_patches = {
+            "too_small": (
+                "+\tchar\t\t\t\tname[32];\n"
+                "+\tif (strscpy(rmem->name, uname, sizeof(rmem->name)) < 0)\n"
+                "+\t\tpanic(\"%s: Reserved-memory name is too long: %s\\n\",\n"
+                "+\t\t      __func__, uname);\n"
+            ),
+            "truncated": "+\tchar\t\t\t\tname[64];\n+\tstrncpy(rmem->name, uname, 64);\n",
+            "early_fdt_pointer": "+\tconst char\t\t\t*name;\n+\trmem->name = uname;\n",
+            "early_memblock_pointer": (
+                "+\tchar\t\t\t\t*name;\n"
+                "+\trmem->name = memblock_alloc(strlen(uname) + 1, SMP_CACHE_BYTES);\n"
+            ),
+        }
+        for name, text in invalid_patches.items():
+            with self.subTest(name=name):
+                patch.write_text(text, encoding="utf-8")
+                with self.assertRaises(plan.PlanError):
+                    validation.validate_reserved_memory_name_patch(patch)
+
+        patch.write_text(
+            "+\tchar\t\t\t\tname[64];\n"
+            "+\tif (strscpy(rmem->name, uname, sizeof(rmem->name)) < 0)\n"
+            "+\t\tpanic(\"%s: Reserved-memory name is too long: %s\\n\",\n"
+            "+\t\t      __func__, uname);\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(plan.PlanError, "prefer the device-tree phandle"):
+            validation.validate_reserved_memory_name_patch(patch)
+
 
 if __name__ == "__main__":
     unittest.main()
