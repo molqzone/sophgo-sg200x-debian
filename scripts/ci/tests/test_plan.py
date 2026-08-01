@@ -79,6 +79,21 @@ class PlanTests(unittest.TestCase):
             affected = plan.affected_matrix(self.config, "base", "head")
         self.assertEqual([entry["board"] for entry in affected], ["child"])
 
+    def test_validation_change_does_not_rebuild_boards(self) -> None:
+        with mock.patch.object(
+            plan,
+            "changed_files",
+            return_value=["scripts/ci/validate.py", "scripts/ci/tests/test_plan.py"],
+        ):
+            self.assertEqual(plan.affected_matrix(self.config, "base", "head"), [])
+
+    def test_board_build_script_change_rebuilds_all_boards(self) -> None:
+        with mock.patch.object(
+            plan, "changed_files", return_value=["scripts/ci/build-board.sh"]
+        ):
+            affected = plan.affected_matrix(self.config, "base", "head")
+        self.assertEqual([entry["board"] for entry in affected], ["child"])
+
     def test_matrix_validation(self) -> None:
         entries = plan.validate(self.config)
         self.assertEqual(entries[0]["format"], "img")
@@ -92,6 +107,22 @@ class PlanTests(unittest.TestCase):
         (root / "build-output").mkdir()
         (root / "build-output/image.img").write_text("abc123\n", encoding="utf-8")
         with mock.patch.object(validation, "REPO_ROOT", root):
+            self.assertEqual(
+                validation.tracked_occurrences({"abc123"}),
+                {"abc123": ["versions.env"]},
+            )
+
+    def test_pin_scan_falls_back_when_worktree_metadata_is_unavailable(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
+        (root / "output").mkdir()
+        (root / "output/image.img").write_text("abc123\n", encoding="utf-8")
+        failure = subprocess.CalledProcessError(128, ["git", "ls-files"])
+        with (
+            mock.patch.object(validation, "REPO_ROOT", root),
+            mock.patch.object(validation.subprocess, "run", side_effect=failure),
+        ):
             self.assertEqual(
                 validation.tracked_occurrences({"abc123"}),
                 {"abc123": ["versions.env"]},

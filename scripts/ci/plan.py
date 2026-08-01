@@ -201,18 +201,26 @@ def affected_matrix(config_root: Path, base: str, head: str) -> list[dict[str, o
         return []
     global_prefixes = (
         ".github/workflows/",
-        "scripts/ci/",
+        "configs/common/",
+    )
+    global_files = {
+        "scripts/ci/build-board.sh",
+        "scripts/ci/cache.py",
+        "scripts/ci/local-build.sh",
+        "scripts/ci/package-board.sh",
+        "scripts/ci/plan.py",
+        "scripts/ci/prepare-ccache-toolchains.sh",
+        "scripts/ci/toolchain-ref.sh",
         "scripts/Makefile",
         "scripts/Dockerfile",
         "scripts/setup_rootfs.sh",
-        "configs/common/",
         "configs/settings.mk",
         "configs/build-matrix.json",
         "versions.env",
         "toolchain.env",
         "Makefile",
-    )
-    if any(path.startswith(global_prefixes) for path in files):
+    }
+    if any(path in global_files or path.startswith(global_prefixes) for path in files):
         return entries
     affected: set[str] = set()
     for path in files:

@@ -23,32 +23,64 @@ from plan import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_BOARD_FILES = ("linux/defconfig", "memmap.py", "u-boot/defconfig", "u-boot/cvitek.h", "u-boot/cvi_board_init.c")
 UBOOT_TARGET = re.compile(r"^CONFIG_TARGET_[A-Z0-9_]+=y$", re.MULTILINE)
+FALLBACK_EXCLUDED_DIRS = {
+    ".cache",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "image",
+    "node_modules",
+    "out",
+    "output",
+}
 
 
 def fail(message: str) -> None:
     raise PlanError(message)
 
 
+def maintained_files() -> list[Path]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        print(
+            "validate.py: Git metadata unavailable; scanning maintained source files",
+            file=sys.stderr,
+        )
+        return sorted(
+            path
+            for path in REPO_ROOT.rglob("*")
+            if path.is_file()
+            and not any(
+                part in FALLBACK_EXCLUDED_DIRS
+                for part in path.relative_to(REPO_ROOT).parts
+            )
+        )
+    return [REPO_ROOT / relative for relative in result.stdout.split("\0") if relative]
+
+
 def tracked_occurrences(values: set[str]) -> dict[str, list[str]]:
     needles = {value: value.encode("utf-8") for value in values}
     locations = {value: [] for value in values}
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-    )
-    for relative in result.stdout.split("\0"):
-        if not relative:
-            continue
-        path = REPO_ROOT / relative
+    for path in maintained_files():
         try:
             content = path.read_bytes()
         except OSError as exc:
             fail(f"cannot scan {path}: {exc}")
+        relative = path.relative_to(REPO_ROOT).as_posix()
         for value, needle in needles.items():
             if needle in content:
-                locations[value].append(Path(relative).as_posix())
+                locations[value].append(relative)
     return {value: sorted(paths) for value, paths in locations.items()}
 
 
