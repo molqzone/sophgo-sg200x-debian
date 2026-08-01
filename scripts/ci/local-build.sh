@@ -9,12 +9,13 @@ board=maixcam
 storage=sd
 output=output
 inside=0
-proxy_http=${http_proxy:-${HTTP_PROXY:-}}
-proxy_https=${https_proxy:-${HTTPS_PROXY:-}}
+proxy_http=${HTTP_PROXY:-${http_proxy:-}}
+proxy_apt_http=${APT_HTTP_PROXY:-${http_proxy:-}}
+proxy_https=${HTTPS_PROXY:-${https_proxy:-}}
 
 export HTTP_PROXY=$proxy_http
 export HTTPS_PROXY=$proxy_https
-export http_proxy=$proxy_http
+export http_proxy=$proxy_apt_http
 export https_proxy=$proxy_https
 
 while (($#)); do
@@ -49,7 +50,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-e CCACHE_DIR=/ccache \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
-		-e http_proxy="$proxy_http" \
+		-e http_proxy="$proxy_apt_http" \
 		-e https_proxy="$proxy_https" \
 		-v "$repo_root:/workspace:ro" \
 		-v "$repo_root/scripts:/builder:ro" \

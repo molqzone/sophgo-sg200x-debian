@@ -11,9 +11,10 @@ $env:HTTP_PROXY="http://127.0.0.1:7897"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 
-The PowerShell launcher maps localhost to `host.docker.internal` and exports
-both uppercase and lowercase proxy variables. The lowercase form is required
-by APT inside `mmdebstrap`.
+The PowerShell launcher maps localhost to `host.docker.internal`. HTTPS uses
+the configured proxy for GitHub and the SOPHGO repository. Debian's HTTP CDN
+is direct by default because it is faster on the measured local route; set
+`APT_HTTP_PROXY` explicitly when that network also requires an HTTP proxy.
 
 The first command builds the pinned toolchain image and creates three named
 volumes:

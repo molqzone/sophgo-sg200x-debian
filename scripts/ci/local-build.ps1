@@ -23,7 +23,7 @@ function Test-DockerObject {
 }
 
 function ConvertTo-ContainerProxy {
-  param([AllowEmptyString()][string]$Value)
+  param([AllowNull()][AllowEmptyString()][string]$Value)
   if (-not $Value) { return '' }
   return $Value -replace '://(127\.0\.0\.1|localhost)(:)', '://host.docker.internal$2'
 }
@@ -53,6 +53,7 @@ try {
 $image = if ($env:BUILDER_IMAGE) { $env:BUILDER_IMAGE } else { "sg2002-toolchain:$hash" }
 $containerHttpProxy = ConvertTo-ContainerProxy $env:HTTP_PROXY
 $containerHttpsProxy = ConvertTo-ContainerProxy $env:HTTPS_PROXY
+$containerAptHttpProxy = ConvertTo-ContainerProxy $env:APT_HTTP_PROXY
 
 if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
   $buildArgs = @(
@@ -66,7 +67,10 @@ if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
     $repoRoot
   )
 if ($containerHttpProxy) {
-  $buildArgs = @('build', '--build-arg', "HTTP_PROXY=$containerHttpProxy", '--build-arg', "http_proxy=$containerHttpProxy") + $buildArgs[1..($buildArgs.Count - 1)]
+  $buildArgs = @('build', '--build-arg', "HTTP_PROXY=$containerHttpProxy") + $buildArgs[1..($buildArgs.Count - 1)]
+}
+if ($containerAptHttpProxy) {
+  $buildArgs = @('build', '--build-arg', "http_proxy=$containerAptHttpProxy") + $buildArgs[1..($buildArgs.Count - 1)]
 }
 if ($containerHttpsProxy) {
   $buildArgs = @('build', '--build-arg', "HTTPS_PROXY=$containerHttpsProxy", '--build-arg', "https_proxy=$containerHttpsProxy") + $buildArgs[1..($buildArgs.Count - 1)]
@@ -90,7 +94,7 @@ $runArgs = @(
   '-e', 'CCACHE_DIR=/ccache',
   '-e', "HTTP_PROXY=$containerHttpProxy",
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
-  '-e', "http_proxy=$containerHttpProxy",
+  '-e', "http_proxy=$containerAptHttpProxy",
   '-e', "https_proxy=$containerHttpsProxy",
   '-v', "${repoRoot}:/workspace:ro",
   '-v', "${repoRoot}/scripts:/builder:ro",
