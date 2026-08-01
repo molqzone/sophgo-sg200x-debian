@@ -14,6 +14,7 @@ from plan import (
     PlanError,
     assignment_words,
     effective_assignments,
+    resolve_directory,
     resolve_file,
     validate,
 )
@@ -90,6 +91,7 @@ def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None
         board = str(entry["board"])
         storage = str(entry["storage"])
         settings = effective_assignments(config_root, board)
+        resolve_directory(config_root, board, "dts")
         for relative in REQUIRED_BOARD_FILES:
             resolve_file(config_root, board, relative)
         partition = settings.get("PARTITION_FILE", "").replace("$(STORAGE_TYPE)", storage).strip('"')

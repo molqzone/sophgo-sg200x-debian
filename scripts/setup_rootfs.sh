@@ -149,10 +149,11 @@ fi
 rm -rf /etc/apt/sources.list.d/multistrap-debian.list
 
 if [ -f /tmp/install/public-key.asc ]; then
-  apt-key add /tmp/install/public-key.asc
+  install -d -m 0755 /etc/apt/keyrings
+  install -m 0644 /tmp/install/public-key.asc /etc/apt/keyrings/sophgo.asc
   cat > /etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian sid main non-free-firmware
-deb https://sophgo.my-ho.st:8443/ debian sophgo
+deb [signed-by=/etc/apt/keyrings/sophgo.asc] https://sophgo.my-ho.st:8443/ debian sophgo
 EOF
 else
   cat > /etc/apt/sources.list <<EOF

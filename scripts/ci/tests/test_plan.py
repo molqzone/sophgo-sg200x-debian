@@ -48,6 +48,16 @@ class PlanTests(unittest.TestCase):
         patches = plan.patch_files(self.config, "child", "linux")
         self.assertEqual(patches, [self.config / "base/patches/linux/0002.patch"])
 
+    def test_exact_directory_shadows_base_directory(self) -> None:
+        (self.config / "base/dts").mkdir()
+        (self.config / "child/dts").mkdir()
+        (self.config / "base/dts/base.dts").write_text("base\n", encoding="utf-8")
+        (self.config / "child/dts/child.dts").write_text("child\n", encoding="utf-8")
+        self.assertEqual(
+            plan.resolve_directory(self.config, "child", "dts"),
+            self.config / "child/dts",
+        )
+
     def test_patches_follow_application_layer_order(self) -> None:
         for layer in ("common", "base", "child"):
             (self.config / layer / "patches/linux").mkdir(parents=True)

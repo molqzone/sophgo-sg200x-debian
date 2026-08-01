@@ -43,8 +43,6 @@ BOARD_CHAIN := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) board-c
 ifeq ($(strip $(BOARD_CHAIN)),)
 $(error $(red)Board $(BOARD) is not supported$(reset))
 endif
-BOARD_LAYERS := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) board-chain --board $(BOARD) --order application)
-BOARD_CONFIG_LAYERS := $(filter-out common,$(BOARD_LAYERS))
 BOARD_SETTINGS := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) settings --board $(BOARD))
 
 include $(CONFIG_ROOT)/settings.mk
@@ -59,7 +57,8 @@ BOARD_UBOOT_DEFCONFIG := $(call resolve-board-file,u-boot/defconfig)
 BOARD_UBOOT_HEADER := $(call resolve-board-file,u-boot/cvitek.h)
 BOARD_UBOOT_INIT := $(call resolve-board-file,u-boot/cvi_board_init.c)
 BOARD_PARTITION_FILE := $(call resolve-board-file,$(PARTITION_FILE))
-BOARD_DTS_FILES := $(foreach layer,$(BOARD_CONFIG_LAYERS),$(wildcard $(CONFIG_ROOT)/$(layer)/dts/*))
+BOARD_DTS_DIR := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) resolve-dir --board $(BOARD) --path dts)
+BOARD_DTS_FILES := $(wildcard $(BOARD_DTS_DIR)/*)
 LINUX_PATCHES := $(call board-patches,linux)
 OSDRV_PATCHES := $(call board-patches,osdrv)
 MIDDLEWARE_PATCHES := $(call board-patches,middleware)

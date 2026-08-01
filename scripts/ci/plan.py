@@ -90,6 +90,17 @@ def resolve_file(config_root: Path, board: str, relative: str) -> Path:
     raise PlanError(f"{relative!r} is not defined for board {board!r}")
 
 
+def resolve_directory(config_root: Path, board: str, relative: str) -> Path:
+    relative_path = Path(relative)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise PlanError(f"relative path required: {relative!r}")
+    for layer in board_chain(config_root, board):
+        candidate = config_root / layer / relative_path
+        if candidate.is_dir():
+            return candidate
+    raise PlanError(f"directory {relative!r} is not defined for board {board!r}")
+
+
 def patch_files(config_root: Path, board: str, component: str) -> list[Path]:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", component):
         raise PlanError(f"invalid patch component: {component!r}")
@@ -253,6 +264,10 @@ def main() -> int:
     resolve_parser.add_argument("--board", required=True)
     resolve_parser.add_argument("--path", required=True)
 
+    resolve_dir_parser = subparsers.add_parser("resolve-dir")
+    resolve_dir_parser.add_argument("--board", required=True)
+    resolve_dir_parser.add_argument("--path", required=True)
+
     patches_parser = subparsers.add_parser("patches")
     patches_parser.add_argument("--board", required=True)
     patches_parser.add_argument("--component", required=True)
@@ -282,6 +297,8 @@ def main() -> int:
             print(" ".join(str(path) for path in board_settings(config_root, args.board)))
         elif args.command == "resolve":
             print(resolve_file(config_root, args.board, args.path))
+        elif args.command == "resolve-dir":
+            print(resolve_directory(config_root, args.board, args.path))
         elif args.command == "patches":
             print(" ".join(str(path) for path in patch_files(config_root, args.board, args.component)))
         elif args.command == "artifact":
