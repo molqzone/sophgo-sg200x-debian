@@ -41,7 +41,15 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	source "$repo_root/toolchain.env"
 	image=${BUILDER_IMAGE:-$(bash "$script_dir/toolchain-ref.sh")}
 	if ! docker image inspect "$image" >/dev/null 2>&1; then
+		proxy_build_args=()
+		if [[ -n $proxy_http ]]; then
+			proxy_build_args+=(--build-arg "HTTP_PROXY=$proxy_http" --build-arg "http_proxy=$proxy_http")
+		fi
+		if [[ -n $proxy_https ]]; then
+			proxy_build_args+=(--build-arg "HTTPS_PROXY=$proxy_https" --build-arg "https_proxy=$proxy_https")
+		fi
 		docker build \
+			"${proxy_build_args[@]}" \
 			--build-arg "BUILDER_BASE_IMAGE=$BUILDER_BASE_IMAGE" \
 			--build-arg "DEBIAN_SNAPSHOT=$DEBIAN_SNAPSHOT" \
 			--build-arg "HOST_TOOLS_REPO=$HOST_TOOLS_REPO" \
