@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from unittest import mock
 CI_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CI_DIR))
 import plan  # noqa: E402
+import validate as validation  # noqa: E402
 
 
 class PlanTests(unittest.TestCase):
@@ -80,6 +82,20 @@ class PlanTests(unittest.TestCase):
     def test_matrix_validation(self) -> None:
         entries = plan.validate(self.config)
         self.assertEqual(entries[0]["format"], "img")
+
+    def test_pin_scan_ignores_untracked_build_output(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "versions.env"], check=True)
+        (root / "build-output").mkdir()
+        (root / "build-output/image.img").write_text("abc123\n", encoding="utf-8")
+        with mock.patch.object(validation, "REPO_ROOT", root):
+            self.assertEqual(
+                validation.tracked_occurrences({"abc123"}),
+                {"abc123": ["versions.env"]},
+            )
 
 
 if __name__ == "__main__":

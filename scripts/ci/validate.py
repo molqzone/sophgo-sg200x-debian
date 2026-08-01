@@ -31,18 +31,23 @@ def fail(message: str) -> None:
 def tracked_occurrences(values: set[str]) -> dict[str, list[str]]:
     needles = {value: value.encode("utf-8") for value in values}
     locations = {value: [] for value in values}
-    excluded = {".git", "output", ".cache", "__pycache__"}
-    for path in REPO_ROOT.rglob("*"):
-        if not path.is_file() or any(part in excluded for part in path.parts):
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    for relative in result.stdout.split("\0"):
+        if not relative:
             continue
+        path = REPO_ROOT / relative
         try:
             content = path.read_bytes()
         except OSError as exc:
             fail(f"cannot scan {path}: {exc}")
-        relative = path.relative_to(REPO_ROOT).as_posix()
         for value, needle in needles.items():
             if needle in content:
-                locations[value].append(relative)
+                locations[value].append(Path(relative).as_posix())
     return {value: sorted(paths) for value, paths in locations.items()}
 
 
