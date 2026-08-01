@@ -56,6 +56,7 @@ $containerHttpsProxy = ConvertTo-ContainerProxy $env:HTTPS_PROXY
 $containerAptHttpProxy = ConvertTo-ContainerProxy $env:APT_HTTP_PROXY
 $containerAptHttpsProxy = ConvertTo-ContainerProxy $env:APT_HTTPS_PROXY
 $debianMirror = if ($env:DEBIAN_MIRROR) { $env:DEBIAN_MIRROR } else { 'https://deb.debian.org/debian' }
+$containerDebianMirror = ConvertTo-ContainerProxy $debianMirror
 
 if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
   $buildArgs = @(
@@ -98,9 +99,9 @@ $runArgs = @(
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
   '-e', "APT_HTTP_PROXY=$containerAptHttpProxy",
   '-e', "APT_HTTPS_PROXY=$containerAptHttpsProxy",
-  '-e', "DEBIAN_MIRROR=$debianMirror",
-  '-e', "http_proxy=$containerAptHttpProxy",
-  '-e', "https_proxy=$containerAptHttpsProxy",
+  '-e', "DEBIAN_MIRROR=$containerDebianMirror",
+  '-e', "http_proxy=$containerHttpProxy",
+  '-e', "https_proxy=$containerHttpsProxy",
   '-v', "${repoRoot}:/workspace:ro",
   '-v', "${repoRoot}/scripts:/builder:ro",
   '-v', "${repoRoot}/configs:/configs:ro",

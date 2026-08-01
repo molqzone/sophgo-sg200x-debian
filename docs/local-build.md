@@ -11,10 +11,11 @@ $env:HTTP_PROXY="http://127.0.0.1:7897"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 
-The PowerShell launcher maps localhost to `host.docker.internal`. General
-HTTPS traffic uses the configured proxy for GitHub and the SOPHGO repository.
-APT downloads are direct by default and use Debian's official HTTPS CDN. Set
-`APT_HTTP_PROXY` or `APT_HTTPS_PROXY` only when APT also needs a proxy.
+The PowerShell launcher maps localhost to `host.docker.internal`. Both uppercase
+and lowercase proxy variables remain enabled for general downloads, including
+GitHub and the SOPHGO repository. Only the `mmdebstrap` process gets a separate
+APT proxy scope. APT is direct by default; set `APT_HTTP_PROXY` or
+`APT_HTTPS_PROXY` when that source also needs a proxy.
 
 The Debian mirror is configurable without changing the image's installed APT
 sources. For example, a mainland China development host can use:
@@ -24,7 +25,9 @@ $env:DEBIAN_MIRROR="https://mirrors.ustc.edu.cn/debian"
 ```
 
 CI keeps the default `https://deb.debian.org/debian`, so local routing choices
-do not change release behavior.
+do not change release behavior. Changing only `DEBIAN_MIRROR` does not
+invalidate an already completed rootfs because the mirror is treated as a
+transport choice; it takes effect on the next rootfs bootstrap.
 
 The first command builds the pinned toolchain image and creates three named
 volumes:
