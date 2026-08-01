@@ -11,15 +11,32 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Test-DockerObject {
-  param([string[]]$Arguments)
-  $previousPreference = $ErrorActionPreference
-  try {
-    $ErrorActionPreference = 'SilentlyContinue'
-    & docker @Arguments *> $null
-    return $LASTEXITCODE -eq 0
-  } finally {
-    $ErrorActionPreference = $previousPreference
+  param(
+    [string[]]$Arguments,
+    [ValidateRange(1, 5)]
+    [int]$Attempts = 3
+  )
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    $previousPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'SilentlyContinue'
+      $global:LASTEXITCODE = $null
+      & docker @Arguments *> $null
+      $ok = $?
+      $exitCode = if ($global:LASTEXITCODE -is [int]) {
+        [int]$global:LASTEXITCODE
+      } elseif ($ok) {
+        0
+      } else {
+        1
+      }
+    } finally {
+      $ErrorActionPreference = $previousPreference
+    }
+    if ($exitCode -eq 0) { return $true }
+    if ($attempt -lt $Attempts) { Start-Sleep -Milliseconds 250 }
   }
+  return $false
 }
 
 function ConvertTo-ContainerProxy {
@@ -58,7 +75,9 @@ $containerAptHttpsProxy = ConvertTo-ContainerProxy $env:APT_HTTPS_PROXY
 $debianMirror = if ($env:DEBIAN_MIRROR) { $env:DEBIAN_MIRROR } else { 'https://deb.debian.org/debian' }
 $containerDebianMirror = ConvertTo-ContainerProxy $debianMirror
 
-if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
+$imageCached = Test-DockerObject -Arguments @('image', 'inspect', $image)
+Write-Host "Builder image: $image (cached=$($imageCached.ToString().ToLowerInvariant()))"
+if (-not $imageCached) {
   $buildArgs = @(
     'build',
     '--build-arg', "BUILDER_BASE_IMAGE=$($versions.BUILDER_BASE_IMAGE)",
@@ -112,6 +131,7 @@ if ($outputPath.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnore
 $runArgs = @(
   'run', '--rm', '--privileged',
   '-e', 'IN_CONTAINER=1',
+  '-e', 'TERM=xterm',
   '-e', 'CCACHE_DIR=/ccache',
   '-e', "HTTP_PROXY=$containerHttpProxy",
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
@@ -136,5 +156,14 @@ $runArgs = @(
 if ($sourceOutput) {
   $runArgs += @('--source-output', $sourceOutput)
 }
-& docker @runArgs
-if ($LASTEXITCODE -ne 0) { throw "Local build target '$Target' failed with exit code $LASTEXITCODE" }
+$previousPreference = $ErrorActionPreference
+try {
+  # Native tools routinely write progress and warnings to stderr. Their exit
+  # status, rather than the PowerShell error stream, determines success.
+  $ErrorActionPreference = 'Continue'
+  & docker @runArgs
+  $dockerExitCode = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $previousPreference
+}
+if ($dockerExitCode -ne 0) { throw "Local build target '$Target' failed with exit code $dockerExitCode" }

@@ -46,6 +46,62 @@ class CacheInvalidationTests(unittest.TestCase):
         with self.assertRaises(cache.PlanError):
             cache.remove_path(self.root, "../outside")
 
+    def test_layer_completion_rejects_partial_checkout(self) -> None:
+        self.create("linux-compile-stamp")
+        head = self.root / "kernel/.git/HEAD"
+        head.parent.mkdir(parents=True)
+        head.write_text("ref: refs/heads/test\n", encoding="utf-8")
+        self.assertTrue(cache.layer_complete(self.root, "linux"))
+
+        head.unlink()
+        self.assertFalse(cache.layer_complete(self.root, "linux"))
+
+    def test_layer_completion_requires_build_stamp(self) -> None:
+        head = self.root / "kernel/.git/HEAD"
+        head.parent.mkdir(parents=True)
+        head.write_text("ref: refs/heads/test\n", encoding="utf-8")
+        self.assertFalse(cache.layer_complete(self.root, "linux"))
+
+    def test_rootfs_invalidation_preserves_complete_component_graphs(self) -> None:
+        reusable = (
+            "linux-prepare-checkout-stamp",
+            "linux-prepare-patch-stamp",
+            "linux-prepare-configure-stamp",
+            "linux-compile-stamp",
+            "osdrv-prepare-checkout-stamp",
+            "osdrv-package-stamp",
+            "middleware-prepare-checkout-stamp",
+            "middleware-package-stamp",
+            "vcodec-firmware-prepare-checkout-stamp",
+            "vcodec-firmware-package-stamp",
+            "uboot-prepare-checkout-stamp",
+            "uboot-compile-stamp",
+            "opensbi-prepare-checkout-stamp",
+            "opensbi-compile-stamp",
+            "fsbl-prepare-checkout-stamp",
+            "fsbl-package-stamp",
+            "cvi-pinmux-package-stamp",
+            "sg2002-ipc-build-stamp",
+        )
+        rootfs_dependent = (
+            "image-prepare-stamp",
+            "image-addons-stamp",
+            "image-customize-stamp",
+            "image-compile-stamp",
+            "maixcam-sensor-config-package-stamp",
+            "maixcam-sensor-config-stamp",
+            "sg2002-ipc-stamp",
+        )
+        self.create("rootfs", *reusable, *rootfs_dependent)
+
+        cache.invalidate(self.root, "rootfs")
+
+        self.assertFalse((self.root / "rootfs").exists())
+        for name in reusable:
+            self.assertTrue((self.root / name).exists(), name)
+        for name in rootfs_dependent:
+            self.assertFalse((self.root / name).exists(), name)
+
     def test_boot_inputs_follow_storage_partition(self) -> None:
         repo = self.root / "repo"
         config = repo / "configs"

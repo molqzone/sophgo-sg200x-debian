@@ -14,6 +14,32 @@ from plan import PlanError, board_chain, effective_assignments, patch_files, res
 
 
 LAYERS = ("firmware", "linux", "osdrv", "middleware", "boot", "rootfs")
+LAYER_COMPLETION_PATHS = {
+    "firmware": ("sg2002-ipc-build-stamp",),
+    "linux": ("linux-compile-stamp", "kernel/.git/HEAD"),
+    "osdrv": ("osdrv-package-stamp", "osdrv/.git/HEAD"),
+    "middleware": ("middleware-package-stamp", "middleware/.git/HEAD"),
+    "boot": (
+        "fsbl-package-stamp",
+        "u-boot/.git/HEAD",
+        "opensbi/.git/HEAD",
+        "fsbl/.git/HEAD",
+    ),
+    "rootfs": ("image-compile-stamp", "rootfs"),
+}
+ROOTFS_REUSABLE_STAMP_PREFIXES = (
+    "linux-",
+    "osdrv-",
+    "middleware-",
+    "vcodec-firmware-",
+    "uboot-",
+    "opensbi-",
+    "fsbl-",
+)
+ROOTFS_REUSABLE_STAMPS = {
+    "cvi-pinmux-package-stamp",
+    "sg2002-ipc-build-stamp",
+}
 
 
 def add_path(digest: "hashlib._Hash", root: Path, path: Path) -> None:
@@ -141,14 +167,22 @@ def invalidate(build_root: Path, layer: str) -> None:
             remove_path(build_root, relative)
     if "rootfs" in affected:
         for stamp in build_root.glob("*-stamp"):
-            if stamp.name not in {
-                "linux-compile-stamp",
-                "osdrv-package-stamp",
-                "middleware-package-stamp",
-                "fsbl-package-stamp",
-                "sg2002-ipc-build-stamp",
-            }:
+            if not rootfs_stamp_is_reusable(stamp.name):
                 stamp.unlink()
+
+
+def layer_complete(build_root: Path, layer: str) -> bool:
+    try:
+        paths = LAYER_COMPLETION_PATHS[layer]
+    except KeyError as exc:
+        raise PlanError(f"unknown cache layer: {layer}") from exc
+    return all((build_root / relative).exists() for relative in paths)
+
+
+def rootfs_stamp_is_reusable(name: str) -> bool:
+    return name in ROOTFS_REUSABLE_STAMPS or name.startswith(
+        ROOTFS_REUSABLE_STAMP_PREFIXES
+    )
 
 
 def main() -> int:
@@ -179,8 +213,12 @@ def main() -> int:
             )
             previous = old_state.get(layer)
             changed = current != previous
-            print(f"cache layer={layer} changed={str(changed).lower()} hash={current}")
-            if changed and not args.dry_run:
+            complete = layer_complete(build_root, layer)
+            print(
+                f"cache layer={layer} changed={str(changed).lower()} "
+                f"complete={str(complete).lower()} hash={current}"
+            )
+            if (changed or not complete) and not args.dry_run:
                 invalidate(build_root, layer)
                 new_state[layer] = current
         if not args.dry_run:
