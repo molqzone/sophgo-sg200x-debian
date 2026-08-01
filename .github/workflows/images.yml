@@ -1,0 +1,70 @@
+name: Full image matrix
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+  schedule:
+    - cron: '17 2 * * 0'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: echo "value=$(python3 scripts/ci/plan.py matrix)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build, validate, and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BUILDER_IMAGE=$(bash scripts/ci/toolchain-ref.sh "$GITHUB_REPOSITORY_OWNER")
+          bash scripts/ci/build-board.sh '${{ matrix.board }}' '${{ matrix.storage }}' build-output
+          bash scripts/ci/package-board.sh '${{ matrix.board }}' '${{ matrix.storage }}' build-output package-output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.board }}-${{ matrix.storage }}
+          path: package-output/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*

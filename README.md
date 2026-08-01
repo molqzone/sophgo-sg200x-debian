@@ -1,137 +1,89 @@
-# Debian Images for Sophgo cv181x/sg200x based boards 
-This repository builds debian sid images for Sophgo cv181x/sg200x based boards such as MilkV Duo256/DuoS and Sipeed LicheeRvNano.
+# Debian images for Sophgo CV181x/SG200x boards
 
-(Note, we don't support the MilkV Duo, as it does not have enough ram to run Debian)
+This repository builds Debian sid images for Milk-V Duo256/DuoS, Sipeed
+LicheeRV Nano, and MaixCAM. It remains a single repository so upstream board
+support can be synchronized without mixing MaixCAM product policy into the
+upstream configurations.
 
-The images aim to be as close to possible to debian best practices as possible
+The sole build matrix is [`configs/build-matrix.json`](configs/build-matrix.json).
+Inspect it with:
 
-## Flashing the Image
-
-### Duo256, DuoS, and LicheeRVNano
-To flash from linux, either build your own image, or download a image from the releases page, and then run the following command:
-```
-sudo dd if=image/(board)_sd.img of=/dev/sdX bs=4M status=progress
-```
-
-From windows, you can use tools such as balena etcher
-
-where the (board)_sd.img is the image file you want to flash, and /dev/sdX is the device you want to flash to.
-(if you build for a different board, the image file name will be different)
-
-### DuoS with EMMC
-To flash the DuoS with EMMC, you need to use the vendor tools to flash the image to the EMMC. You can follow the
-instructions at https://milkv.io/docs/duo/getting-started/duos#emmc-version-firmware-burning but instead of downloading 
-the  milkv-duos-emmc-v1.1.0-2024-0410.zip file, you download the duos_emmc.zip from the releases on this repository.
-
-if you already have a image installed, but wish to upgrade, when u-boot loads up, interupt the boot process by pressing any
-key and typing the following commands:
-```
-cvi_update
+```sh
+python3 scripts/ci/plan.py matrix
 ```
 
-The flashing should then continue
+SD builds produce `<board>_sd.img`. DuoS eMMC produces `duos_emmc.zip`; the
+packaging format comes from the matrix and is not inferred by a workflow.
 
+## Local development
 
-## Image Info
-Logins: root/rv and debian/rv
+The normal development loop uses a persistent Docker SDK, build tree, and
+ccache:
 
-(root login is disabled via SSH, login via debian, and SU to root if needed)
-
-### USB Gadget Support
-by default, a rndis interface is started on the USB port, and the IP address is
-10.42.0.1 - It also starts a DHCP Server on that interface, so your PC should automatically get an IP address in the 10.42.0.x range
-
-To Disable the rndis interface, you can run the following command:
-```
-systemctl disable usb-gadget-rndis
-```
-
-There is also a option to start a serial port (ACM) interface instead of the rndis interface, to do this, you can run the following command:
-```
-systemctl disable usb-gadget-rndis
-systemctl enable usb-gadget-acm
+```sh
+make test
+make firmware
+make modules
+make image BOARD=maixcam
+make verify
 ```
 
-After executing these commands, you need to reboot.
+On Windows, where GNU Make is not normally installed, use the equivalent
+PowerShell entry point:
 
-### DuoS - USB Type A Port
-After disabling the usb-gadgets, if you want to use the USB Type A Ports, then you need to turn them on:
-```
-systemctl enable usb-switch
-```
-
-and reboot afterwards. 
-
-### Wifi on DuoS/LicheeRVNano
-For the LicheeRVNano/DuoS board, Wifi is enabled. To connect to your wifi network, execute the following command and select "Activate a connection" and select your wifi network:
-```
-nmtui
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target test
+powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target firmware
+powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target image -Board maixcam
+powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target verify
 ```
 
-### Ethernet
-For Boards with eithernet, they should automatically get a IP address if your network has a DHCP Server. You can configure the 
-ethernet port in nmtui
+The runner creates `sg2002-sdk`, `sg2002-build`, and `sg2002-ccache` Docker
+volumes. Source hashes invalidate only the affected layers and their required
+downstream consumers. See [`docs/local-build.md`](docs/local-build.md).
 
-### Camera/ISP/Panel Support
-The images are based on the vendor 5.10 kernel, but exclude the following drivers:
-- mipi-rx/csi drivers
-- mipi-tx/dsi drivers
-- TPU Drivers
-- Any of the Video Encoding Drivers
+## Repository layers
 
-(this is mainly due to compatibility reasons with the glibc version in debian and musl version used in the vendor images)
+- `components/sg2002-ipc`: standalone C906L firmware, Linux library/tools,
+  host tests, and vendor SDK/OSdrv ports.
+- `configs/common`: settings and patches shared by every board.
+- `configs/<upstream-board>`: the original board configuration.
+- `configs/maixcam`: an exact board layer derived from `licheervnano`.
+- `scripts/addons/sg2002-ipc`: a thin image integration adapter.
+- `scripts/ci`: commands shared by local builds and GitHub Actions.
 
-The board images reserve a board-specific amount of ION memory for the vendor multimedia stack. Headless configurations can reduce this carveout, but camera/ISP/RTSP features still depend on it.
+Board files resolve in exact-board, base-board, then common precedence. Patches
+apply common, base-board, then exact-board; an exact `*.patch.skip` file masks
+an inherited patch with the same name. Details are in
+[`docs/architecture.md`](docs/architecture.md).
 
-### Ardunio/Freertos Support
-The images also include the remoteproc and mailbox drivers so you can load up ardunio/freertos images on the small C906 core. 
+## CI and releases
 
-### Additional Packages
-This image also adds the debian repository for https://github.com/Fishwaldo/sophgo-sg200x-packages so you can install additional repositories. The debian repository is hosted at 
-https://sophgo.my-ho.st:8443/ which pulls down the compiled debian packages from the above github repository occasionally.
+`ci.yml` runs host tests, builds the standalone C906L component and Linux tools,
+and builds only affected matrix entries. `images.yml` performs the clean full
+matrix for manual runs, schedules, and tags. `toolchain.yml` publishes the
+immutable toolchain image only when its Dockerfile or pin file changes.
 
+All workflow logic delegates to `scripts/ci`; the same commands can be run
+locally. The A53 workflow is intentionally unsupported for SG2002.
 
-## Building the Image
-To build a stock image with no modifications:
-```
-podman run --privileged -it --rm -v ./configs/:/configs -v ./image:/output ghcr.io/fishwaldo/sophgo-sg200x-debian:master make BOARD=licheervnano image
-```
+## Flashing
 
-Replace the licheervnano with the board you want to build for:
-- duo256
-- duos
-- licheervnano
+Write an uncompressed SD image from Linux with:
 
-If you want to create a image for the DuoS with EMMC, you can add "STORAGE_TYPE=emmc" to the make command:
-```
-podman run --privileged -it --rm -v ./configs/:/configs -v ./image:/output ghcr.io/fishwaldo/sophgo-sg200x-debian:master make BOARD=duos STORAGE_TYPE=emmc image
+```sh
+sudo dd if=maixcam_sd.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-The Docker image will build the image and place it in the image directory
+Use the correct target device; this overwrites it. Windows users can use a raw
+image writer such as balenaEtcher. Flash `duos_emmc.zip` with the Milk-V vendor
+eMMC update flow.
 
-addition make targets are available when building:
-- image - builds the image
-- clean - cleans the build directory
-- linux - build a kernel debian package
-- fsbl - build the fsbl debain package (that includes cvitek-fsbl, opensbi and u-boot)
+Default local logins are `root/rv` and `debian/rv`; root SSH login is disabled.
 
-## Customizing the Image
-The configs directory contains patches, configuration and device tree files that are used to build the image.
+## Upstream maintenance
 
-The configs/common directory contains the common configuration for all boards, and the configs/licheervnano and configs/duo256 directories contain the board specific configuration.
-
-To add packages to the image, either add the package name in PACKAGES variable of configs/settings.mk or if the packae is specific to a board, add it to the configs/\<board\>/settings.mk file
-
-Patches for the kernel, opensbi, u-boot or fsbl can be placed in configs/common/patches/ or configs/\<board\>/patches/ depending what they are for.
-
-To assist with developing the image, you can get a shell in the docker container by running:
-```
-docker run --privileged -it --rm -v ./configs/:/configs -v ./image:/output -v ./scripts/:/builder builder /bin/bash
-```
-inside the container, packages are build in the /builder/ directory, and the rootfs is placed at /rootfs/ directory
-
-# TODO
-- DeviceTree Overlay Support
-- Add support for the MIPI-CSI/DSI drivers (Sample applications would be in the sophgo-sg200x-packages repository if they do not depend upon a musl libc version)
-- Add support for the TPU drivers
-- Possibly mainline kernel support via the sophgo linux for-next repositories
+Keep upstream board behavior byte-for-byte where possible and put product
+differences in `configs/maixcam` or a `maixcam-*` addon. The synchronization and
+verification procedure is documented in
+[`docs/upstream-sync.md`](docs/upstream-sync.md).

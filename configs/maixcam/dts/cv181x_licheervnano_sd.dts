@@ -1,0 +1,178 @@
+/dts-v1/;
+#include "cv181x_base_riscv.dtsi"
+#include "cv181x_asic_qfn.dtsi"
+#include "cv181x_asic_sd.dtsi"
+#include "cv181x_default_memmap.dtsi"
+
+#include <dt-bindings/input/linux-event-codes.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+#ifndef __UBOOT__
+#include <dt-bindings/mailbox/cvitek-mailbox.h>
+#endif
+
+&sd {
+        min-frequency = <400000>; // 400Khz
+        //max-frequency = <50000000>; // 50Mhz
+        max-frequency = <25000000>; // 25Mhz
+        //max-frequency = <10000000>; // 10Mhz
+        //max-frequency = <5000000>; // 5Mhz
+};
+
+&fast_image {
+	reg = <0x0 CVIMMAP_FREERTOS_ADDR 0x0 CVIMMAP_RTOS_FIRMWARE_SIZE>;
+};
+
+
+&uart1 {
+        status = "okay";
+};
+
+&mipi_tx {
+	status = "disabled";
+};
+
+&i2c4 {
+        statuc = "okay";
+        gt9xx: gt9xx@14 {
+                compatible = "goodix,gt911";
+                reg = <0x14>;
+		interrupts = <3 0 IRQ_TYPE_EDGE_FALLING>;
+		interrupt-parent = <&porte>;
+                irq-gpios= <&porte 3 0>;
+                reset-gpios = <&porte 4 0>;
+                status = "disabled";
+        };
+};
+
+
+&dac {
+        status = "disabled";
+        /delete-property/ mute-gpio-r;
+};
+
+&ethernet0 {
+	status = "disabled";
+};
+
+&mipi_rx {
+        snsr-reset = <&porte 1 GPIO_ACTIVE_LOW>;
+};
+
+&soc_thermal_0 {
+	cooling-maps {
+		map0 {
+			trip = <&soc_thermal_trip_0>;
+			cooling-device = <&cv181x_cooling THERMAL_NO_LIMIT 1>;
+		};
+		map1 {
+			trip = <&soc_thermal_trip_1>;
+			cooling-device = <&cv181x_cooling THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+/ {
+        model = "Sipeed MaixCAM";
+
+	reserved-memory {
+		rtos_shm: shared-memory@8ffde000 {
+			reg = <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
+			no-map;
+		};
+
+		rtos_boot_trace: boot-trace@8ffff000 {
+			reg = <0x0 CVIMMAP_RTOS_BOOT_TRACE_ADDR 0x0 CVIMMAP_RTOS_BOOT_TRACE_SIZE>;
+			no-map;
+			cvitek,boot-trace;
+		};
+	};
+
+	/delete-node/ saradc;
+	/delete-node/ rtc;
+
+	/delete-node/ wifi_pin;
+	/delete-node/ bt_pin;
+	/delete-node/ sound_adc;
+	/delete-node/ sound_dac;
+	/delete-node/ sound_PDM;
+
+        gpio-keys {
+                compatible = "gpio-keys";
+                key-user {
+                        label = "User Key";
+                        linux,code = <KEY_DISPLAYTOGGLE>;
+                        debounce-interval = <1>;
+                        gpios = <&porta 30 1>;
+                };
+        };
+
+        wifisd:wifi-sd@4320000 {
+                compatible = "cvitek,cv181x-sdio";
+                bus-width = <4>;
+                reg = <0x0 0x4320000 0x0 0x1000>;
+                reg_names = "core_mem";
+                src-frequency = <375000000>;
+                min-frequency = <400000>; // 400Khz
+                //max-frequency = <50000000>; // 50Mhz
+                //max-frequency = <45000000>; // 45Mhz
+                //max-frequency = <40000000>; // 40Mhz
+                //max-frequency = <35000000>; // 35Mhz
+                //max-frequency = <30000000>; // 30Mhz
+                max-frequency = <25000000>; // 25Mhz
+                //max-frequency = <20000000>; // 20Mhz
+                //max-frequency = <15000000>; // 15Mhz
+                //max-frequency = <10000000>; // 10Mhz
+                //max-frequency = <5000000>; // 5Mhz
+                64_addressing;
+                reset_tx_rx_phy;
+                non-removable;
+                pll_index = <0x7>;
+                pll_reg = <0x300207C>;
+                no-mmc;
+                no-sd;
+                status = "okay";
+                interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
+                interrupt-parent = <&plic0>;
+        };
+
+        leds {
+        	compatible = "gpio-leds";
+	        led0 {
+		        gpios = <&porta 14 GPIO_ACTIVE_LOW>;
+		        linux,default-trigger = "heartbeat";
+		        function = LED_FUNCTION_HEARTBEAT;
+	        };
+        };
+#ifndef __UBOOT__        
+	rtos_cmdqu {
+		reg = <0x0 0x01900000 0x0 0x1000>,
+		      <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
+		reg-names = "mailbox", "shared-memory";
+	};
+
+        mbox: mbox@0x01900000 {
+                compatible = "cvitek,sg200x-mailbox";
+		reg = <0x0 0x01900000 0x0 0x1000>;
+		reg-names = "mailbox";
+                interrupts	= <101 IRQ_TYPE_LEVEL_HIGH>;
+                interrupt-parent = <&plic0>;
+                status = "okay";
+                #mbox-cells = <4>;
+        };
+
+        cv181x-c906_1 {
+		compatible	= "cvitek,cv181x-c906_1";
+		memory-region	= <&fast_image &rtos_boot_trace &vdev0vring0
+				   &vdev0vring1 &vdev0buffer>;
+                firmware        = "c906-mcu.elf";
+                resets		= <&rst RST_C906_1>;
+		reset-names	= "sw_reset";
+                clocks		= <&clk CV181X_CLK_C906_1>;
+                clock-names     = "clk_c906_1";
+                mboxes		= <&mbox 0 CVITEK_MBOX_DIRECTION_TX CVITEK_MBOX_C906_1 1>, <&mbox 1 CVITEK_MBOX_DIRECTION_RX CVITEK_MBOX_C906_1 1>;
+	        mbox-names	= "vq_tx", "vq_rx";
+                status		= "okay";
+	};
+#endif
+};

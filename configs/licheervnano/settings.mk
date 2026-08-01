@@ -1,5 +1,5 @@
-CHIP=cv181x
-UBOOT_CHIP=cv181x
+CHIP=sg200x
+UBOOT_CHIP=sg2002
 UBOOT_BOARD=licheervnano_sd
 BOOT_CPU=riscv
 ARCH=riscv
@@ -7,14 +7,6 @@ DDR_CFG=ddr3_1866_x16
 PARTITION_FILE=partition_sd.xml
 STORAGE_TYPE=sd
 
-PACKAGES += " wireless-regdb wpasupplicant"
+PACKAGES += " wireless-regdb wpasupplicant cvi-pinmux-cv181x"
 
-IMAGE_ADDITIONS += "load-systemko"
-IMAGE_ADDITIONS += "rtos-firmware"
 IMAGE_ADDITIONS += "aic8800-firmware"
-IMAGE_ADDITIONS += "sysctl-compat"
-IMAGE_ADDITIONS += "journald-compact"
-IMAGE_ADDITIONS += "systemd-lean"
-IMAGE_ADDITIONS += "wifi-connect"
-IMAGE_ADDITIONS += "time-sync"
-IMAGE_ADDITIONS += "network-services"

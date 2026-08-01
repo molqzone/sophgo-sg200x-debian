@@ -1,2 +1,5 @@
 __pycache__
 image/*
+output/
+components/sg2002-ipc/.cache/
+components/sg2002-ipc/out/

@@ -1,5 +1,6 @@
 [Unit]
 Description=RNDIS USB Gadget Support
+After=network.target
 Before=usb-gadget.service
 Conflicts=usb-gadget-acm.service
 Conflicts=usb-switch.service
@@ -7,11 +8,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
 ExecStart=/bin/bash -c "/bin/echo device > /proc/cviusb/otg_role"
 ExecStart=sh /usr/sbin/run_usb.sh probe rndis
 ExecStart=sh /usr/sbin/run_usb.sh start
-ExecStop=sh /usr/sbin/run_usb.sh stop
 
 [Install]
 WantedBy=multi-user.target

@@ -51,6 +51,8 @@ if [ "$STORAGETYPE" = "sd" ]; then
 EOF
 fi
 
+
+
 #regenerate SSH keys on first boot
 cat > /etc/systemd/system/finalize-image.service <<EOF
 [Unit]
@@ -61,10 +63,7 @@ Before=ssh.service
 Type=oneshot
 ExecStartPre=-/usr/sbin/parted -s -f /dev/mmcblk0 resizepart 2 100%
 ExecStartPre=-/usr/sbin/resize2fs /dev/mmcblk0p2
-ExecStartPre=-/bin/sh -c "if [ ! -e /swapfile ]; then fallocate -l 1024M /swapfile && chmod 600 /swapfile && mkswap /swapfile; fi"
-ExecStartPre=-/bin/sh -c "grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab"
-ExecStartPre=-/sbin/swapon /swapfile
-ExecStartPre=-/bin/sh -c "if [ -e /dev/hwrng ]; then dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096; fi"
+ExecStartPre=-/bin/dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096
 ExecStartPre=-/bin/sh -c "/bin/rm -f -v /etc/ssh/ssh_host_*_key*"
 ExecStart=/usr/bin/ssh-keygen -A -v
 ExecStartPost=/bin/systemctl disable finalize-image
@@ -79,13 +78,11 @@ fi
 
 cat /etc/systemd/system/finalize-image.service
 
-apt install -y --allow-downgrades -f /tmp/install/*.deb
-
-systemctl enable fake-hwclock-load.service fake-hwclock-save.timer || true
-
-# Convenience developer tools setup requested for the image profile.
-ln -sf /usr/bin/python3 /usr/bin/python
-python3 -m pip --version
+apt_install_flags="-y -f"
+if [ -f /tmp/install/apt-allow-downgrades ]; then
+  apt_install_flags="$apt_install_flags --allow-downgrades"
+fi
+apt install $apt_install_flags /tmp/install/*.deb
 
 
 # change device tree
@@ -134,10 +131,6 @@ cat /boot/extlinux/extlinux.conf
 # Set hostname
 cat /tmp/install/hostname > /etc/hostname
 
-# Keep PAM and cron from warning about a missing locale file.
-mkdir -p /etc/default
-printf 'LANG=C.UTF-8\n' > /etc/default/locale
-
 # 
 cat >> /etc/hosts << EOF
 127.0.0.1      ${HOSTNAME} 
@@ -151,66 +144,26 @@ if [ -f /tmp/install/systemd-enable ]; then
   systemctl enable `cat /tmp/install/systemd-enable`
 fi
 
-# This image is managed by NetworkManager; disable the legacy ifupdown service
-# to avoid competing for the same Ethernet device names during boot.
-systemctl disable networking.service 2>/dev/null || true
-
-# Avoid autofs4-related boot noise on systems that do not use binfmt_misc
-# automounting and do not ship the autofs kernel module.
-systemctl mask proc-sys-fs-binfmt_misc.automount 2>/dev/null || true
-systemctl mask proc-sys-fs-binfmt_misc.mount 2>/dev/null || true
-systemctl mask systemd-binfmt.service 2>/dev/null || true
-
-# This embedded image does not benefit from periodic ext4 online scrub cleanup.
-systemctl disable e2scrub_reap.service e2scrub_all.timer 2>/dev/null || true
-
-# Mark /etc and /var as updated in the image so systemd does not rerun one-shot
-# maintenance jobs such as ldconfig on every boot.
-touch /etc/.updated /var/.updated
-
-# The vendor kernel used on this board does not expose the sysrq tunable in the
-# location expected by newer Debian defaults, so drop those writes entirely.
-sed -i '/^kernel\.sysrq[[:space:]]*=.*/d' /etc/sysctl.conf 2>/dev/null || true
-find /etc/sysctl.d /usr/lib/sysctl.d /lib/sysctl.d -maxdepth 1 -type f -name '*.conf' -exec sed -i '/^kernel\.sysrq[[:space:]]*=.*/d' {} + 2>/dev/null || true
-rm -f /etc/sysctl.d/10-magic-sysrq.conf /usr/lib/sysctl.d/10-magic-sysrq.conf /lib/sysctl.d/10-magic-sysrq.conf
-
-# Prevent udev/modprobe from auto-loading modules that are either unused in the
-# headless profile or explicitly loaded later from /mnt/system/ko.
-#
-# Keep remoteproc off by default because the packaged camera/multimedia route
-# still uses the vendor cmdqu path on first boot. The image also ships
-# /usr/bin/rtos-mode so users can switch cleanly to the remoteproc route after
-# boot once they want the C906L RTOS firmware loaded from /lib/firmware.
-mkdir -p /etc/modprobe.d
-cat > /etc/modprobe.d/maixcam-blacklist.conf <<EOF
-blacklist cvitek_mailbox
-blacklist cvitek_remoteproc
-blacklist aic8800_bsp
-blacklist aic8800_fdrv
-blacklist aic8800_btlpm
-blacklist autofs4
-install autofs4 /bin/true
-blacklist adc_cvitek
-blacklist rtc_cvitek
-blacklist pwm_cvitek
-EOF
-
 # Update source list 
 
 rm -rf /etc/apt/sources.list.d/multistrap-debian.list
 
-if [ "$BOARD" = "licheervnano" ]; then
-  cat > /etc/apt/sources.list <<EOF
-deb http://deb.debian.org/debian sid main non-free-firmware
-EOF
-else
-  gpg --dearmor /tmp/install/public-key.asc
-  cp /tmp/install/public-key.asc.gpg /etc/apt/trusted.gpg.d/sophgo-myho-st.gpg
+if [ -f /tmp/install/public-key.asc ]; then
+  apt-key add /tmp/install/public-key.asc
   cat > /etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian sid main non-free-firmware
 deb https://sophgo.my-ho.st:8443/ debian sophgo
 EOF
+else
+  cat > /etc/apt/sources.list <<EOF
+deb http://deb.debian.org/debian sid main non-free-firmware
+EOF
 fi
+
+for hook in /tmp/install/rootfs-hooks/*.sh; do
+  [ -f "$hook" ] || continue
+  /bin/sh "$hook"
+done
 
 echo "/boot/uboot.env	0x0000          0x20000" > /etc/fw_env.config
 mkenvimage -s 0x20000 -o /boot/uboot.env /etc/u-boot-initial-env

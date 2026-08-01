@@ -1,0 +1,32 @@
+{
+  "include": [
+    {
+      "board": "licheervnano",
+      "storage": "sd",
+      "format": "img"
+    },
+    {
+      "board": "duo256",
+      "storage": "sd",
+      "format": "img"
+    },
+    {
+      "board": "duos",
+      "storage": "sd",
+      "format": "img"
+    },
+    {
+      "board": "duos",
+      "storage": "emmc",
+      "format": "zip"
+    },
+    {
+      "board": "maixcam",
+      "storage": "sd",
+      "format": "img",
+      "components": [
+        "sg2002-ipc"
+      ]
+    }
+  ]
+}

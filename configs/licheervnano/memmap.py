@@ -20,23 +20,6 @@ class MemoryMap:
     FREERTOS_ADDR = DRAM_BASE + DRAM_SIZE - FREERTOS_SIZE
     FSBL_C906L_START_ADDR = FREERTOS_ADDR
 
-    # The final page remains the boot trace. The two fixed-slot queues live
-    # immediately below it and are excluded from the FreeRTOS linker region.
-    RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
-    RTOS_SHM_SIZE = 132 * SIZE_1K
-    RTOS_SHM_ADDR = (
-        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - RTOS_SHM_SIZE
-    )
-    RTOS_FIRMWARE_SIZE = RTOS_SHM_ADDR - FREERTOS_ADDR
-    RTOS_BOOT_TRACE_ADDR = RTOS_SHM_ADDR + RTOS_SHM_SIZE
-    assert RTOS_SHM_ADDR >= FREERTOS_ADDR
-    assert RTOS_SHM_ADDR + RTOS_SHM_SIZE == (
-        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
-    )
-    assert RTOS_BOOT_TRACE_ADDR + RTOS_BOOT_TRACE_SIZE == (
-        FREERTOS_ADDR + FREERTOS_SIZE
-    )
-
     # ==============================
     # OpenSBI | arm-trusted-firmware
     # ==============================
@@ -57,12 +40,10 @@ class MemoryMap:
     # =================
     # Multimedia buffer. Used by u-boot/kernel/FreeRTOS
     # =================
-    # Headless camera route is using 720p-oriented middleware defaults, but
-    # the vendor ISP path still needs some headroom above the 22 MiB floor.
-    ION_SIZE = 28 * SIZE_1M
-    H26X_BITSTREAM_SIZE = 2 * SIZE_1M
+    ION_SIZE = 0 * SIZE_1M
+    H26X_BITSTREAM_SIZE = 0 * SIZE_1M
     H26X_ENC_BUFF_SIZE = 0
-    ISP_MEM_BASE_SIZE = 20 * SIZE_1M
+    ISP_MEM_BASE_SIZE = 0 * SIZE_1M
     FREERTOS_RESERVED_ION_SIZE = H26X_BITSTREAM_SIZE + H26X_ENC_BUFF_SIZE + ISP_MEM_BASE_SIZE
 
     # ION after FreeRTOS
@@ -75,8 +56,9 @@ class MemoryMap:
 
     assert ISP_MEM_BASE_ADDR + ISP_MEM_BASE_SIZE <= ION_ADDR + ION_SIZE
 
-    # Headless default: do not reserve a framebuffer/bootlogo carveout.
-    BOOTLOGO_SIZE = 0
+    # Boot logo is after the ION buffer
+    # Framebuffer uses boot logo's reserved memory
+    BOOTLOGO_SIZE = 8000 * SIZE_1K
     BOOTLOGO_ADDR = ION_ADDR - BOOTLOGO_SIZE
     FRAMEBUFFER_SIZE = BOOTLOGO_SIZE
     FRAMEBUFFER_ADDR = BOOTLOGO_ADDR

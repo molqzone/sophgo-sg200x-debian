@@ -54151,6 +54151,11 @@ index 000000000000..ba4a33f7406d
 +	{ .max = 1,
 +#endif
 +	  .types = BIT(NL80211_IFTYPE_P2P_CLIENT) | BIT(NL80211_IFTYPE_P2P_GO)},
++#ifndef CONFIG_USE_P2P0
++	{ .max = 1,
++	  .types = BIT(NL80211_IFTYPE_P2P_DEVICE),
++	}
++#endif
 +};
 +
 +static struct ieee80211_iface_limit rwnx_limits_dfs[] = {
@@ -60693,6 +60698,9 @@ index 000000000000..ba4a33f7406d
 +	BIT(NL80211_IFTYPE_AP_VLAN)     |
 +	BIT(NL80211_IFTYPE_P2P_CLIENT)  |
 +	BIT(NL80211_IFTYPE_P2P_GO)      |
++#ifndef CONFIG_USE_P2P0
++	BIT(NL80211_IFTYPE_P2P_DEVICE)  |
++#endif
 +	BIT(NL80211_IFTYPE_MONITOR);
 +
 +#if IS_ENABLED(CONFIG_PM)
@@ -82760,3 +82768,4 @@ index 000000000000..012b90c9770a
 +#endif
 -- 
 2.44.0
+

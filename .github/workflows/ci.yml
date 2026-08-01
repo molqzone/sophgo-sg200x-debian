@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Build toolchain
+    types:
+      - completed
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ci-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request')
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_matrix: ${{ steps.plan.outputs.has_matrix }}
+      defer_toolchain: ${{ steps.plan.outputs.defer_toolchain }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate and plan affected boards
+        id: plan
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/plan.py validate
+          defer=false
+          if [[ "$EVENT_NAME" == push ]]; then
+            base=$PUSH_BASE
+            if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+              base=$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)
+            fi
+          elif [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$PR_BASE
+          else
+            matrix=$(python3 scripts/ci/plan.py matrix)
+          fi
+          if [[ "$EVENT_NAME" == push || "$EVENT_NAME" == pull_request ]]; then
+            if git diff --name-only "$base" HEAD | grep -Eq '^(\.dockerignore|scripts/Dockerfile|toolchain\.env|scripts/ci/toolchain-ref\.sh)$'; then
+              defer=true
+            fi
+            matrix=$(python3 scripts/ci/plan.py affected --base "$base")
+          fi
+          has_matrix=$(python3 -c 'import json,sys; print(str(bool(json.load(sys.stdin)["include"])).lower())' <<<"$matrix")
+          {
+            echo "matrix=$matrix"
+            echo "has_matrix=$has_matrix"
+            echo "defer_toolchain=$defer"
+          } >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Host tests and repository validation
+        run: bash scripts/ci/validate.sh
+
+  component:
+    needs: plan
+    if: needs.plan.outputs.defer_toolchain != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build standalone C906L and Linux tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BUILDER_IMAGE=$(bash scripts/ci/toolchain-ref.sh "$GITHUB_REPOSITORY_OWNER")
+          bash scripts/ci/build-component.sh maixcam component-output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sg2002-ipc
+          path: component-output/
+          if-no-files-found: error
+
+  boards:
+    needs: plan
+    if: needs.plan.outputs.defer_toolchain != 'true' && needs.plan.outputs.has_matrix == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Clean board build
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BUILDER_IMAGE=$(bash scripts/ci/toolchain-ref.sh "$GITHUB_REPOSITORY_OWNER")
+          bash scripts/ci/build-board.sh '${{ matrix.board }}' '${{ matrix.storage }}' build-output
+          bash scripts/ci/package-board.sh '${{ matrix.board }}' '${{ matrix.storage }}' build-output package-output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.board }}-${{ matrix.storage }}
+          path: package-output/
+          if-no-files-found: error

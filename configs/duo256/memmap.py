@@ -40,10 +40,10 @@ class MemoryMap:
     # =================
     # Multimedia buffer. Used by u-boot/kernel/FreeRTOS
     # =================
-    ION_SIZE = 63 * SIZE_1M
-    H26X_BITSTREAM_SIZE = 2 * SIZE_1M
+    ION_SIZE = 0 * SIZE_1M
+    H26X_BITSTREAM_SIZE = 0 * SIZE_1M
     H26X_ENC_BUFF_SIZE = 0
-    ISP_MEM_BASE_SIZE = 20 * SIZE_1M
+    ISP_MEM_BASE_SIZE = 0 * SIZE_1M
     FREERTOS_RESERVED_ION_SIZE = H26X_BITSTREAM_SIZE + H26X_ENC_BUFF_SIZE + ISP_MEM_BASE_SIZE
 
     # ION after FreeRTOS
@@ -58,7 +58,7 @@ class MemoryMap:
 
     # Boot logo is after the ION buffer
     # Framebuffer uses boot logo's reserved memory
-    BOOTLOGO_SIZE = 5632 * SIZE_1K
+    BOOTLOGO_SIZE = 1800 * SIZE_1K
     BOOTLOGO_ADDR = ION_ADDR - BOOTLOGO_SIZE
     FRAMEBUFFER_SIZE = BOOTLOGO_SIZE
     FRAMEBUFFER_ADDR = BOOTLOGO_ADDR
