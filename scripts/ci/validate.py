@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -31,19 +32,59 @@ FALLBACK_EXCLUDED_DIRS = {
     ".venv",
     "__pycache__",
     "build",
+    "build-output",
+    "component-output",
     "dist",
     "image",
     "node_modules",
     "out",
     "output",
+    "package-output",
 }
+SCAN_CHUNK_SIZE = 1024 * 1024
 
 
 def fail(message: str) -> None:
     raise PlanError(message)
 
 
-def maintained_files() -> list[Path]:
+def resolved_exclusions(paths: tuple[Path, ...]) -> tuple[Path, ...]:
+    return tuple(
+        (path if path.is_absolute() else Path.cwd() / path).resolve(strict=False)
+        for path in paths
+    )
+
+
+def is_excluded(path: Path, excluded_roots: tuple[Path, ...]) -> bool:
+    resolved = path.resolve(strict=False)
+    if any(resolved == root or root in resolved.parents for root in excluded_roots):
+        return True
+    relative = path.relative_to(REPO_ROOT)
+    if any(part in FALLBACK_EXCLUDED_DIRS for part in relative.parts):
+        return True
+    return bool(relative.parts and relative.parts[0].endswith("-output"))
+
+
+def fallback_files(excluded_roots: tuple[Path, ...]) -> list[Path]:
+    files: list[Path] = []
+    for current, directories, filenames in os.walk(REPO_ROOT):
+        current_path = Path(current)
+        directories[:] = sorted(
+            name
+            for name in directories
+            if not is_excluded(current_path / name, excluded_roots)
+        )
+        files.extend(
+            current_path / name
+            for name in sorted(filenames)
+            if (current_path / name).is_file()
+            and not is_excluded(current_path / name, excluded_roots)
+        )
+    return files
+
+
+def maintained_files(excluded_paths: tuple[Path, ...] = ()) -> list[Path]:
+    excluded_roots = resolved_exclusions(excluded_paths)
     try:
         result = subprocess.run(
             ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
@@ -57,34 +98,45 @@ def maintained_files() -> list[Path]:
             "validate.py: Git metadata unavailable; scanning maintained source files",
             file=sys.stderr,
         )
-        return sorted(
-            path
-            for path in REPO_ROOT.rglob("*")
-            if path.is_file()
-            and not any(
-                part in FALLBACK_EXCLUDED_DIRS
-                for part in path.relative_to(REPO_ROOT).parts
-            )
-        )
+        return fallback_files(excluded_roots)
     return [REPO_ROOT / relative for relative in result.stdout.split("\0") if relative]
 
 
-def tracked_occurrences(values: set[str]) -> dict[str, list[str]]:
+def file_occurrences(path: Path, needles: dict[str, bytes]) -> set[str]:
+    if not needles:
+        return set()
+    found: set[str] = set()
+    overlap = max(len(needle) for needle in needles.values()) - 1
+    tail = b""
+    with path.open("rb") as stream:
+        while chunk := stream.read(SCAN_CHUNK_SIZE):
+            content = tail + chunk
+            for value, needle in needles.items():
+                if value not in found and needle in content:
+                    found.add(value)
+            if len(found) == len(needles):
+                break
+            tail = content[-overlap:] if overlap else b""
+    return found
+
+
+def tracked_occurrences(
+    values: set[str], excluded_paths: tuple[Path, ...] = ()
+) -> dict[str, list[str]]:
     needles = {value: value.encode("utf-8") for value in values}
     locations = {value: [] for value in values}
-    for path in maintained_files():
+    for path in maintained_files(excluded_paths):
         try:
-            content = path.read_bytes()
+            found = file_occurrences(path, needles)
         except OSError as exc:
             fail(f"cannot scan {path}: {exc}")
         relative = path.relative_to(REPO_ROOT).as_posix()
-        for value, needle in needles.items():
-            if needle in content:
-                locations[value].append(relative)
+        for value in found:
+            locations[value].append(relative)
     return {value: sorted(paths) for value, paths in locations.items()}
 
 
-def validate_pins() -> None:
+def validate_pins(excluded_paths: tuple[Path, ...] = ()) -> None:
     pin_files = (
         REPO_ROOT / "versions.env",
         REPO_ROOT / "toolchain.env",
@@ -102,7 +154,7 @@ def validate_pins() -> None:
             if value in expected and expected[value] != relative:
                 fail(f"commit pin {value} is duplicated in {expected[value]} and {relative}")
             expected[value] = relative
-    locations = tracked_occurrences(set(expected))
+    locations = tracked_occurrences(set(expected), excluded_paths)
     for value, source in expected.items():
         if locations[value] != [source]:
             fail(f"pin {value} must occur only in {source}: {locations[value]}")
@@ -195,6 +247,7 @@ def main() -> int:
     parser.add_argument("--board", default="maixcam")
     parser.add_argument("--storage", default="sd")
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "output")
+    parser.add_argument("--exclude-path", type=Path, action="append", default=[])
     parser.add_argument("--allow-missing-image", action="store_true")
     args = parser.parse_args()
     try:
@@ -202,7 +255,7 @@ def main() -> int:
         entries = validate(config_root)
         validate_boards(config_root, entries)
         validate_addons(config_root, entries)
-        validate_pins()
+        validate_pins((args.output, *args.exclude_path))
         validate_component()
         validate_workflows()
         validate_output(entries, args.board, args.storage, args.output, args.allow_missing_image)

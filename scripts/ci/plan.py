@@ -202,6 +202,7 @@ def affected_matrix(config_root: Path, base: str, head: str) -> list[dict[str, o
     global_prefixes = (
         ".github/workflows/",
         "configs/common/",
+        "scripts/python/",
     )
     global_files = {
         "scripts/ci/build-board.sh",
@@ -211,6 +212,9 @@ def affected_matrix(config_root: Path, base: str, head: str) -> list[dict[str, o
         "scripts/ci/plan.py",
         "scripts/ci/prepare-ccache-toolchains.sh",
         "scripts/ci/toolchain-ref.sh",
+        "scripts/ci/validate.py",
+        "scripts/genimage_emmc.cfg",
+        "scripts/genimage_sd.cfg",
         "scripts/Makefile",
         "scripts/Dockerfile",
         "scripts/setup_rootfs.sh",

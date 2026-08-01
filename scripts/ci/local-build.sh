@@ -8,6 +8,7 @@ shift || true
 board=maixcam
 storage=sd
 output=output
+source_output=
 inside=0
 proxy_http=${HTTP_PROXY:-${http_proxy:-}}
 proxy_https=${HTTPS_PROXY:-${https_proxy:-}}
@@ -30,6 +31,7 @@ while (($#)); do
 		--board) board=$2; shift 2 ;;
 		--storage) storage=$2; shift 2 ;;
 		--output) output=$2; shift 2 ;;
+		--source-output) source_output=$2; shift 2 ;;
 		--inside) inside=1; shift ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
@@ -59,7 +61,21 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	for volume in sg2002-sdk sg2002-build sg2002-ccache; do
 		docker volume inspect "$volume" >/dev/null 2>&1 || docker volume create "$volume" >/dev/null
 	done
-	mkdir -p "$repo_root/$output"
+	if [[ $output == /* ]]; then
+		output_host=$(realpath -m "$output")
+	else
+		output_host=$(realpath -m "$repo_root/$output")
+	fi
+	if [[ $output_host == "$repo_root" ]]; then
+		echo "output directory cannot be the repository root" >&2
+		exit 2
+	fi
+	source_output_args=()
+	if [[ $output_host == "$repo_root/"* ]]; then
+		relative_output=${output_host#"$repo_root/"}
+		source_output_args=(--source-output "/workspace/$relative_output")
+	fi
+	mkdir -p "$output_host"
 	exec docker run --rm --privileged \
 		-e IN_CONTAINER=1 \
 		-e CCACHE_DIR=/ccache \
@@ -73,13 +89,13 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-v "$repo_root:/workspace:ro" \
 		-v "$repo_root/scripts:/builder:ro" \
 		-v "$repo_root/configs:/configs:ro" \
-		-v "$repo_root/$output:/output" \
+		-v "$output_host:/output" \
 		-v sg2002-sdk:/sdk-cache \
 		-v sg2002-build:/build-cache \
 		-v sg2002-ccache:/ccache \
 		-w /workspace --entrypoint /bin/bash \
 		"$image" \
-		/workspace/scripts/ci/local-build.sh "$target" --inside --board "$board" --storage "$storage" --output /output
+		/workspace/scripts/ci/local-build.sh "$target" --inside --board "$board" --storage "$storage" --output /output "${source_output_args[@]}"
 fi
 
 case "$board" in
@@ -148,7 +164,11 @@ case "$target" in
 		;;
 	verify)
 		make -C /workspace/components/sg2002-ipc test OUTPUT_DIR=/output/host-tests
-		python3 /workspace/scripts/ci/validate.py --board "$board" --storage "$storage" --output /output --allow-missing-image
+		validate_args=(--board "$board" --storage "$storage" --output "$output" --allow-missing-image)
+		if [[ -n $source_output ]]; then
+			validate_args+=(--exclude-path "$source_output")
+		fi
+		python3 /workspace/scripts/ci/validate.py "${validate_args[@]}"
 		;;
 	*)
 		echo "unsupported target: $target" >&2

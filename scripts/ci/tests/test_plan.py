@@ -79,13 +79,36 @@ class PlanTests(unittest.TestCase):
             affected = plan.affected_matrix(self.config, "base", "head")
         self.assertEqual([entry["board"] for entry in affected], ["child"])
 
-    def test_validation_change_does_not_rebuild_boards(self) -> None:
+    def test_validation_change_rebuilds_all_boards(self) -> None:
         with mock.patch.object(
             plan,
             "changed_files",
-            return_value=["scripts/ci/validate.py", "scripts/ci/tests/test_plan.py"],
+            return_value=["scripts/ci/validate.py"],
+        ):
+            affected = plan.affected_matrix(self.config, "base", "head")
+        self.assertEqual([entry["board"] for entry in affected], ["child"])
+
+    def test_validation_test_change_does_not_rebuild_boards(self) -> None:
+        with mock.patch.object(
+            plan,
+            "changed_files",
+            return_value=["scripts/ci/tests/test_plan.py"],
         ):
             self.assertEqual(plan.affected_matrix(self.config, "base", "head"), [])
+
+    def test_image_generation_inputs_rebuild_all_boards(self) -> None:
+        paths = (
+            "scripts/python/mmap_conv.py",
+            "scripts/python/raw2cimg.py",
+            "scripts/genimage_sd.cfg",
+            "scripts/genimage_emmc.cfg",
+        )
+        for path in paths:
+            with self.subTest(path=path), mock.patch.object(
+                plan, "changed_files", return_value=[path]
+            ):
+                affected = plan.affected_matrix(self.config, "base", "head")
+                self.assertEqual([entry["board"] for entry in affected], ["child"])
 
     def test_board_build_script_change_rebuilds_all_boards(self) -> None:
         with mock.patch.object(
@@ -112,12 +135,30 @@ class PlanTests(unittest.TestCase):
                 {"abc123": ["versions.env"]},
             )
 
+    def test_pin_scan_includes_tracked_files_in_excluded_named_directories(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
+        (root / "build-output").mkdir()
+        maintained = root / "build-output/maintained.txt"
+        maintained.write_text("abc123\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(root), "add", "versions.env", "build-output/maintained.txt"],
+            check=True,
+        )
+        with mock.patch.object(validation, "REPO_ROOT", root):
+            self.assertEqual(
+                validation.tracked_occurrences({"abc123"}),
+                {"abc123": ["build-output/maintained.txt", "versions.env"]},
+            )
+
     def test_pin_scan_falls_back_when_worktree_metadata_is_unavailable(self) -> None:
         root = self.config / "repository"
         root.mkdir()
         (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
-        (root / "output").mkdir()
-        (root / "output/image.img").write_text("abc123\n", encoding="utf-8")
+        (root / "build-output").mkdir()
+        (root / "build-output/image.img").write_text("abc123\n", encoding="utf-8")
         failure = subprocess.CalledProcessError(128, ["git", "ls-files"])
         with (
             mock.patch.object(validation, "REPO_ROOT", root),
@@ -127,6 +168,97 @@ class PlanTests(unittest.TestCase):
                 validation.tracked_occurrences({"abc123"}),
                 {"abc123": ["versions.env"]},
             )
+
+    def test_pin_scan_excludes_custom_output_path(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
+        custom_output = root / "artifacts" / "current"
+        custom_output.mkdir(parents=True)
+        (custom_output / "image.img").write_text("abc123\n", encoding="utf-8")
+        failure = subprocess.CalledProcessError(128, ["git", "ls-files"])
+        with (
+            mock.patch.object(validation, "REPO_ROOT", root),
+            mock.patch.object(validation.subprocess, "run", side_effect=failure),
+        ):
+            self.assertEqual(
+                validation.tracked_occurrences(
+                    {"abc123"}, excluded_paths=(custom_output,)
+                ),
+                {"abc123": ["versions.env"]},
+            )
+
+    def test_pin_scan_matches_across_read_chunks(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        (root / "versions.env").write_text("1234567abc123\n", encoding="utf-8")
+        failure = subprocess.CalledProcessError(128, ["git", "ls-files"])
+        with (
+            mock.patch.object(validation, "REPO_ROOT", root),
+            mock.patch.object(validation, "SCAN_CHUNK_SIZE", 8),
+            mock.patch.object(validation.subprocess, "run", side_effect=failure),
+        ):
+            self.assertEqual(
+                validation.tracked_occurrences({"abc123"}),
+                {"abc123": ["versions.env"]},
+            )
+
+    def test_fallback_scan_skips_non_regular_files(self) -> None:
+        root = self.config / "repository"
+        root.mkdir()
+        regular = root / "regular.txt"
+        regular.write_text("source\n", encoding="utf-8")
+        special = root / "special"
+        with (
+            mock.patch.object(validation, "REPO_ROOT", root),
+            mock.patch.object(
+                validation.os,
+                "walk",
+                return_value=[(str(root), [], [regular.name, special.name])],
+            ),
+            mock.patch.object(
+                Path,
+                "is_file",
+                autospec=True,
+                side_effect=lambda path: path.name == regular.name,
+            ),
+        ):
+            self.assertEqual(validation.fallback_files(()), [regular])
+
+    def test_validate_output_checks_zip_and_component_artifacts(self) -> None:
+        output = self.config / "output"
+        output.mkdir()
+        zip_entry = [{"board": "child", "storage": "emmc", "format": "zip"}]
+        with validation.zipfile.ZipFile(output / "child_emmc.zip", "w") as archive:
+            archive.writestr("fip.bin", b"fip")
+        validation.validate_output(zip_entry, "child", "emmc", output, False)
+
+        component_entry = [
+            {
+                "board": "child",
+                "storage": "sd",
+                "format": "img",
+                "components": ["sg2002-ipc"],
+            }
+        ]
+        (output / "child_sd.img").write_bytes(b"image")
+        for suffix in (
+            "c906-mcu.elf",
+            "c906-mcu.bin",
+            "rtos-cmd",
+            "rtos-bench",
+            "libsg2002-rtos.a",
+        ):
+            (output / f"child_{suffix}").write_bytes(b"artifact")
+        validation.validate_output(component_entry, "child", "sd", output, False)
+
+        (output / "child_rtos-cmd").unlink()
+        with self.assertRaisesRegex(plan.PlanError, "component artifact is missing"):
+            validation.validate_output(component_entry, "child", "sd", output, False)
+
+        (output / "child_emmc.zip").write_bytes(b"not a zip")
+        with self.assertRaises(validation.zipfile.BadZipFile):
+            validation.validate_output(zip_entry, "child", "emmc", output, False)
 
     def test_uboot_defconfig_requires_exactly_one_target(self) -> None:
         defconfig = self.config / "u-boot-defconfig"

@@ -94,8 +94,21 @@ foreach ($volume in @('sg2002-sdk', 'sg2002-build', 'sg2002-ccache')) {
   }
 }
 
-$outputPath = Join-Path $repoRoot $Output
+$outputPath = if ([System.IO.Path]::IsPathRooted($Output)) {
+  [System.IO.Path]::GetFullPath($Output)
+} else {
+  [System.IO.Path]::GetFullPath((Join-Path $repoRoot $Output))
+}
+if ($outputPath.TrimEnd('\', '/') -eq $repoRoot.TrimEnd('\', '/')) {
+  throw 'Output directory cannot be the repository root'
+}
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
+$sourceOutput = ''
+$repoPrefix = $repoRoot.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+if ($outputPath.StartsWith($repoPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+  $relativeOutput = $outputPath.Substring($repoPrefix.Length).Replace('\', '/')
+  $sourceOutput = "/workspace/$relativeOutput"
+}
 $runArgs = @(
   'run', '--rm', '--privileged',
   '-e', 'IN_CONTAINER=1',
@@ -120,5 +133,8 @@ $runArgs = @(
   '/workspace/scripts/ci/local-build.sh', $Target, '--inside',
   '--board', $Board, '--storage', $Storage, '--output', '/output'
 )
+if ($sourceOutput) {
+  $runArgs += @('--source-output', $sourceOutput)
+}
 & docker @runArgs
 if ($LASTEXITCODE -ne 0) { throw "Local build target '$Target' failed with exit code $LASTEXITCODE" }
