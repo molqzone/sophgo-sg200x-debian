@@ -11,9 +11,8 @@ diff --git a/plat/cv181x/bl2/bl2_opt.c b/plat/cv181x/bl2/bl2_opt.c
 index c73fa55..013d5de 100644
 --- a/plat/cv181x/bl2/bl2_opt.c
 +++ b/plat/cv181x/bl2/bl2_opt.c
-@@ -419,6 +419,21 @@ retry_from_flash:
- 
- 	switch_rtc_mode_2nd_stage();
+@@ -440,5 +440,20 @@ retry_from_flash:
+ #endif
  
 +	if (!(mmio_read_32(GPIO_BASE + 0x050) & (1 << 30))) {
 +		NOTICE("=========================================\n");
