@@ -65,8 +65,12 @@ if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
     '-f', $dockerfile,
     $repoRoot
   )
-  if ($containerHttpProxy) { $buildArgs = @('build', '--build-arg', "HTTP_PROXY=$containerHttpProxy") + $buildArgs[1..($buildArgs.Count - 1)] }
-  if ($containerHttpsProxy) { $buildArgs = @('build', '--build-arg', "HTTPS_PROXY=$containerHttpsProxy") + $buildArgs[1..($buildArgs.Count - 1)] }
+if ($containerHttpProxy) {
+  $buildArgs = @('build', '--build-arg', "HTTP_PROXY=$containerHttpProxy", '--build-arg', "http_proxy=$containerHttpProxy") + $buildArgs[1..($buildArgs.Count - 1)]
+}
+if ($containerHttpsProxy) {
+  $buildArgs = @('build', '--build-arg', "HTTPS_PROXY=$containerHttpsProxy", '--build-arg', "https_proxy=$containerHttpsProxy") + $buildArgs[1..($buildArgs.Count - 1)]
+}
   & docker @buildArgs
   if ($LASTEXITCODE -ne 0) { throw "Docker toolchain build failed with exit code $LASTEXITCODE" }
 }
@@ -86,6 +90,8 @@ $runArgs = @(
   '-e', 'CCACHE_DIR=/ccache',
   '-e', "HTTP_PROXY=$containerHttpProxy",
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
+  '-e', "http_proxy=$containerHttpProxy",
+  '-e', "https_proxy=$containerHttpsProxy",
   '-v', "${repoRoot}:/workspace:ro",
   '-v', "${repoRoot}/scripts:/builder:ro",
   '-v', "${repoRoot}/configs:/configs:ro",

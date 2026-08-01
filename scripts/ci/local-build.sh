@@ -9,6 +9,13 @@ board=maixcam
 storage=sd
 output=output
 inside=0
+proxy_http=${http_proxy:-${HTTP_PROXY:-}}
+proxy_https=${https_proxy:-${HTTPS_PROXY:-}}
+
+export HTTP_PROXY=$proxy_http
+export HTTPS_PROXY=$proxy_https
+export http_proxy=$proxy_http
+export https_proxy=$proxy_https
 
 while (($#)); do
 	case "$1" in
@@ -40,8 +47,10 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	exec docker run --rm --privileged \
 		-e IN_CONTAINER=1 \
 		-e CCACHE_DIR=/ccache \
-		-e HTTP_PROXY="${HTTP_PROXY:-}" \
-		-e HTTPS_PROXY="${HTTPS_PROXY:-}" \
+		-e HTTP_PROXY="$proxy_http" \
+		-e HTTPS_PROXY="$proxy_https" \
+		-e http_proxy="$proxy_http" \
+		-e https_proxy="$proxy_https" \
 		-v "$repo_root:/workspace:ro" \
 		-v "$repo_root/scripts:/builder:ro" \
 		-v "$repo_root/configs:/configs:ro" \

@@ -11,6 +11,10 @@ $env:HTTP_PROXY="http://127.0.0.1:7897"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 
+The PowerShell launcher maps localhost to `host.docker.internal` and exports
+both uppercase and lowercase proxy variables. The lowercase form is required
+by APT inside `mmdebstrap`.
+
 The first command builds the pinned toolchain image and creates three named
 volumes:
 
