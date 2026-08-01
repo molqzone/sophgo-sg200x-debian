@@ -9,11 +9,17 @@ CI. `configs/maixcam/board.mk` declares:
 BASE_BOARD := licheervnano
 ```
 
-Single files use this precedence:
+Single files and owned directories such as `dts/` use this precedence:
 
 ```text
 maixcam -> licheervnano -> common
 ```
+
+An exact owned directory replaces the inherited directory rather than merging
+unrelated board files into it. Component-specific platform aliases also belong
+in board settings; for example, `FSBL_CHIP` defaults to `CHIP`, while
+licheervnano maps its `sg200x` board identifier to the FSBL tree's `cv181x`
+platform directory.
 
 Settings and patches apply in the opposite direction so the exact board has
 the final override:

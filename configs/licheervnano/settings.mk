@@ -1,4 +1,5 @@
 CHIP=sg200x
+FSBL_CHIP=cv181x
 UBOOT_CHIP=sg2002
 UBOOT_BOARD=licheervnano_sd
 BOOT_CPU=riscv

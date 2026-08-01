@@ -48,6 +48,8 @@ BOARD_SETTINGS := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) sett
 include $(CONFIG_ROOT)/settings.mk
 include $(BOARD_SETTINGS)
 
+FSBL_CHIP ?= $(CHIP)
+
 resolve-board-file = $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) resolve --board $(BOARD) --path $(1))
 board-patches = $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) patches --board $(BOARD) --component $(1))
 
@@ -433,16 +435,16 @@ $(BUILDDIR)/fsbl-prepare-checkout-stamp:
 $(BUILDDIR)/fsbl-prepare-patch-stamp: $(BUILDDIR)/fsbl-prepare-checkout-stamp
 	@echo "$(COLOUR_GREEN)Patching FSBL for $(BOARD)$(END_COLOUR)"
 	$(foreach file,$(FSBL_PATCHES),cd $(BUILDDIR)/fsbl && git apply --ignore-whitespace $(file);)
-	@python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/fsbl/plat/$(CHIP)/include/cvi_board_memmap.h
+	@python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/fsbl/plat/$(FSBL_CHIP)/include/cvi_board_memmap.h
 	@printf '\163\000\120\020\157\360\337\377' > $(BUILDDIR)/fsbl/blank.bin
 	@touch $@
 
 $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/opensbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp $(FSBL_RTOS_TARGET)
 	@echo "$(COLOUR_GREEN)Building FSBL for $(BOARD)$(END_COLOUR)"
 	@test -s $(FSBL_BLCP_2ND_PATH)
-	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin \
-    CROSS_COMPILE=$(CROSS_COMPILE)
-	@cp $(BUILDDIR)/fsbl/build/$(CHIP)/fip.bin $(BUILDDIR)
+	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(FSBL_CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin \
+		CROSS_COMPILE=$(CROSS_COMPILE)
+	@cp $(BUILDDIR)/fsbl/build/$(FSBL_CHIP)/fip.bin $(BUILDDIR)
 	@touch $@
 
 $(BUILDDIR)/fsbl-package-stamp: $(BUILDDIR)/fsbl-compile-stamp
