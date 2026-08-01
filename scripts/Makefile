@@ -15,6 +15,7 @@ CONFIG_ROOT ?= /configs
 COMPONENTS_ROOT ?= /workspace/components
 OUTPUT_DIR ?= /output
 VERSION_FILE ?= /workspace/versions.env
+DEBIAN_MIRROR ?= https://deb.debian.org/debian
 
 include $(VERSION_FILE)
 
@@ -494,10 +495,10 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mkdir -p $(ROOTFS)
 
 ifeq ($(USE_VENDOR_APT),0)
-	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb http://deb.debian.org/debian/ sid main"
+	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main"
 else
 	@curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc
-	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb http://deb.debian.org/debian/ sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
+	@mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
 
 endif
 	@touch $@

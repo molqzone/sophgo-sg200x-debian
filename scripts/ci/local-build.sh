@@ -12,11 +12,18 @@ inside=0
 proxy_http=${HTTP_PROXY:-${http_proxy:-}}
 proxy_apt_http=${APT_HTTP_PROXY:-${http_proxy:-}}
 proxy_https=${HTTPS_PROXY:-${https_proxy:-}}
+proxy_apt_https=${APT_HTTPS_PROXY:-}
+debian_mirror=${DEBIAN_MIRROR:-https://deb.debian.org/debian}
 
 export HTTP_PROXY=$proxy_http
 export HTTPS_PROXY=$proxy_https
 export http_proxy=$proxy_apt_http
-export https_proxy=$proxy_https
+export https_proxy=$proxy_apt_https
+
+case "$debian_mirror" in
+	http://*|https://*) ;;
+	*) echo "invalid Debian mirror: $debian_mirror" >&2; exit 2 ;;
+esac
 
 while (($#)); do
 	case "$1" in
@@ -50,8 +57,11 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-e CCACHE_DIR=/ccache \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
+		-e APT_HTTP_PROXY="$proxy_apt_http" \
+		-e APT_HTTPS_PROXY="$proxy_apt_https" \
+		-e DEBIAN_MIRROR="$debian_mirror" \
 		-e http_proxy="$proxy_apt_http" \
-		-e https_proxy="$proxy_https" \
+		-e https_proxy="$proxy_apt_https" \
 		-v "$repo_root:/workspace:ro" \
 		-v "$repo_root/scripts:/builder:ro" \
 		-v "$repo_root/configs:/configs:ro" \
@@ -99,6 +109,7 @@ run_builder_make() {
 		BUILDDIR="$build_root" ROOTFS="$rootfs" \
 		VERSION_FILE=/workspace/versions.env \
 		CONFIG_ROOT=/configs COMPONENTS_ROOT=/workspace/components \
+		DEBIAN_MIRROR="$debian_mirror" \
 		OUTPUT_DIR=/output CROSS_COMPILE="$CROSS_COMPILE" \
 		RTOS_CROSS_COMPILE="$RTOS_CROSS_COMPILE" "$@"
 }

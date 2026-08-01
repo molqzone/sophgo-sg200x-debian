@@ -54,6 +54,8 @@ $image = if ($env:BUILDER_IMAGE) { $env:BUILDER_IMAGE } else { "sg2002-toolchain
 $containerHttpProxy = ConvertTo-ContainerProxy $env:HTTP_PROXY
 $containerHttpsProxy = ConvertTo-ContainerProxy $env:HTTPS_PROXY
 $containerAptHttpProxy = ConvertTo-ContainerProxy $env:APT_HTTP_PROXY
+$containerAptHttpsProxy = ConvertTo-ContainerProxy $env:APT_HTTPS_PROXY
+$debianMirror = if ($env:DEBIAN_MIRROR) { $env:DEBIAN_MIRROR } else { 'https://deb.debian.org/debian' }
 
 if (-not (Test-DockerObject -Arguments @('image', 'inspect', $image))) {
   $buildArgs = @(
@@ -94,8 +96,11 @@ $runArgs = @(
   '-e', 'CCACHE_DIR=/ccache',
   '-e', "HTTP_PROXY=$containerHttpProxy",
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
+  '-e', "APT_HTTP_PROXY=$containerAptHttpProxy",
+  '-e', "APT_HTTPS_PROXY=$containerAptHttpsProxy",
+  '-e', "DEBIAN_MIRROR=$debianMirror",
   '-e', "http_proxy=$containerAptHttpProxy",
-  '-e', "https_proxy=$containerHttpsProxy",
+  '-e', "https_proxy=$containerAptHttpsProxy",
   '-v', "${repoRoot}:/workspace:ro",
   '-v', "${repoRoot}/scripts:/builder:ro",
   '-v', "${repoRoot}/configs:/configs:ro",
