@@ -97,6 +97,18 @@ class PlanTests(unittest.TestCase):
                 {"abc123": ["versions.env"]},
             )
 
+    def test_uboot_defconfig_requires_exactly_one_target(self) -> None:
+        defconfig = self.config / "u-boot-defconfig"
+        defconfig.write_text("CONFIG_RISCV=y\n", encoding="utf-8")
+        with self.assertRaisesRegex(plan.PlanError, "exactly one target"):
+            validation.validate_uboot_defconfig("child", defconfig)
+
+        defconfig.write_text(
+            "CONFIG_RISCV=y\nCONFIG_TARGET_CVITEK_CV181X=y\n",
+            encoding="utf-8",
+        )
+        validation.validate_uboot_defconfig("child", defconfig)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ from plan import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_BOARD_FILES = ("linux/defconfig", "memmap.py", "u-boot/defconfig", "u-boot/cvitek.h", "u-boot/cvi_board_init.c")
+UBOOT_TARGET = re.compile(r"^CONFIG_TARGET_[A-Z0-9_]+=y$", re.MULTILINE)
 
 
 def fail(message: str) -> None:
@@ -91,14 +92,20 @@ def validate_addons(config_root: Path, entries: list[dict[str, object]]) -> None
             fail(f"{board}: inherits a MaixCAM-only addon")
 
 
+def validate_uboot_defconfig(board: str, path: Path) -> None:
+    targets = UBOOT_TARGET.findall(path.read_text(encoding="utf-8"))
+    if len(targets) != 1:
+        fail(f"{board}: U-Boot defconfig must enable exactly one target, got {targets}")
+
+
 def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None:
     for entry in entries:
         board = str(entry["board"])
         storage = str(entry["storage"])
         settings = effective_assignments(config_root, board)
         resolve_directory(config_root, board, "dts")
-        for relative in REQUIRED_BOARD_FILES:
-            resolve_file(config_root, board, relative)
+        resolved = {relative: resolve_file(config_root, board, relative) for relative in REQUIRED_BOARD_FILES}
+        validate_uboot_defconfig(board, resolved["u-boot/defconfig"])
         partition = settings.get("PARTITION_FILE", "").replace("$(STORAGE_TYPE)", storage).strip('"')
         if not partition:
             fail(f"{board}: PARTITION_FILE is not defined")
