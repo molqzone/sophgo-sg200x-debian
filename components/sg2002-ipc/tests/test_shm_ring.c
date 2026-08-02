@@ -130,6 +130,18 @@ int main(void)
 #ifdef __linux__
 	assert(_IOC_SIZE(SG2002_RTOS_SHM_SEND) == 1028U);
 	assert(_IOC_SIZE(SG2002_RTOS_SHM_RECEIVE) == 1028U);
+	assert(sizeof(struct sg2002_rtos_shm_batch) == 32U);
+	assert(offsetof(struct sg2002_rtos_shm_batch, slots_ptr) == 0U);
+	assert(offsetof(struct sg2002_rtos_shm_batch, count) == 16U);
+	assert(offsetof(struct sg2002_rtos_shm_batch, reserved) == 24U);
+	assert(_IOC_NR(SG2002_RTOS_SHM_SUBMIT_BATCH) == 3U);
+	assert(_IOC_NR(SG2002_RTOS_SHM_REAP_BATCH) == 4U);
+	assert(_IOC_SIZE(SG2002_RTOS_SHM_SUBMIT_BATCH) == 32U);
+	assert(_IOC_SIZE(SG2002_RTOS_SHM_REAP_BATCH) == 32U);
+	assert(_IOC_DIR(SG2002_RTOS_SHM_SUBMIT_BATCH) ==
+	       (_IOC_READ | _IOC_WRITE));
+	assert(_IOC_DIR(SG2002_RTOS_SHM_REAP_BATCH) ==
+	       (_IOC_READ | _IOC_WRITE));
 #endif
 
 	sg2002_rtos_ring_init(&ring, &control.request_producer,

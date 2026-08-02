@@ -156,6 +156,8 @@ case "$target" in
 	modules)
 		run_cache linux osdrv
 		run_builder_make linux osdrv
+		make -C /workspace/components/sg2002-ipc linux-tools \
+			OUTPUT_DIR=/output CROSS_COMPILE="$CROSS_COMPILE"
 		;;
 	image)
 		run_cache firmware linux osdrv middleware boot rootfs

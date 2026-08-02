@@ -34,3 +34,6 @@ mkdir -p "$out_dir"
 "$CC" "${common_flags[@]}" -static \
 	"$component_root/tools/rtos-bench.c" "$out_dir/libsg2002-rtos.a" \
 	-o "$out_dir/rtos-bench"
+"$CC" "${common_flags[@]}" -static \
+	"$component_root/tools/rtos-thread-bench.c" \
+	"$out_dir/libsg2002-rtos.a" -o "$out_dir/rtos-thread-bench"

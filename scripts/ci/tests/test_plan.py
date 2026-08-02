@@ -247,6 +247,7 @@ class PlanTests(unittest.TestCase):
             "c906-mcu.bin",
             "rtos-cmd",
             "rtos-bench",
+            "rtos-thread-bench",
             "libsg2002-rtos.a",
         ):
             (output / f"child_{suffix}").write_bytes(b"artifact")

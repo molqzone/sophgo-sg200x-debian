@@ -64,8 +64,14 @@ def layer_inputs(
 ) -> list[Path]:
     common = [repo / "versions.env", repo / "toolchain.env", repo / "scripts" / "Makefile"]
     if layer == "firmware":
+        component = repo / "components" / "sg2002-ipc"
         return common + [
-            repo / "components" / "sg2002-ipc",
+            component / "Makefile",
+            component / "versions.env",
+            component / "include",
+            component / "core",
+            component / "firmware",
+            component / "ports" / "duo-sdk",
             resolve_file(config_root, board, "memmap.py"),
         ]
     if layer == "linux":
@@ -111,6 +117,7 @@ def layer_inputs(
             paths.extend(patch_files(config_root, board, component))
         return paths
     if layer == "rootfs":
+        component = repo / "components" / "sg2002-ipc"
         paths = common + [
             repo / "scripts" / "addons",
             repo / "scripts" / "deb",
@@ -118,6 +125,10 @@ def layer_inputs(
             repo / "scripts" / "genimage_emmc.cfg",
             repo / "scripts" / "python" / "raw2cimg.py",
             repo / "scripts" / "setup_rootfs.sh",
+            component / "Makefile",
+            component / "include",
+            component / "linux",
+            component / "tools",
             config_root / "settings.mk",
         ]
         paths.extend(config_root / name / "settings.mk" for name in board_chain(config_root, board) if name != "common")

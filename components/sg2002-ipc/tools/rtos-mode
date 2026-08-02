@@ -91,6 +91,8 @@ start_remoteproc() {
 	# without stopping the now-running remote processor.
 	rmmod cvitek_mailbox 2>/dev/null || true
 	KEEP_REMOTEPROC=1 sh /etc/init.d/load-systemko.sh start
+	# Prevent udev from racing the next boot; the remoteproc driver stays loaded.
+	set_cmdqu_blacklist
 	[ -c /dev/cvi-rtos-cmdqu ] || {
 		echo "Vendor RTOS cmdqu device was not restored" >&2
 		exit 1

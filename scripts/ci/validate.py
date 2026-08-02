@@ -332,7 +332,14 @@ def validate_output(entries: list[dict[str, object]], board: str, storage: str, 
             if bad_member:
                 fail(f"corrupt zip member: {bad_member}")
     if "sg2002-ipc" in matches[0].get("components", []):
-        for suffix in ("c906-mcu.elf", "c906-mcu.bin", "rtos-cmd", "rtos-bench", "libsg2002-rtos.a"):
+        for suffix in (
+            "c906-mcu.elf",
+            "c906-mcu.bin",
+            "rtos-cmd",
+            "rtos-bench",
+            "rtos-thread-bench",
+            "libsg2002-rtos.a",
+        ):
             candidate = output / f"{board}_{suffix}"
             if not candidate.is_file() or candidate.stat().st_size == 0:
                 fail(f"component artifact is missing: {candidate}")

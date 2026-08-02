@@ -7,12 +7,14 @@
 typedef __u8 sg2002_rtos_u8;
 typedef __u16 sg2002_rtos_u16;
 typedef __u32 sg2002_rtos_u32;
+typedef __aligned_u64 sg2002_rtos_aligned_u64;
 #else
 #include <stddef.h>
 #include <stdint.h>
 typedef uint8_t sg2002_rtos_u8;
 typedef uint16_t sg2002_rtos_u16;
 typedef uint32_t sg2002_rtos_u32;
+typedef uint64_t sg2002_rtos_aligned_u64 __attribute__((aligned(8)));
 #ifdef __linux__
 #include <sys/ioctl.h>
 #endif
@@ -106,6 +108,17 @@ struct sg2002_rtos_shm_transfer {
 	struct sg2002_rtos_shm_slot message;
 };
 
+/* Fixed-width descriptor; slots_ptr addresses slot[count] in user memory. */
+struct sg2002_rtos_shm_batch {
+	sg2002_rtos_aligned_u64 slots_ptr;
+	sg2002_rtos_u32 timeout_ms;
+	sg2002_rtos_u32 generation;
+	sg2002_rtos_u16 count;
+	sg2002_rtos_u16 completed;
+	sg2002_rtos_u32 flags;
+	sg2002_rtos_u32 reserved[2];
+};
+
 #ifdef __cplusplus
 #define SG2002_RTOS_SHM_STATIC_ASSERT static_assert
 #else
@@ -121,6 +134,17 @@ SG2002_RTOS_SHM_STATIC_ASSERT(
 	"SG2002 shared-memory slot header must be exactly 6 bytes");
 SG2002_RTOS_SHM_STATIC_ASSERT(sizeof(struct sg2002_rtos_shm_transfer) == 1028U,
 	"SG2002 shared-memory transfer must be exactly 1028 bytes");
+SG2002_RTOS_SHM_STATIC_ASSERT(sizeof(struct sg2002_rtos_shm_batch) == 32U,
+	"SG2002 shared-memory batch descriptor must be exactly 32 bytes");
+SG2002_RTOS_SHM_STATIC_ASSERT(
+	offsetof(struct sg2002_rtos_shm_batch, slots_ptr) == 0U &&
+	offsetof(struct sg2002_rtos_shm_batch, timeout_ms) == 8U &&
+	offsetof(struct sg2002_rtos_shm_batch, generation) == 12U &&
+	offsetof(struct sg2002_rtos_shm_batch, count) == 16U &&
+	offsetof(struct sg2002_rtos_shm_batch, completed) == 18U &&
+	offsetof(struct sg2002_rtos_shm_batch, flags) == 20U &&
+	offsetof(struct sg2002_rtos_shm_batch, reserved) == 24U,
+	"SG2002 shared-memory batch descriptor layout changed");
 SG2002_RTOS_SHM_STATIC_ASSERT(
 	(SG2002_RTOS_SHM_SLOT_COUNT & (SG2002_RTOS_SHM_SLOT_COUNT - 1U)) == 0U,
 	"SG2002 shared-memory slot count must be a power of two");
@@ -147,4 +171,8 @@ SG2002_RTOS_SHM_STATIC_ASSERT(sizeof(struct sg2002_rtos_shm_control) ==
 	_IOWR(SG2002_RTOS_SHM_IOCTL_MAGIC, 1, struct sg2002_rtos_shm_transfer)
 #define SG2002_RTOS_SHM_RECEIVE \
 	_IOWR(SG2002_RTOS_SHM_IOCTL_MAGIC, 2, struct sg2002_rtos_shm_transfer)
+#define SG2002_RTOS_SHM_SUBMIT_BATCH \
+	_IOWR(SG2002_RTOS_SHM_IOCTL_MAGIC, 3, struct sg2002_rtos_shm_batch)
+#define SG2002_RTOS_SHM_REAP_BATCH \
+	_IOWR(SG2002_RTOS_SHM_IOCTL_MAGIC, 4, struct sg2002_rtos_shm_batch)
 #endif

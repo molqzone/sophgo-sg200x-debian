@@ -42,7 +42,9 @@ install: firmware linux-tools
 	@install -m 0644 "$(OUTPUT_DIR)/$(BOARD)_c906-mcu.elf" \
 		"$(DESTDIR)/lib/firmware/c906-mcu.elf"
 	@install -m 0755 "$(OUTPUT_DIR)/linux-tools/rtos-cmd" \
-		"$(OUTPUT_DIR)/linux-tools/rtos-bench" "$(COMPONENT_ROOT)/tools/rtos-mode" \
+		"$(OUTPUT_DIR)/linux-tools/rtos-bench" \
+		"$(OUTPUT_DIR)/linux-tools/rtos-thread-bench" \
+		"$(COMPONENT_ROOT)/tools/rtos-mode" \
 		"$(DESTDIR)/usr/bin/"
 	@install -m 0644 "$(OUTPUT_DIR)/linux-tools/libsg2002-rtos.a" \
 		"$(DESTDIR)/usr/lib/"
@@ -50,8 +52,13 @@ install: firmware linux-tools
 		"$(COMPONENT_ROOT)/include/sg2002_rtos_protocol.h" \
 		"$(COMPONENT_ROOT)/include/sg2002_rtos_shm.h" \
 		"$(DESTDIR)/usr/include/"
+	@install -D -m 0644 \
+		"$(COMPONENT_ROOT)/linux/systemd/load-systemko.service.d/20-sg2002-ipc.conf" \
+		"$(DESTDIR)/etc/systemd/system/load-systemko.service.d/20-sg2002-ipc.conf"
 	@cp "$(OUTPUT_DIR)/linux-tools/rtos-cmd" "$(OUTPUT_DIR)/$(BOARD)_rtos-cmd"
 	@cp "$(OUTPUT_DIR)/linux-tools/rtos-bench" "$(OUTPUT_DIR)/$(BOARD)_rtos-bench"
+	@cp "$(OUTPUT_DIR)/linux-tools/rtos-thread-bench" \
+		"$(OUTPUT_DIR)/$(BOARD)_rtos-thread-bench"
 	@cp "$(OUTPUT_DIR)/linux-tools/libsg2002-rtos.a" \
 		"$(OUTPUT_DIR)/$(BOARD)_libsg2002-rtos.a"
 	@cp "$(COMPONENT_ROOT)/linux/include/sg2002_rtos.h" \

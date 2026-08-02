@@ -126,6 +126,33 @@ class CacheInvalidationTests(unittest.TestCase):
         self.assertIn(config / "board/partition_emmc.xml", inputs)
         self.assertNotIn(config / "board/partition_sd.xml", inputs)
 
+    def test_component_inputs_are_split_by_build_layer(self) -> None:
+        repo = self.root / "repo"
+        config = repo / "configs"
+        component = repo / "components/sg2002-ipc"
+        (config / "common").mkdir(parents=True)
+        (config / "board").mkdir(parents=True)
+        (config / "board/memmap.py").write_text("memmap\n", encoding="utf-8")
+
+        firmware_inputs = cache.layer_inputs(
+            repo, config, "board", "sd", "firmware"
+        )
+        rootfs_inputs = cache.layer_inputs(repo, config, "board", "sd", "rootfs")
+
+        self.assertIn(component / "firmware", firmware_inputs)
+        self.assertIn(component / "ports/duo-sdk", firmware_inputs)
+        self.assertNotIn(component / "linux", firmware_inputs)
+        self.assertNotIn(component / "tools", firmware_inputs)
+        self.assertNotIn(component / "tests", firmware_inputs)
+        self.assertNotIn(component / "README.md", firmware_inputs)
+
+        self.assertIn(component / "linux", rootfs_inputs)
+        self.assertIn(component / "tools", rootfs_inputs)
+        self.assertIn(component / "include", rootfs_inputs)
+        self.assertNotIn(component / "firmware", rootfs_inputs)
+        self.assertNotIn(component / "tests", rootfs_inputs)
+        self.assertNotIn(component / "README.md", rootfs_inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

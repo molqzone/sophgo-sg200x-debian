@@ -46,6 +46,11 @@ if grep -Fq '#include "rtos_cmdqu.h"' \
 	echo "public Linux API exposes the vendor CMDQU transport" >&2
 	exit 1
 fi
+if ! grep -Fqx 'ExecStart=/usr/bin/rtos-mode remoteproc' \
+	"$component_root/linux/systemd/load-systemko.service.d/20-sg2002-ipc.conf"; then
+	echo "MaixCAM load-systemko drop-in does not start C906L remoteproc" >&2
+	exit 1
+fi
 
 "$cc" "${common_flags[@]}" "$component_root/tests/test_protocol.c" \
 	-o "$out_dir/test_protocol"
@@ -60,13 +65,20 @@ fi
 	-o "$out_dir/test_shm_transport"
 "$cc" "${common_flags[@]}" "$component_root/tests/test_linux_comm.c" \
 	"$component_root/linux/src/sg2002_rtos.c" \
-	-Wl,--wrap=ioctl -Wl,--wrap=open -Wl,--wrap=close \
+	-Wl,--wrap=ioctl -Wl,--wrap=open -Wl,--wrap=close -Wl,--wrap=poll \
+	-Wl,--wrap=eventfd -Wl,--wrap=read -Wl,--wrap=write \
 	-o "$out_dir/test_linux_comm"
+"$cc" "${common_flags[@]}" "$component_root/tools/rtos-bench.c" \
+	"$component_root/linux/src/sg2002_rtos.c" -o "$out_dir/rtos-bench-host"
+"$cc" "${common_flags[@]}" "$component_root/tools/rtos-thread-bench.c" \
+	"$component_root/linux/src/sg2002_rtos.c" \
+	-o "$out_dir/rtos-thread-bench-host"
 
 "$out_dir/test_protocol"
 "$out_dir/test_shm_ring"
 "$out_dir/test_rtos_app"
 "$out_dir/test_shm_transport"
 "$out_dir/test_linux_comm"
-printf 'layering=PASS\nprotocol=PASS\nshm_ring=PASS\nrtos_app=PASS\nshm_transport=PASS\nlinux_comm=PASS\n' > \
+"$out_dir/rtos-thread-bench-host" --self-test
+printf 'layering=PASS\nprotocol=PASS\nshm_ring=PASS\nrtos_app=PASS\nshm_transport=PASS\nlinux_comm=PASS\nthread_bench_self_test=PASS\n' > \
 	"$out_dir/host-tests.txt"

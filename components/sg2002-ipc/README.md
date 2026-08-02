@@ -73,8 +73,31 @@ includes ELF, BIN, linker-layout JSON, SDK commit, and SHA-256 manifests.
 fall back to legacy CMDQU when the shared driver is unavailable. Generic
 `sg2002_rtos_message_send()`, `sg2002_rtos_message_receive()`, and
 `sg2002_rtos_message_call()` require shared memory and preserve sequence IDs
-across outstanding requests.
+across outstanding requests. Transmit and receive use independent userspace
+locks, so one thread may block for a response while another submits work.
+`sg2002_rtos_wait()` provides `POLLIN`/`POLLOUT` waiting that also sees responses
+retained while a synchronous call matches its sequence. The borrowed
+`sg2002_rtos_poll_fd()` is intended for single-receiver poll/epoll loops because
+it reflects only the kernel rings.
 
-On target, `rtos-bench [samples [warmup [echo-data-bytes]]]` measures complete
-userspace-to-FreeRTOS round trips. Payload sizes `1..1017` use the ECHO command;
-the report separates fixed 1024-byte slot traffic from useful bytes.
+On MaixCAM images, the component installs a drop-in for `load-systemko.service`
+that starts the mailbox-only C906L remoteproc before loading the media and
+CMDQU modules. A reboot therefore restores the small-core IPC path without a
+manual `rtos-mode remoteproc` step; other boards do not install this drop-in.
+
+On target,
+`rtos-bench [samples [warmup [echo-data-bytes [window [split|batch]]]]]`
+measures complete userspace-to-FreeRTOS round trips. Omitting `window` retains
+the historical synchronous path. An explicit window from `1` through `64`
+uses nonblocking operations plus `sg2002_rtos_wait()` and matches completions
+by sequence. `batch` requests the batch API; JSON reports whether native batch
+ioctls or the compatible single-ioctl fallback actually ran. Payload sizes
+`1..1017` use ECHO, and the report separates fixed slot traffic from useful
+bytes.
+
+`rtos-thread-bench [threads [samples [warmup [echo-data-bytes]]]]` runs one
+bounded request per worker through a single batch dispatcher. It supports one
+through eight pthread workers and defaults to 1017-byte ECHO payloads. Use
+`rtos-thread-bench --self-test` for host-side distribution, payload-validation,
+sequence-matching, startup-gate, and percentile checks without opening the
+device. `make test` runs this self-test in the normal quality gate.
