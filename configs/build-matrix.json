@@ -27,6 +27,14 @@
       "components": [
         "sg2002-ipc"
       ]
+    },
+    {
+      "board": "maixcam-sc035hgs",
+      "storage": "sd",
+      "format": "img",
+      "components": [
+        "sg2002-ipc"
+      ]
     }
   ]
 }

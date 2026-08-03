@@ -10,7 +10,14 @@ import shutil
 import sys
 from pathlib import Path
 
-from plan import PlanError, board_chain, effective_assignments, patch_files, resolve_file
+from plan import (
+    PlanError,
+    board_chain,
+    board_settings,
+    effective_assignments,
+    patch_files,
+    resolve_file,
+)
 
 
 LAYERS = ("firmware", "linux", "osdrv", "middleware", "boot", "rootfs")
@@ -62,7 +69,13 @@ def add_path(digest: "hashlib._Hash", root: Path, path: Path) -> None:
 def layer_inputs(
     repo: Path, config_root: Path, board: str, storage: str, layer: str
 ) -> list[Path]:
-    common = [repo / "versions.env", repo / "toolchain.env", repo / "scripts" / "Makefile"]
+    common = [
+        repo / "versions.env",
+        repo / "toolchain.env",
+        repo / "scripts" / "Makefile",
+        config_root / "settings.mk",
+        *board_settings(config_root, board),
+    ]
     if layer == "firmware":
         component = repo / "components" / "sg2002-ipc"
         return common + [
@@ -129,9 +142,7 @@ def layer_inputs(
             component / "include",
             component / "linux",
             component / "tools",
-            config_root / "settings.mk",
         ]
-        paths.extend(config_root / name / "settings.mk" for name in board_chain(config_root, board) if name != "common")
         return paths
     raise PlanError(f"unknown cache layer: {layer}")
 

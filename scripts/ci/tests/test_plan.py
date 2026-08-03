@@ -10,6 +10,7 @@ from unittest import mock
 
 
 CI_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = CI_DIR.parents[1]
 sys.path.insert(0, str(CI_DIR))
 import plan  # noqa: E402
 import validate as validation  # noqa: E402
@@ -38,6 +39,14 @@ class PlanTests(unittest.TestCase):
             plan.effective_assignments(self.config, "child")["IMAGE_ADDITIONS"]
         )
         self.assertEqual(additions, ["usb-gadget", "base-addon", "child-addon"])
+
+    def test_board_family_includes_descendants(self) -> None:
+        self.assertTrue(
+            validation.is_board_or_descendant(self.config, "child", "base")
+        )
+        self.assertFalse(
+            validation.is_board_or_descendant(self.config, "base", "child")
+        )
 
     def test_exact_file_and_patch_tombstone(self) -> None:
         (self.config / "base/memmap.py").write_text("base\n", encoding="utf-8")
@@ -391,6 +400,121 @@ class PlanTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(plan.PlanError, "prefer the device-tree phandle"):
             validation.validate_reserved_memory_name_patch(patch)
+
+
+class RepositoryConfigurationTests(unittest.TestCase):
+    def test_sc035hgs_variant_configuration(self) -> None:
+        config_root = REPO_ROOT / "configs"
+        board = "maixcam-sc035hgs"
+        self.assertEqual(
+            plan.board_chain(config_root, board),
+            [board, "maixcam", "licheervnano", "common"],
+        )
+
+        settings = plan.effective_assignments(config_root, board)
+        self.assertEqual(
+            settings["SENSOR_ENV_EXTRA"], "CONFIG_SENSOR_SMS_SC035HGS=y"
+        )
+        self.assertEqual(
+            settings["MAIXCAM_SENSOR_CONFIG"], "sensor_cfg.ini.SC035HGS"
+        )
+        self.assertEqual(settings["MAIXCAM_SENSOR_FIXED"], "1")
+        self.assertEqual(settings["MAIXCAM_SENSOR_PQ"], "")
+
+        profile = (
+            REPO_ROOT
+            / "scripts/addons/maixcam-sensor-config/overlay/mnt/data"
+            / settings["MAIXCAM_SENSOR_CONFIG"]
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "name = SMS_SC035HGS_MIPI_480P_120FPS_12BIT",
+            "bus_id = 4",
+            "sns_i2c_addr = 48",
+            "lane_id = 2, 4, 3, -1, -1",
+            "pn_swap = 0, 0, 0, 0, 0",
+            "mclk_en = 1",
+            "mclk = 1",
+        ):
+            self.assertIn(expected, profile)
+
+        sensor_patches = plan.patch_files(config_root, board, "sensorsupportlist")
+        self.assertEqual(
+            sensor_patches[-1].name,
+            "0008-configure-sc035hgs-for-maixcam-adapter.patch",
+        )
+        middleware_patches = plan.patch_files(config_root, board, "middleware")
+        self.assertEqual(
+            middleware_patches[-1].name,
+            "0001-route-sc035hgs-in-maix-mmf.patch",
+        )
+        middleware_route = middleware_patches[-1].read_text(encoding="utf-8")
+        for expected in (
+            "case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:",
+            'snprintf(name, sizeof(name), "sms_sc035hgs");',
+            '!strcmp(sensor_name, "sms_sc035hgs")',
+        ):
+            self.assertIn(expected, middleware_route)
+
+        matrix = plan.validate(config_root)
+        validation.validate_maixcam_sensor_settings(config_root, matrix)
+        self.assertIn(
+            {
+                "board": board,
+                "storage": "sd",
+                "format": "img",
+                "components": ["sg2002-ipc"],
+            },
+            matrix,
+        )
+
+
+class FixedSensorOutputTests(unittest.TestCase):
+    def test_fixed_sc035hgs_packages(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            output = root / "output"
+            output.mkdir()
+            sensor_deb = output / "sensor-config-camera_1_riscv64.deb"
+            middleware_deb = output / "cvitek-middleware-camera_1_riscv64.deb"
+            sensor_deb.touch()
+            middleware_deb.touch()
+
+            profile = root / "scripts/addons/maixcam-sensor-config/overlay/mnt/data/profile.ini"
+            profile.parent.mkdir(parents=True)
+            profile.write_text(
+                "name = SMS_SC035HGS_MIPI_480P_120FPS_12BIT\n",
+                encoding="utf-8",
+            )
+
+            def fake_extract(package: Path, destination: Path) -> None:
+                if package == sensor_deb:
+                    packaged = destination / "mnt/data/profile.ini"
+                    packaged.parent.mkdir(parents=True)
+                    packaged.write_bytes(profile.read_bytes())
+                    defaults = destination / "etc/default/maixcam-sensor-config"
+                    defaults.parent.mkdir(parents=True)
+                    defaults.write_text(
+                        "SENSOR_CONFIG_DEFAULT=/mnt/data/profile.ini\n"
+                        "SENSOR_CONFIG_FIXED=1\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    library = destination / "mnt/system/lib/libsns_sc035hgs.so"
+                    library.parent.mkdir(parents=True)
+                    library.touch()
+                    mmf_library = destination / "usr/lib/libmaix_mmf.a"
+                    mmf_library.parent.mkdir(parents=True)
+                    mmf_library.write_bytes(b"!<arch>\nsms_sc035hgs\n")
+
+            settings = {
+                "MAIXCAM_SENSOR_CONFIG": "profile.ini",
+                "MAIXCAM_SENSOR_FIXED": "1",
+            }
+            with (
+                mock.patch.object(validation, "REPO_ROOT", root),
+                mock.patch.object(validation, "extract_deb", side_effect=fake_extract),
+            ):
+                validation.validate_fixed_sensor_output("camera", output, settings)
 
 
 if __name__ == "__main__":

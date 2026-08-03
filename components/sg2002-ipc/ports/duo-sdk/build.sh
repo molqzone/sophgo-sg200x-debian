@@ -7,6 +7,7 @@ component_root=$(cd "$port_root/../.." && pwd)
 source "$component_root/versions.env"
 
 board=${BOARD:-maixcam}
+config_root=${CONFIG_ROOT:-}
 sdk_cache=${SDK_CACHE:-$component_root/.cache/sdk}
 build_root=${BUILD_ROOT:-$component_root/.cache/build/$board}
 output_dir=${OUTPUT_DIR:-$component_root/out}
@@ -17,12 +18,19 @@ host_tools=${HOST_TOOLS:-/host-tools}
 : "${RTOS_SDK_COMMIT:?RTOS_SDK_COMMIT is required}"
 : "${memmap_file:?MEMMAP_FILE is required}"
 
-case "$board" in
-	maixcam|licheervnano|duo256)
+board_chain=" $board "
+plan_tool=$component_root/../../scripts/ci/plan.py
+if [[ -n $config_root && -f $plan_tool ]]; then
+	board_chain=" $(python3 "$plan_tool" --config-root "$config_root" \
+		board-chain --board "$board" --order precedence) "
+fi
+
+case "$board_chain" in
+	*" maixcam "*|*" licheervnano "*|*" duo256 "*)
 		sdk_board=${SDK_BOARD:-milkv-duo256m-musl-riscv64-sd}
 		sdk_memmap=${SDK_MEMMAP:-build/boards/cv181x/sg2002_milkv_duo256m_musl_riscv64_sd/memmap.py}
 		;;
-	duos)
+	*" duos "*)
 		sdk_board=${SDK_BOARD:-milkv-duos-musl-riscv64-sd}
 		sdk_memmap=${SDK_MEMMAP:-build/boards/cv181x/sg2000_milkv_duos_musl_riscv64_sd/memmap.py}
 		;;

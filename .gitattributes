@@ -1,1 +1,2 @@
 components/sg2002-ipc/ports/osdrv/patches/*.patch -whitespace
+configs/**/patches/**/*.patch -whitespace

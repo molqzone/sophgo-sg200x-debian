@@ -153,6 +153,28 @@ class CacheInvalidationTests(unittest.TestCase):
         self.assertNotIn(component / "tests", rootfs_inputs)
         self.assertNotIn(component / "README.md", rootfs_inputs)
 
+    def test_board_settings_invalidate_middleware(self) -> None:
+        repo = self.root / "repo"
+        config = repo / "configs"
+        (config / "common").mkdir(parents=True)
+        (config / "base").mkdir()
+        (config / "child").mkdir()
+        (config / "settings.mk").write_text("GLOBAL=1\n", encoding="utf-8")
+        (config / "base/board.mk").write_text("", encoding="utf-8")
+        (config / "base/settings.mk").write_text("BASE=1\n", encoding="utf-8")
+        (config / "child/board.mk").write_text(
+            "BASE_BOARD := base\n", encoding="utf-8"
+        )
+        (config / "child/settings.mk").write_text(
+            "SENSOR_ENV_EXTRA=CONFIG_SENSOR_SMS_SC035HGS=y\n",
+            encoding="utf-8",
+        )
+
+        inputs = cache.layer_inputs(repo, config, "child", "sd", "middleware")
+        self.assertIn(config / "settings.mk", inputs)
+        self.assertIn(config / "base/settings.mk", inputs)
+        self.assertIn(config / "child/settings.mk", inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

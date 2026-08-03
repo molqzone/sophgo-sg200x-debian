@@ -8,13 +8,16 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
 from plan import (
     PlanError,
     assignment_words,
+    board_chain,
     effective_assignments,
+    patch_files,
     resolve_directory,
     resolve_file,
     validate,
@@ -182,6 +185,7 @@ def validate_pins(excluded_paths: tuple[Path, ...] = ()) -> None:
 def validate_addons(config_root: Path, entries: list[dict[str, object]]) -> None:
     for entry in entries:
         board = str(entry["board"])
+        maixcam_family = is_board_or_descendant(config_root, board, "maixcam")
         settings = effective_assignments(config_root, board)
         additions = assignment_words(settings.get("IMAGE_ADDITIONS", ""))
         for addon in additions:
@@ -191,8 +195,58 @@ def validate_addons(config_root: Path, entries: list[dict[str, object]]) -> None
             target = re.compile(rf"^\$\(BUILDDIR\)/{re.escape(addon)}-stamp\s*:", re.MULTILINE)
             if not target.search(addon_makefile.read_text(encoding="utf-8")):
                 fail(f"{board}: addon {addon!r} has no matching stamp target")
-        if board != "maixcam" and any(addon.startswith("maixcam-") for addon in additions):
+        if not maixcam_family and any(
+            addon.startswith("maixcam-") for addon in additions
+        ):
             fail(f"{board}: inherits a MaixCAM-only addon")
+
+
+def is_board_or_descendant(config_root: Path, board: str, ancestor: str) -> bool:
+    return ancestor in board_chain(config_root, board)
+
+
+def validate_maixcam_sensor_settings(
+    config_root: Path, entries: list[dict[str, object]]
+) -> None:
+    addon = REPO_ROOT / "scripts/addons/maixcam-sensor-config/overlay/mnt"
+    for entry in entries:
+        board = str(entry["board"])
+        if not is_board_or_descendant(config_root, board, "maixcam"):
+            continue
+        settings = effective_assignments(config_root, board)
+        fixed = settings.get("MAIXCAM_SENSOR_FIXED", "0").strip().strip('"')
+        if fixed not in {"0", "1"}:
+            fail(f"{board}: MAIXCAM_SENSOR_FIXED must be 0 or 1, got {fixed!r}")
+        if fixed == "1" and not settings.get("MAIXCAM_SENSOR_CONFIG", "").strip():
+            fail(f"{board}: fixed sensor profile requires MAIXCAM_SENSOR_CONFIG")
+        selections = {
+            "MAIXCAM_SENSOR_CONFIG": addon / "data",
+            "MAIXCAM_SENSOR_PQ": addon / "cfg/param",
+        }
+        for setting, directory in selections.items():
+            filename = settings.get(setting, "").strip().strip('"')
+            if not filename:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename):
+                fail(f"{board}: invalid {setting} filename {filename!r}")
+            if not (directory / filename).is_file():
+                fail(f"{board}: {setting} file is missing: {directory / filename}")
+        profile = settings.get("MAIXCAM_SENSOR_CONFIG", "").strip().strip('"')
+        if not profile:
+            continue
+        profile_text = (addon / "data" / profile).read_text(encoding="utf-8")
+        if "SMS_SC035HGS_" in profile_text:
+            middleware_patches = patch_files(config_root, board, "middleware")
+            patch_text = "\n".join(
+                patch.read_text(encoding="utf-8") for patch in middleware_patches
+            )
+            for expected in (
+                "case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:",
+                'snprintf(name, sizeof(name), "sms_sc035hgs");',
+                '!strcmp(sensor_name, "sms_sc035hgs")',
+            ):
+                if expected not in patch_text:
+                    fail(f"{board}: Maix MMF has no SC035HGS route: {expected}")
 
 
 def validate_uboot_defconfig(board: str, path: Path) -> None:
@@ -282,7 +336,7 @@ def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None
         storage = str(entry["storage"])
         settings = effective_assignments(config_root, board)
         dts_directory = resolve_directory(config_root, board, "dts")
-        if board == "maixcam":
+        if is_board_or_descendant(config_root, board, "maixcam"):
             validate_maixcam_remoteproc_dts(dts_directory)
         resolved = {relative: resolve_file(config_root, board, relative) for relative in REQUIRED_BOARD_FILES}
         validate_uboot_defconfig(board, resolved["u-boot/defconfig"])
@@ -315,7 +369,74 @@ def validate_component() -> None:
     subprocess.run([sys.executable, str(component / "tools/verify_layout.py")], check=True)
 
 
-def validate_output(entries: list[dict[str, object]], board: str, storage: str, output: Path, allow_missing: bool) -> None:
+def one_package(output: Path, pattern: str, label: str) -> Path:
+    matches = sorted(output.glob(pattern))
+    if len(matches) != 1:
+        fail(f"expected one {label} package, got {matches}")
+    return matches[0]
+
+
+def extract_deb(package: Path, destination: Path) -> None:
+    subprocess.run(
+        ["dpkg-deb", "-x", str(package), str(destination)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def validate_fixed_sensor_output(board: str, output: Path, settings: dict[str, str]) -> None:
+    profile = settings.get("MAIXCAM_SENSOR_CONFIG", "").strip().strip('"')
+    source_profile = (
+        REPO_ROOT
+        / "scripts/addons/maixcam-sensor-config/overlay/mnt/data"
+        / profile
+    )
+    sensor_deb = one_package(
+        output, f"sensor-config-{board}_*.deb", f"{board} sensor-config"
+    )
+    middleware_deb = one_package(
+        output, f"cvitek-middleware-{board}_*.deb", f"{board} middleware"
+    )
+
+    with tempfile.TemporaryDirectory() as tempdir:
+        extracted = Path(tempdir)
+        sensor_root = extracted / "sensor"
+        middleware_root = extracted / "middleware"
+        extract_deb(sensor_deb, sensor_root)
+        extract_deb(middleware_deb, middleware_root)
+
+        packaged_profile = sensor_root / "mnt/data" / profile
+        if not packaged_profile.is_file() or packaged_profile.read_bytes() != source_profile.read_bytes():
+            fail(f"{board}: packaged sensor profile does not match {source_profile}")
+        defaults = sensor_root / "etc/default/maixcam-sensor-config"
+        expected_defaults = (
+            f"SENSOR_CONFIG_DEFAULT=/mnt/data/{profile}\n"
+            "SENSOR_CONFIG_FIXED=1\n"
+        )
+        if not defaults.is_file() or defaults.read_text(encoding="utf-8") != expected_defaults:
+            fail(f"{board}: fixed sensor defaults are missing or incorrect")
+        if (sensor_root / "mnt/cfg/param/cvi_sdr_bin").exists():
+            fail(f"{board}: sensor package installs an unselected cvi_sdr_bin")
+
+        profile_text = packaged_profile.read_text(encoding="utf-8")
+        if "SMS_SC035HGS_" in profile_text:
+            if not any(middleware_root.rglob("libsns_sc035hgs.so")):
+                fail(f"{board}: middleware package has no libsns_sc035hgs.so")
+            mmf_library = middleware_root / "usr/lib/libmaix_mmf.a"
+            if not mmf_library.is_file() or b"sms_sc035hgs" not in mmf_library.read_bytes():
+                fail(f"{board}: libmaix_mmf.a has no SC035HGS application route")
+
+
+def validate_output(
+    entries: list[dict[str, object]],
+    board: str,
+    storage: str,
+    output: Path,
+    allow_missing: bool,
+    config_root: Path | None = None,
+) -> None:
     matches = [entry for entry in entries if entry["board"] == board and entry["storage"] == storage]
     if len(matches) != 1:
         fail(f"matrix has no unique entry for {board}/{storage}")
@@ -343,6 +464,10 @@ def validate_output(entries: list[dict[str, object]], board: str, storage: str, 
             candidate = output / f"{board}_{suffix}"
             if not candidate.is_file() or candidate.stat().st_size == 0:
                 fail(f"component artifact is missing: {candidate}")
+    if config_root is not None:
+        settings = effective_assignments(config_root, board)
+        if settings.get("MAIXCAM_SENSOR_FIXED", "0").strip().strip('"') == "1":
+            validate_fixed_sensor_output(board, output, settings)
 
 
 def main() -> int:
@@ -367,6 +492,7 @@ def main() -> int:
         entries = validate(config_root)
         validate_boards(config_root, entries)
         validate_addons(config_root, entries)
+        validate_maixcam_sensor_settings(config_root, entries)
         validate_reserved_memory_name_patch(
             REPO_ROOT
             / "configs/common/patches/linux/0002-Add-Reset-for-C906L-ignore-clock-status-for-C906L-an.patch"
@@ -374,7 +500,14 @@ def main() -> int:
         validate_pins((args.output, *args.exclude_path))
         validate_component()
         validate_workflows()
-        validate_output(entries, args.board, args.storage, args.output, args.allow_missing_image)
+        validate_output(
+            entries,
+            args.board,
+            args.storage,
+            args.output,
+            args.allow_missing_image,
+            config_root,
+        )
     except (OSError, PlanError, subprocess.CalledProcessError, zipfile.BadZipFile) as exc:
         print(f"validate.py: {exc}", file=sys.stderr)
         return 2
