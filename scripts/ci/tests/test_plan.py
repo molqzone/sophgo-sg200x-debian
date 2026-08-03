@@ -443,11 +443,16 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "0008-configure-sc035hgs-for-maixcam-adapter.patch",
         )
         middleware_patches = plan.patch_files(config_root, board, "middleware")
-        self.assertEqual(
-            middleware_patches[-1].name,
-            "0001-route-sc035hgs-in-maix-mmf.patch",
+        middleware_by_name = {patch.name: patch for patch in middleware_patches}
+        route_name = "0001-route-sc035hgs-in-maix-mmf.patch"
+        vb_name = "0002-increase-h26x-vb-pool.patch"
+        self.assertIn(route_name, middleware_by_name)
+        self.assertIn(vb_name, middleware_by_name)
+        self.assertLess(
+            middleware_patches.index(middleware_by_name[route_name]),
+            middleware_patches.index(middleware_by_name[vb_name]),
         )
-        middleware_route = middleware_patches[-1].read_text(encoding="utf-8")
+        middleware_route = middleware_by_name[route_name].read_text(encoding="utf-8")
         for expected in (
             "case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:",
             'snprintf(name, sizeof(name), "sms_sc035hgs");',
