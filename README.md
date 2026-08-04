@@ -57,6 +57,17 @@ apply common, base-board, then exact-board; an exact `*.patch.skip` file masks
 an inherited patch with the same name. Details are in
 [`docs/architecture.md`](docs/architecture.md).
 
+## MaixCAM camera preview
+
+The Windows low-latency HEVC viewer is isolated under
+[`tools/maixcam-camera`](tools/maixcam-camera). Its PowerShell launcher creates
+a user-local virtual environment and does not modify the image build or board
+configuration:
+
+```powershell
+tools\maixcam-camera\run-viewer.ps1
+```
+
 ## CI and releases
 
 `ci.yml` runs host tests, builds the standalone C906L component and Linux tools,
