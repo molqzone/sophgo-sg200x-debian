@@ -14,5 +14,16 @@ The sensor uses I2C4 address `0x30` and the vendor 27 MHz SC035HGS clock mode.
 
 This is a fixed camera profile: every boot restores the SC035HGS configuration
 and selects the RX4 plus MCLK1 pinmux, so stale GC4653 data and MaixCAM board
-markers cannot silently change the sensor identity. No GC4653 ISP parameter blob
-is installed for this variant; SC035HGS ISP tuning remains a hardware follow-up.
+markers cannot silently change the sensor identity. The variant installs the
+official Milk-V SC035HGS ISP/PQ data as `/mnt/cfg/param/cvi_sdr_bin`:
+
+- source file: `cvi_sdr_bin_SC035HGS`
+- size: `233368` bytes
+- SHA256: `249760630718864557f63c94e101e41661fb9278c3350bebd413d66aac6d29a1`
+
+Hardware A/B/A testing on the MaixCAM adapter showed that this data removes the
+dense fixed speckle produced by the ISP defaults. With the current middleware,
+the PQ MD5 does not match and the loader deliberately falls back to the JSON
+section. Camera and ISP startup succeed, but the warning and nonfatal missing
+motion/AWB fields remain a compatibility boundary; binary-section compatibility
+is not claimed.

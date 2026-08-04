@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -419,7 +420,18 @@ class RepositoryConfigurationTests(unittest.TestCase):
             settings["MAIXCAM_SENSOR_CONFIG"], "sensor_cfg.ini.SC035HGS"
         )
         self.assertEqual(settings["MAIXCAM_SENSOR_FIXED"], "1")
-        self.assertEqual(settings["MAIXCAM_SENSOR_PQ"], "")
+        self.assertEqual(settings["MAIXCAM_SENSOR_PQ"], "cvi_sdr_bin_SC035HGS")
+
+        pq_data = (
+            REPO_ROOT
+            / "scripts/addons/maixcam-sensor-config/overlay/mnt/cfg/param"
+            / settings["MAIXCAM_SENSOR_PQ"]
+        ).read_bytes()
+        self.assertEqual(len(pq_data), 233368)
+        self.assertEqual(
+            hashlib.sha256(pq_data).hexdigest(),
+            "249760630718864557f63c94e101e41661fb9278c3350bebd413d66aac6d29a1",
+        )
 
         profile = (
             REPO_ROOT
