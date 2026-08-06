@@ -27,3 +27,27 @@ the PQ MD5 does not match and the loader deliberately falls back to the JSON
 section. Camera and ISP startup succeed, but the warning and nonfatal missing
 motion/AWB fields remain a compatibility boundary; binary-section compatibility
 is not claimed.
+
+The SC035HGS middleware also exposes a process-local runtime noise-control
+interface. Save the complete official BNR, YNR, TNR, and sharpen state before
+changing one ISO curve entry:
+
+```sh
+test_mmf --ispctl noise save
+test_mmf --ispctl noise get
+test_mmf --ispctl noise set tnr 0 24
+test_mmf --ispctl noise restore
+```
+
+On the attached MaixCAM adapter at 10 ms, ISO 100, and unity gain, changing only
+TNR ISO index 0 from `32` to `24` reduced temporal standard deviation by 4.7%
+and frame-difference deviation by 8.3% in a repeated A/B/A capture. Eight
+full-frame pattern transitions showed no added visible-frame delay, and the
+candidate retained 1280x720 at 30 FPS with zero VI drop or overflow. This severe
+transition test does not prove the absence of every localized moving-object
+artifact.
+
+The accepted value remains an explicit application-layer override. The official
+PQ blob and its SHA256 are unchanged, the snapshot is lost when `test_mmf`
+restarts, and `noise restore` returns all captured structures rather than only
+the last edited field.

@@ -24,6 +24,7 @@ ccache:
 make test
 make firmware
 make modules
+make middleware BOARD=maixcam-sc035hgs
 make image BOARD=maixcam
 make verify
 ```
@@ -34,6 +35,7 @@ PowerShell entry point:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target test
 powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target firmware
+powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target middleware -Board maixcam-sc035hgs
 powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target image -Board maixcam
 powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target verify
 ```

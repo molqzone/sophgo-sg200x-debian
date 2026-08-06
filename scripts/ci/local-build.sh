@@ -159,6 +159,16 @@ case "$target" in
 		make -C /workspace/components/sg2002-ipc linux-tools \
 			OUTPUT_DIR=/output CROSS_COMPILE="$CROSS_COMPILE"
 		;;
+	middleware)
+		run_cache middleware
+		run_builder_make middleware
+		test -x "$build_root/middleware/install/system/usr/bin/test_mmf"
+		install -m 0755 \
+			"$build_root/middleware/install/system/usr/bin/test_mmf" \
+			"/output/${board}_test_mmf"
+		(cd /output && sha256sum "${board}_test_mmf" \
+			> "${board}_test_mmf.sha256")
+		;;
 	image)
 		run_cache firmware linux osdrv middleware boot rootfs
 		run_builder_make image

@@ -4,7 +4,7 @@ OUTPUT_DIR ?= output
 
 .DEFAULT_GOAL := verify
 
-.PHONY: test firmware modules image verify toolchain matrix clean-output
+.PHONY: test firmware modules middleware image verify toolchain matrix clean-output
 
 test:
 	@bash scripts/ci/local-build.sh test --board "$(BOARD)" --storage "$(STORAGE)" --output "$(OUTPUT_DIR)"
@@ -14,6 +14,9 @@ firmware:
 
 modules:
 	@bash scripts/ci/local-build.sh modules --board "$(BOARD)" --storage "$(STORAGE)" --output "$(OUTPUT_DIR)"
+
+middleware:
+	@bash scripts/ci/local-build.sh middleware --board "$(BOARD)" --storage "$(STORAGE)" --output "$(OUTPUT_DIR)"
 
 image:
 	@bash scripts/ci/local-build.sh image --board "$(BOARD)" --storage "$(STORAGE)" --output "$(OUTPUT_DIR)"

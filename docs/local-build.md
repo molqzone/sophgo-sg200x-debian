@@ -45,12 +45,15 @@ Use the smallest target matching the change:
 ```text
 application or protocol       make test; make firmware
 Linux IPC library/OSdrv       make modules
+camera/ISP middleware         make middleware BOARD=maixcam-sc035hgs
 kernel, DTS, or memory map    make image BOARD=maixcam
 release candidate             make verify, then full GitHub image matrix
 ```
 
 PowerShell uses `scripts/ci/local-build.ps1` with the corresponding target.
-Outputs go to `output/` by default.
+Outputs go to `output/` by default. The `middleware` target exports both the
+board middleware package and `<board>_test_mmf` with its SHA-256 file, without
+reassembling the rootfs or SD image.
 
 ## Cache invalidation
 

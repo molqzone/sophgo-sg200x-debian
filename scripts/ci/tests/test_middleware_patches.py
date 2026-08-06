@@ -27,6 +27,10 @@ HGS_ISP_CONTROL_PATCH = (
     CONFIG_ROOT
     / "maixcam-sc035hgs/patches/middleware/0004-add-runtime-isp-control.patch"
 )
+HGS_NOISE_CONTROL_PATCH = (
+    CONFIG_ROOT
+    / "maixcam-sc035hgs/patches/middleware/0005-add-runtime-noise-control.patch"
+)
 MAIXCAM_SIGPIPE_PATCH = (
     CONFIG_ROOT
     / "maixcam/patches/middleware/0014-sample-ignore-sigpipe-in-rtsp-server.patch"
@@ -119,6 +123,18 @@ class MiddlewarePatchTests(unittest.TestCase):
                 f"unexpected HGS ISP control patch selection for {board}",
             )
 
+    def test_hgs_noise_control_patch_is_isolated_to_hgs_matrix_entry(self) -> None:
+        for entry in plan.load_matrix(CONFIG_ROOT):
+            board = str(entry["board"])
+            selected = HGS_NOISE_CONTROL_PATCH in plan.patch_files(
+                CONFIG_ROOT, board, "middleware"
+            )
+            self.assertEqual(
+                selected,
+                "maixcam-sc035hgs" in plan.board_chain(CONFIG_ROOT, board),
+                f"unexpected HGS noise control patch selection for {board}",
+            )
+
     def test_hgs_fps_contract_uses_effective_input_rate(self) -> None:
         patch_text = HGS_FPS_PATCH.read_text(encoding="utf-8")
         self.assertRegex(
@@ -192,6 +208,28 @@ class MiddlewarePatchTests(unittest.TestCase):
             vio_source.count("maixcam_isp_control_server_close("), 1
         )
         self.assertIn('!strcmp(argv[1], "--ispctl")', main_source)
+
+    def test_hgs_runtime_noise_control_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            source = materialize_source(
+                "maixcam-sc035hgs", ISP_CONTROL_SOURCE, Path(tempdir)
+            )
+
+        self.assertIn('#define CONTROL_RESPONSE_SIZE 4096', source)
+        self.assertIn('struct noise_snapshot {', source)
+        self.assertIn('ISP_NR_FILTER_ATTR_S bnr_filter;', source)
+        self.assertIn('ISP_YNR_FILTER_ATTR_S ynr_filter;', source)
+        self.assertIn('ISP_TNR_ATTR_S tnr;', source)
+        self.assertIn('ISP_SHARPEN_ATTR_S sharpen;', source)
+        self.assertIn('if (!saved_noise.valid)', source)
+        self.assertIn('memcmp(&current.tnr, &saved_noise.tnr', source)
+        self.assertIn('"noise save|noise restore|"', source)
+        self.assertIn(
+            '"noise set <bnr|ynr|tnr|sharpen> <iso-index> <0-255>"',
+            source,
+        )
+        self.assertIn('attr.stAuto.TnrStrength0[iso_index]', source)
+        self.assertIn('attr.stAuto.GlobalGain[iso_index]', source)
 
 
 if __name__ == "__main__":
