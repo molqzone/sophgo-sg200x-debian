@@ -382,33 +382,34 @@ vcodec-firmware-clean:
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(UBOOT_REPO))"
-	@git clone $(GIT_CLONE_OPTS) $(call git-source,$(UBOOT_REPO)) $(BUILDDIR)/u-boot
+	@if [ "$(OFFLINE)" = 1 ] && [ -d "$(BUILDDIR)/u-boot/.git" ]; then echo "offline mode: reusing cached U-Boot"; else test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(UBOOT_REPO))"; git clone $(GIT_CLONE_OPTS) $(call git-source,$(UBOOT_REPO)) $(BUILDDIR)/u-boot; fi
 	@cd $(BUILDDIR)/u-boot && git checkout $(UBOOT_COMMIT)
 	@touch $@
 
 $(BUILDDIR)/uboot-prepare-patch-stamp: $(BUILDDIR)/uboot-prepare-checkout-stamp
 	@echo "$(COLOUR_GREEN)Patching U-Boot for $(BOARD)$(END_COLOUR)"
-	@$(foreach file,$(UBOOT_PATCHES),cd $(BUILDDIR)/u-boot && git apply --ignore-whitespace $(file);)
-	@cp $(BOARD_UBOOT_DEFCONFIG) $(BUILDDIR)/u-boot/configs/$(BOARD)_defconfig
-	@$(foreach file, $(wildcard $(CONFIG_ROOT)/common/dts/$(CHIP)/*), cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;)
-	@$(foreach file, $(wildcard $(CONFIG_ROOT)/common/dts/$(CHIP)_$(ARCH)/*), cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;)
-	@$(foreach file,$(BOARD_DTS_FILES),cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;)
-	@cp $(BOARD_UBOOT_HEADER) $(BUILDDIR)/u-boot/include/cvitek.h
-	@cp $(BOARD_UBOOT_INIT) $(BUILDDIR)/u-boot/board/cvitek/cvi_board_init.c
-	@python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/u-boot/include/cvi_board_memmap.h
-	@python3 /builder/python/mkcvipart.py $(BOARD_PARTITION_FILE) $(BUILDDIR)/u-boot/include/
-	@python3 /builder/python/mk_imgHeader.py $(BOARD_PARTITION_FILE) $(BUILDDIR)/u-boot/include/
+	@if [ "$(OFFLINE)" = 1 ]; then echo "offline mode: reusing cached U-Boot patches"; else \
+		$(foreach file,$(UBOOT_PATCHES),cd $(BUILDDIR)/u-boot && git apply --ignore-whitespace $(file);) \
+		$(foreach file, $(wildcard $(CONFIG_ROOT)/common/dts/$(CHIP)/*), cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;) \
+		$(foreach file, $(wildcard $(CONFIG_ROOT)/common/dts/$(CHIP)_$(ARCH)/*), cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;) \
+		$(foreach file,$(BOARD_DTS_FILES),cp $(file) $(BUILDDIR)/u-boot/arch/riscv/dts/;) \
+		cp $(BOARD_UBOOT_DEFCONFIG) $(BUILDDIR)/u-boot/configs/$(BOARD)_defconfig; \
+		cp $(BOARD_UBOOT_HEADER) $(BUILDDIR)/u-boot/include/cvitek.h; \
+		cp $(BOARD_UBOOT_INIT) $(BUILDDIR)/u-boot/board/cvitek/cvi_board_init.c; \
+		python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/u-boot/include/cvi_board_memmap.h; \
+		python3 /builder/python/mkcvipart.py $(BOARD_PARTITION_FILE) $(BUILDDIR)/u-boot/include/; \
+		python3 /builder/python/mk_imgHeader.py $(BOARD_PARTITION_FILE) $(BUILDDIR)/u-boot/include/; \
+	fi
 	@touch $@
 
 $(BUILDDIR)/uboot-prepare-configure-stamp: $(BUILDDIR)/uboot-prepare-patch-stamp
 	@echo "$(COLOUR_GREEN)Configuring U-Boot for $(BOARD)$(END_COLOUR)"
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)" $(BOARD)_defconfig
+	@if [ "$(OFFLINE)" = 1 ]; then echo "offline mode: reusing cached U-Boot configuration"; else cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)" $(BOARD)_defconfig; fi
 	@touch $@
 
 $(BUILDDIR)/uboot-compile-stamp: $(BUILDDIR)/uboot-prepare-configure-stamp
 	@echo "$(COLOUR_GREEN)Building U-Boot for $(BOARD)$(END_COLOUR)"
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)"
+	@if [ "$(OFFLINE)" = 1 ] && [ -f "$(BUILDDIR)/u-boot/u-boot.bin" ]; then echo "offline mode: reusing cached U-Boot binary"; else cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)"; fi
 	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)" u-boot-initial-env
 	@cp $(BUILDDIR)/u-boot/u-boot.bin $(BUILDDIR)
 	@cp $(BUILDDIR)/u-boot/u-boot.dtb $(BUILDDIR)
@@ -514,22 +515,23 @@ $(BUILDDIR)/cvi-pinmux-package-stamp:
 
 $(BUILDDIR)/image-prepare-stamp: 
 	@echo "$(COLOUR_GREEN)Preparing Image for $(BOARD)$(END_COLOUR)"
-	@if [ "$(OFFLINE)" = 1 ] && [ ! -s "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" ]; then echo "offline rootfs archive missing: $(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" >&2; exit 1; fi
+	@if [ "$(OFFLINE)" = 1 ] && [ ! -d "$(ROOTFS)" ] && [ ! -s "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" ]; then echo "offline rootfs cache missing: $(ROOTFS) or $(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" >&2; exit 1; fi
 	@-mkdir $(BUILDDIR)
-	@rm -rf $(ROOTFS)
+	@if [ "$(OFFLINE)" != 1 ] || [ ! -d "$(ROOTFS)" ]; then rm -rf $(ROOTFS); fi
 	@-rm $(addon-targets)
 	@mkdir -p $(ROOTFS)
-	@if [ "$(OFFLINE)" = 1 ]; then tar -xf "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" -C $(ROOTFS); fi
+	@if [ "$(OFFLINE)" = 1 ] && [ ! -e "$(ROOTFS)/etc" ]; then tar -xf "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" -C $(ROOTFS); fi
 
 ifeq ($(USE_VENDOR_APT),0)
-	@env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+	@if [ "$(OFFLINE)" = 1 ]; then :; else \
+		env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
 		http_proxy="$(APT_HTTP_PROXY)" https_proxy="$(APT_HTTPS_PROXY)" \
-		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main"
+		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main"; fi
 else
-	@curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc
-	@env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
+	@if [ "$(OFFLINE)" = 1 ]; then :; else curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc; \
+		env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
 		http_proxy="$(APT_HTTP_PROXY)" https_proxy="$(APT_HTTPS_PROXY)" \
-		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"
+		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"; fi
 
 endif
 	@touch $@

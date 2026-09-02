@@ -11,6 +11,10 @@ port_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 component_root=$(cd "$port_root/../.." && pwd)
 sdk_dir=$(cd "$1" && pwd)
 
+# Vendor FreeRTOSConfig.h includes riscv-virt.h while the SDK's generated
+# include path only contains kernel/include/riscv64. Stage the header there so
+# restored/offline build trees compile exactly like a fresh SDK checkout.
+
 if ! git -C "$sdk_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	echo "Not an SDK git tree: $sdk_dir" >&2
 	exit 1
@@ -61,6 +65,36 @@ for patch in "$port_root"/patches/*.patch; do
 	git -C "$sdk_dir" apply --check "$patch"
 	git -C "$sdk_dir" apply "$patch"
 done
+
+# FreeRTOSConfig.h includes the architecture headers by basename. The vendor
+# generated include list exposes kernel/include/riscv64, so stage all arch
+# headers there after reset/patching (offline builds may start from a clean
+# restored worktree).
+if [ -d "$sdk_dir/freertos/cvitek/arch/riscv64/include" ]; then
+	mkdir -p "$sdk_dir/freertos/cvitek/kernel/include/riscv64"
+	cp -a "$sdk_dir/freertos/cvitek/arch/riscv64/include/." \
+		"$sdk_dir/freertos/cvitek/kernel/include/riscv64/"
+	mkdir -p "$sdk_dir/freertos/cvitek/install/include/arch" "$sdk_dir/freertos/cvitek/install/include/kernel"
+	cp -a "$sdk_dir/freertos/cvitek/arch/riscv64/include/." "$sdk_dir/freertos/cvitek/install/include/arch/"
+	cp -a "$sdk_dir/freertos/cvitek/kernel/include/riscv64/." "$sdk_dir/freertos/cvitek/install/include/kernel/"
+	mkdir -p "$sdk_dir/freertos/cvitek/install/include/common"
+	cp -a "$sdk_dir/freertos/cvitek/common/include/riscv64/." "$sdk_dir/freertos/cvitek/install/include/common/"
+	cp -a "$sdk_dir/freertos/cvitek/common/include/interdrv/common/." "$sdk_dir/freertos/cvitek/install/include/common/"
+	cp -a "$sdk_dir/freertos/cvitek/common/include/interdrv/chip/riscv64/." "$sdk_dir/freertos/cvitek/install/include/common/"
+	cp -a "$sdk_dir/freertos/Source/include/." "$sdk_dir/freertos/cvitek/install/include/common/"
+	cp -a "$sdk_dir/freertos/Source/portable/GCC/RISC-V/." "$sdk_dir/freertos/cvitek/install/include/common/"
+	# Restored SDK worktrees may have install/include trees from a different
+	# host path. Recreate the vendor aggregate headers used by HAL/driver CMake.
+	for inc in "$sdk_dir"/freertos/cvitek/driver/*/include \
+		"$sdk_dir"/freertos/cvitek/hal/cv181x/*/include \
+		"$sdk_dir"/freertos/cvitek/hal/config; do
+		if [ -d "$inc" ]; then cp -a "$inc/." "$sdk_dir/freertos/cvitek/install/include/common/"; fi
+	done
+	find "$sdk_dir/freertos/cvitek/driver" -type f -name '*.h' \
+		-exec cp -f {} "$sdk_dir/freertos/cvitek/install/include/common/" \;
+	cp -a "$sdk_dir/freertos/cv181x/config/." "$sdk_dir/freertos/cvitek/install/include/common/" 2>/dev/null || true
+	cp -a "$sdk_dir/freertos/cvitek/hal/cv181x/config/." "$sdk_dir/freertos/cvitek/install/include/common/"
+fi
 
 grep -Fq "c906l_mailbox_irq_v2" \
 	"$sdk_dir/freertos/cvitek/task/comm/src/riscv64/comm_main.c"

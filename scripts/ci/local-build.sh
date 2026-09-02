@@ -127,6 +127,10 @@ export OUTPUT_DIR=/output
 export CONFIG_ROOT=/configs
 
 run_cache() {
+	if [[ $offline == 1 ]]; then
+		echo "offline mode: preserving prepared build cache"
+		return 0
+	fi
 	python3 /workspace/scripts/ci/cache.py \
 		--repo /workspace --config-root /configs --build-root "$build_root" \
 		--board "$board" --storage "$storage" --layers "$@"
@@ -177,7 +181,11 @@ case "$target" in
 			> "${board}_test_mmf.sha256")
 		;;
 	image)
-		run_cache firmware linux osdrv middleware boot rootfs
+		if [[ $offline == 1 ]]; then
+			run_cache firmware linux osdrv middleware boot
+		else
+			run_cache firmware linux osdrv middleware boot rootfs
+		fi
 		run_builder_make image
 		test -s "/output/$expected_artifact"
 		;;
