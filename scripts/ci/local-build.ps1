@@ -78,6 +78,7 @@ $containerDebianMirror = ConvertTo-ContainerProxy $debianMirror
 $imageCached = Test-DockerObject -Arguments @('image', 'inspect', $image)
 Write-Host "Builder image: $image (cached=$($imageCached.ToString().ToLowerInvariant()))"
 if (-not $imageCached) {
+  if ($env:OFFLINE -eq '1') { throw "Offline build requires preloaded builder image '$image'" }
   $buildArgs = @(
     'build',
     '--build-arg', "BUILDER_BASE_IMAGE=$($versions.BUILDER_BASE_IMAGE)",
@@ -106,12 +107,9 @@ if (-not $imageCached) {
   if ($LASTEXITCODE -ne 0) { throw "Docker toolchain build failed with exit code $LASTEXITCODE" }
 }
 
-foreach ($volume in @('sg2002-sdk', 'sg2002-build', 'sg2002-ccache')) {
-  if (-not (Test-DockerObject -Arguments @('volume', 'inspect', $volume))) {
-    & docker volume create $volume | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Unable to create Docker volume $volume" }
-  }
-}
+$cacheRoot = Join-Path $repoRoot '.cache'
+$offlineCachePath = if ($env:OFFLINE_CACHE) { [System.IO.Path]::GetFullPath($env:OFFLINE_CACHE) } else { Join-Path $repoRoot 'offline-cache' }
+New-Item -ItemType Directory -Force -Path (Join-Path $cacheRoot 'sdk'), (Join-Path $cacheRoot 'build'), (Join-Path $cacheRoot 'ccache'), $offlineCachePath | Out-Null
 
 $outputPath = if ([System.IO.Path]::IsPathRooted($Output)) {
   [System.IO.Path]::GetFullPath($Output)
@@ -133,6 +131,8 @@ $runArgs = @(
   '-e', 'IN_CONTAINER=1',
   '-e', 'TERM=xterm',
   '-e', 'CCACHE_DIR=/ccache',
+  '-e', "OFFLINE=$($env:OFFLINE)",
+  '-e', "OFFLINE_CACHE=/offline-cache",
   '-e', "HTTP_PROXY=$containerHttpProxy",
   '-e', "HTTPS_PROXY=$containerHttpsProxy",
   '-e', "APT_HTTP_PROXY=$containerAptHttpProxy",
@@ -144,9 +144,10 @@ $runArgs = @(
   '-v', "${repoRoot}/scripts:/builder:ro",
   '-v', "${repoRoot}/configs:/configs:ro",
   '-v', "${outputPath}:/output",
-  '-v', 'sg2002-sdk:/sdk-cache',
-  '-v', 'sg2002-build:/build-cache',
-  '-v', 'sg2002-ccache:/ccache',
+  '-v', "$(Join-Path $cacheRoot 'sdk'):/sdk-cache",
+  '-v', "$(Join-Path $cacheRoot 'build'):/build-cache",
+  '-v', "$(Join-Path $cacheRoot 'ccache'):/ccache",
+  '-v', "${offlineCachePath}:/offline-cache:ro",
   '-w', '/workspace',
   '--entrypoint', '/bin/bash',
   $image,

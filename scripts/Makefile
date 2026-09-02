@@ -27,6 +27,14 @@ CROSS_COMPILE ?= /host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-l
 RTOS_CROSS_COMPILE ?= /host-tools/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-
 HOST_TOOLS ?= /host-tools
 SDK_CACHE ?= $(BUILDDIR)/sdk-cache
+OFFLINE ?= 0
+OFFLINE_CACHE ?= /offline-cache
+
+ifeq ($(OFFLINE),1)
+git-source = $(OFFLINE_CACHE)/git/$(notdir $(patsubst %.git,%,$(1))).git
+else
+git-source = $(1)
+endif
 
 DEB_ARCH = riscv64
 
@@ -168,7 +176,8 @@ endef
 $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b $(LINUX_BRANCH) $(GIT_CLONE_OPTS) $(LINUX_REPO) $(BUILDDIR)/kernel
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(LINUX_REPO))"
+	@git clone -b $(LINUX_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(LINUX_REPO)) $(BUILDDIR)/kernel
 	@cd $(BUILDDIR)/kernel && git checkout $(LINUX_COMMIT)
 	@touch $@
 
@@ -220,7 +229,8 @@ linux-clean:
 $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b $(OSDRV_BRANCH) $(GIT_CLONE_OPTS) $(OSDRV_REPO) $(BUILDDIR)/osdrv
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(OSDRV_REPO))"
+	@git clone -b $(OSDRV_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(OSDRV_REPO)) $(BUILDDIR)/osdrv
 	@cd $(BUILDDIR)/osdrv && git checkout $(OSDRV_COMMIT)
 	@touch $@
 
@@ -280,12 +290,15 @@ osdrv-clean:
 $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b $(MIDDLEWARE_BRANCH) $(GIT_CLONE_OPTS) --recursive $(MIDDLEWARE_REPO) $(BUILDDIR)/middleware
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(MIDDLEWARE_REPO))"
+	@git clone -b $(MIDDLEWARE_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(MIDDLEWARE_REPO)) $(BUILDDIR)/middleware
 	@cd $(BUILDDIR)/middleware && git checkout $(MIDDLEWARE_COMMIT)
-	@git clone -b $(SENSOR_SUPPORT_BRANCH) $(GIT_CLONE_OPTS) --recursive $(SENSOR_SUPPORT_REPO) $(BUILDDIR)/middleware/component/isp
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(SENSOR_SUPPORT_REPO))"
+	@git clone -b $(SENSOR_SUPPORT_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(SENSOR_SUPPORT_REPO)) $(BUILDDIR)/middleware/component/isp
 	@cd $(BUILDDIR)/middleware/component/isp && git checkout $(SENSOR_SUPPORT_COMMIT)
 	@mkdir -p $(BUILDDIR)/middleware/sample/test_mmf
-	@git clone -b $(MEDIA_SERVER_BRANCH) $(GIT_CLONE_OPTS) --recursive $(MEDIA_SERVER_REPO) $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(MEDIA_SERVER_REPO))"
+	@git clone -b $(MEDIA_SERVER_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(MEDIA_SERVER_REPO)) $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x
 	@cd $(BUILDDIR)/middleware/sample/test_mmf/media_server-1.0.x && git checkout $(MEDIA_SERVER_COMMIT)
 	@touch $@
 
@@ -369,7 +382,8 @@ vcodec-firmware-clean:
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone $(GIT_CLONE_OPTS) $(UBOOT_REPO) $(BUILDDIR)/u-boot
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(UBOOT_REPO))"
+	@git clone $(GIT_CLONE_OPTS) $(call git-source,$(UBOOT_REPO)) $(BUILDDIR)/u-boot
 	@cd $(BUILDDIR)/u-boot && git checkout $(UBOOT_COMMIT)
 	@touch $@
 
@@ -411,7 +425,8 @@ uboot-clean:
 $(BUILDDIR)/opensbi-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OpenSBI for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b $(OPENSBI_BRANCH) $(GIT_CLONE_OPTS) $(OPENSBI_REPO) $(BUILDDIR)/opensbi
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(OPENSBI_REPO))"
+	@git clone -b $(OPENSBI_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(OPENSBI_REPO)) $(BUILDDIR)/opensbi
 	@cd $(BUILDDIR)/opensbi && git checkout $(OPENSBI_COMMIT)
 #	git clone https://github.com/riscv-software-src/opensbi.git $(BUILDDIR)/opensbi
 #	@cd $(BUILDDIR)/opensbi && git checkout a2b255b
@@ -439,7 +454,8 @@ opensbi-clean:
 $(BUILDDIR)/fsbl-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out FSBL for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@git clone -b $(FSBL_BRANCH) $(GIT_CLONE_OPTS) $(FSBL_REPO) $(BUILDDIR)/fsbl
+	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(FSBL_REPO))"
+	@git clone -b $(FSBL_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(FSBL_REPO)) $(BUILDDIR)/fsbl
 	@cd $(BUILDDIR)/fsbl && git checkout $(FSBL_COMMIT)
 	@touch $@
 
@@ -481,11 +497,10 @@ fsbl-clean:
 
 $(BUILDDIR)/cvi-pinmux-package-stamp:
 	@echo "$(COLOUR_GREEN)Building pinned cvi_pinmux for $(BOARD)$(END_COLOUR)"
+	@if [ "$(OFFLINE)" = 1 ]; then test -s "$(OFFLINE_CACHE)/downloads/pinmux.tar.gz"; fi
 	@rm -rf $(PINMUX_SRC) $(PINMUX_PKG)
 	@mkdir -p $(PINMUX_SRC) $(PINMUX_PKG)/DEBIAN $(PINMUX_PKG)/usr/bin
-	@curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 \
-		https://github.com/Fishwaldo/sophgo-sg200x-packages/archive/$(PINMUX_COMMIT).tar.gz \
-		-o $(BUILDDIR)/cvi-pinmux-cv181x.tar.gz
+	@if [ "$(OFFLINE)" = 1 ]; then cp "$(OFFLINE_CACHE)/downloads/pinmux.tar.gz" "$(BUILDDIR)/cvi-pinmux-cv181x.tar.gz"; else curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://github.com/Fishwaldo/sophgo-sg200x-packages/archive/$(PINMUX_COMMIT).tar.gz -o $(BUILDDIR)/cvi-pinmux-cv181x.tar.gz; fi
 	@tar -xzf $(BUILDDIR)/cvi-pinmux-cv181x.tar.gz --strip-components=2 -C $(PINMUX_SRC) \
 		sophgo-sg200x-packages-$(PINMUX_COMMIT)/cvi-pinmux-cv181x
 	@$(PINMUX_CC) -static -Os -s -Wall -Wextra -o $(PINMUX_PKG)/usr/bin/cvi_pinmux \
@@ -499,10 +514,12 @@ $(BUILDDIR)/cvi-pinmux-package-stamp:
 
 $(BUILDDIR)/image-prepare-stamp: 
 	@echo "$(COLOUR_GREEN)Preparing Image for $(BOARD)$(END_COLOUR)"
+	@if [ "$(OFFLINE)" = 1 ] && [ ! -s "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" ]; then echo "offline rootfs archive missing: $(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" >&2; exit 1; fi
 	@-mkdir $(BUILDDIR)
 	@rm -rf $(ROOTFS)
 	@-rm $(addon-targets)
 	@mkdir -p $(ROOTFS)
+	@if [ "$(OFFLINE)" = 1 ]; then tar -xf "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" -C $(ROOTFS); fi
 
 ifeq ($(USE_VENDOR_APT),0)
 	@env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \

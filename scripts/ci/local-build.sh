@@ -15,6 +15,9 @@ proxy_https=${HTTPS_PROXY:-${https_proxy:-}}
 proxy_apt_http=${APT_HTTP_PROXY:-}
 proxy_apt_https=${APT_HTTPS_PROXY:-}
 debian_mirror=${DEBIAN_MIRROR:-https://deb.debian.org/debian}
+offline=${OFFLINE:-0}
+cache_root=${CACHE_ROOT:-$repo_root/.cache}
+offline_cache=${OFFLINE_CACHE:-$repo_root/offline-cache}
 
 export HTTP_PROXY=$proxy_http
 export HTTPS_PROXY=$proxy_https
@@ -43,6 +46,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	source "$repo_root/toolchain.env"
 	image=${BUILDER_IMAGE:-$(bash "$script_dir/toolchain-ref.sh")}
 	if ! docker image inspect "$image" >/dev/null 2>&1; then
+		if [[ $offline == 1 ]]; then echo "offline build requires preloaded builder image: $image" >&2; exit 1; fi
 		proxy_build_args=()
 		if [[ -n $proxy_http ]]; then
 			proxy_build_args+=(--build-arg "HTTP_PROXY=$proxy_http" --build-arg "http_proxy=$proxy_http")
@@ -58,9 +62,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 			--build-arg "HOST_TOOLS_COMMIT=$HOST_TOOLS_COMMIT" \
 			-t "$image" -f "$repo_root/scripts/Dockerfile" "$repo_root"
 	fi
-	for volume in sg2002-sdk sg2002-build sg2002-ccache; do
-		docker volume inspect "$volume" >/dev/null 2>&1 || docker volume create "$volume" >/dev/null
-	done
+	mkdir -p "$cache_root/sdk" "$cache_root/build" "$cache_root/ccache" "$offline_cache"
 	if [[ $output == /* ]]; then
 		output_host=$(realpath -m "$output")
 	else
@@ -79,6 +81,8 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	exec docker run --rm --privileged \
 		-e IN_CONTAINER=1 \
 		-e CCACHE_DIR=/ccache \
+		-e OFFLINE="$offline" \
+		-e OFFLINE_CACHE=/offline-cache \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
 		-e APT_HTTP_PROXY="$proxy_apt_http" \
@@ -90,9 +94,10 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-v "$repo_root/scripts:/builder:ro" \
 		-v "$repo_root/configs:/configs:ro" \
 		-v "$output_host:/output" \
-		-v sg2002-sdk:/sdk-cache \
-		-v sg2002-build:/build-cache \
-		-v sg2002-ccache:/ccache \
+		-v "$cache_root/sdk:/sdk-cache" \
+		-v "$cache_root/build:/build-cache" \
+		-v "$cache_root/ccache:/ccache" \
+		-v "$offline_cache:/offline-cache:ro" \
 		-w /workspace --entrypoint /bin/bash \
 		"$image" \
 		/workspace/scripts/ci/local-build.sh "$target" --inside --board "$board" --storage "$storage" --output /output "${source_output_args[@]}"
@@ -134,6 +139,7 @@ run_builder_make() {
 		VERSION_FILE=/workspace/versions.env \
 		CONFIG_ROOT=/configs COMPONENTS_ROOT=/workspace/components \
 		DEBIAN_MIRROR="$debian_mirror" \
+		OFFLINE="$offline" OFFLINE_CACHE="$offline_cache" \
 		APT_HTTP_PROXY="$proxy_apt_http" APT_HTTPS_PROXY="$proxy_apt_https" \
 		OUTPUT_DIR=/output CROSS_COMPILE="$CROSS_COMPILE" \
 		RTOS_CROSS_COMPILE="$RTOS_CROSS_COMPILE" "$@"
@@ -150,6 +156,7 @@ case "$target" in
 		run_cache firmware
 	make -C /workspace/components/sg2002-ipc firmware \
 		BOARD="$board" CONFIG_ROOT=/configs SDK_CACHE=/sdk-cache \
+		OFFLINE="$offline" OFFLINE_CACHE=/offline-cache \
 		BUILD_ROOT="$build_root/components/sg2002-ipc" OUTPUT_DIR=/output \
 		HOST_TOOLS=/host-tools RTOS_CROSS_COMPILE="$RTOS_CROSS_COMPILE"
 		;;

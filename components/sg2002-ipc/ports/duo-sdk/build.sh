@@ -13,6 +13,8 @@ build_root=${BUILD_ROOT:-$component_root/.cache/build/$board}
 output_dir=${OUTPUT_DIR:-$component_root/out}
 memmap_file=${MEMMAP_FILE:-}
 host_tools=${HOST_TOOLS:-/host-tools}
+offline=${OFFLINE:-0}
+offline_cache=${OFFLINE_CACHE:-/offline-cache}
 
 : "${RTOS_SDK_REPO:?RTOS_SDK_REPO is required}"
 : "${RTOS_SDK_COMMIT:?RTOS_SDK_COMMIT is required}"
@@ -51,7 +53,13 @@ if [ ! -d "$mirror/objects" ]; then
 fi
 git --git-dir="$mirror" remote set-url origin "$RTOS_SDK_REPO"
 if ! git --git-dir="$mirror" cat-file -e "$RTOS_SDK_COMMIT^{commit}" 2>/dev/null; then
-	git --git-dir="$mirror" fetch --depth 1 origin "$RTOS_SDK_COMMIT"
+	if [[ $offline == 1 ]]; then
+		local_mirror="$offline_cache/git/duo-buildroot-sdk-v2.git"
+		test -d "$local_mirror" || { echo "offline SDK mirror missing: $local_mirror" >&2; exit 1; }
+		git --git-dir="$mirror" fetch --depth 1 "$local_mirror" "$RTOS_SDK_COMMIT"
+	else
+		git --git-dir="$mirror" fetch --depth 1 origin "$RTOS_SDK_COMMIT"
+	fi
 fi
 if [ -e "$sdk_dir/.git" ] && [ "$(git -C "$sdk_dir" rev-parse HEAD)" != "$RTOS_SDK_COMMIT" ]; then
 	git --git-dir="$mirror" worktree remove --force "$sdk_dir" || rm -rf "$sdk_dir"
