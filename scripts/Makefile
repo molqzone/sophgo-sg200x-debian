@@ -176,9 +176,7 @@ endef
 $(BUILDDIR)/linux-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Kernel for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
-	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(LINUX_REPO))"
-	@git clone -b $(LINUX_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(LINUX_REPO)) $(BUILDDIR)/kernel
-	@cd $(BUILDDIR)/kernel && git checkout $(LINUX_COMMIT)
+	@if [ "$(OFFLINE)" = 1 ] && [ -d "$(BUILDDIR)/kernel" ]; then echo "offline mode: reusing cached Kernel"; else test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(LINUX_REPO))"; git clone -b $(LINUX_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(LINUX_REPO)) $(BUILDDIR)/kernel; cd $(BUILDDIR)/kernel && git checkout $(LINUX_COMMIT); fi
 	@touch $@
 
 $(BUILDDIR)/linux-prepare-patch-stamp: $(BUILDDIR)/linux-prepare-checkout-stamp
@@ -230,7 +228,7 @@ $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(OSDRV_REPO))"
-	@git clone -b $(OSDRV_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(OSDRV_REPO)) $(BUILDDIR)/osdrv
+	@if [ "$(OFFLINE)" = 1 ] && [ -d "$(BUILDDIR)/osdrv/.git" ]; then echo "offline mode: reusing cached OSDRV"; else git clone -b $(OSDRV_BRANCH) $(GIT_CLONE_OPTS) $(call git-source,$(OSDRV_REPO)) $(BUILDDIR)/osdrv; fi
 	@cd $(BUILDDIR)/osdrv && git checkout $(OSDRV_COMMIT)
 	@touch $@
 
@@ -291,7 +289,7 @@ $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)
 	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(MIDDLEWARE_REPO))"
-	@git clone -b $(MIDDLEWARE_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(MIDDLEWARE_REPO)) $(BUILDDIR)/middleware
+	@if [ "$(OFFLINE)" = 1 ] && [ -d "$(BUILDDIR)/middleware/.git" ]; then echo "offline mode: reusing cached middleware"; else git clone -b $(MIDDLEWARE_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(MIDDLEWARE_REPO)) $(BUILDDIR)/middleware; fi
 	@cd $(BUILDDIR)/middleware && git checkout $(MIDDLEWARE_COMMIT)
 	@test "$(OFFLINE)" != 1 || test -d "$(call git-source,$(SENSOR_SUPPORT_REPO))"
 	@git clone -b $(SENSOR_SUPPORT_BRANCH) $(GIT_CLONE_OPTS) --recursive $(call git-source,$(SENSOR_SUPPORT_REPO)) $(BUILDDIR)/middleware/component/isp
@@ -409,11 +407,11 @@ $(BUILDDIR)/uboot-prepare-configure-stamp: $(BUILDDIR)/uboot-prepare-patch-stamp
 
 $(BUILDDIR)/uboot-compile-stamp: $(BUILDDIR)/uboot-prepare-configure-stamp
 	@echo "$(COLOUR_GREEN)Building U-Boot for $(BOARD)$(END_COLOUR)"
-	@if [ "$(OFFLINE)" = 1 ] && [ -f "$(BUILDDIR)/u-boot/u-boot.bin" ]; then echo "offline mode: reusing cached U-Boot binary"; else cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)"; fi
-	cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)" u-boot-initial-env
-	@cp $(BUILDDIR)/u-boot/u-boot.bin $(BUILDDIR)
-	@cp $(BUILDDIR)/u-boot/u-boot.dtb $(BUILDDIR)
-	@cp $(BUILDDIR)/u-boot/u-boot-initial-env $(BUILDDIR)
+	@if [ "$(OFFLINE)" = 1 ] && [ -f "$(BUILDDIR)/u-boot.bin" ]; then echo "offline mode: reusing cached U-Boot binary"; else cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)"; fi
+	@if [ "$(OFFLINE)" = 1 ] && [ -f "$(BUILDDIR)/u-boot.bin" ]; then echo "offline mode: reusing cached U-Boot environment"; else cd $(BUILDDIR)/u-boot/ && $(MAKE) -j$(NPROCS) BOARD=cv181x CONFIG_USE_DEFAULT_ENV=y STORAGE_TYPE=$(STORAGE_TYPE) CHIP=$(UBOOT_CHIP) CVIBOARD=$(UBOOT_BOARD) CROSS_COMPILE="$(CROSS_COMPILE)" u-boot-initial-env; fi
+	@if [ ! -f "$(BUILDDIR)/u-boot.bin" ] && [ -f "$(BUILDDIR)/u-boot/u-boot.bin" ]; then cp $(BUILDDIR)/u-boot/u-boot.bin $(BUILDDIR); fi
+	@if [ ! -f "$(BUILDDIR)/u-boot.dtb" ] && [ -f "$(BUILDDIR)/u-boot/u-boot.dtb" ]; then cp $(BUILDDIR)/u-boot/u-boot.dtb $(BUILDDIR); fi
+	@if [ ! -f "$(BUILDDIR)/u-boot-initial-env" ] && [ -f "$(BUILDDIR)/u-boot/u-boot-initial-env" ]; then cp $(BUILDDIR)/u-boot/u-boot-initial-env $(BUILDDIR); fi
 	@touch $@
 
 uboot: $(BUILDDIR)/uboot-compile-stamp
@@ -469,22 +467,27 @@ $(BUILDDIR)/fsbl-prepare-patch-stamp: $(BUILDDIR)/fsbl-prepare-checkout-stamp
 
 $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/opensbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp $(FSBL_RTOS_TARGET)
 	@echo "$(COLOUR_GREEN)Building FSBL for $(BOARD)$(END_COLOUR)"
-	@test -s $(FSBL_BLCP_2ND_PATH)
-	@cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(FSBL_CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin \
-		CROSS_COMPILE=$(CROSS_COMPILE)
-	@cp $(BUILDDIR)/fsbl/build/$(FSBL_CHIP)/fip.bin $(BUILDDIR)
+	@if [ "$(OFFLINE)" = 1 ] && [ -s "$(BUILDDIR)/fip.bin" ]; then \
+		echo "offline mode: reusing cached FSBL"; \
+	else \
+		test -s $(FSBL_BLCP_2ND_PATH); \
+		cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(FSBL_CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin CROSS_COMPILE=$(CROSS_COMPILE); \
+		cp $(BUILDDIR)/fsbl/build/$(FSBL_CHIP)/fip.bin $(BUILDDIR); \
+	fi
 	@touch $@
 
 $(BUILDDIR)/fsbl-package-stamp: $(BUILDDIR)/fsbl-compile-stamp
 	@echo "$(COLOUR_GREEN)Packaging FSBL for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)
 	@cp -r /builder/deb/cvitek-fsbl/* $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/
+	@chmod 755 $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN; chmod 644 $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN/control
+	@find $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION) -type d -exec chmod 755 {} +
 	@mkdir -p $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/boot/ $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/etc/
 	@cp $(BUILDDIR)/fip.bin $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/boot/
 	@cp $(BUILDDIR)/u-boot-initial-env $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/etc/
 	@sed -i 's/Version: 1.0.0/Version: $(FSBLVERSION)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN/control
 	@sed -i 's/Package: cvitek-fsbl/Package: cvitek-fsbl-$(BOARD)/' $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN/control
-	@cd $(BUILDDIR)/package/ && dpkg-deb --build cvitek-fsbl-$(BOARD)-$(FSBLVERSION)
+	@rm -rf /tmp/cvitek-fsbl-$(BOARD)-$(FSBLVERSION); cp -a $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION) /tmp/; chmod 755 /tmp/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN; chmod 644 /tmp/cvitek-fsbl-$(BOARD)-$(FSBLVERSION)/DEBIAN/control; cd /tmp && dpkg-deb --build cvitek-fsbl-$(BOARD)-$(FSBLVERSION) $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION).deb
 	@cp $(BUILDDIR)/package/cvitek-fsbl-$(BOARD)-$(FSBLVERSION).deb $(OUTPUT_DIR)/
 	@touch $@
 
@@ -606,6 +609,29 @@ $(BUILDDIR)/image-compile-stamp: $(BUILDDIR)/image-customize-stamp
 	@touch $@
 
 image: $(BUILDDIR)/image-compile-stamp
+
+# Offline builds use the already prepared rootfs and boot artifacts from the
+# persistent cache.  Re-running the source checkout/patch graph is unsafe for
+# restored worktrees because its stamps may have different timestamps.
+offline-image:
+	@test -d "$(ROOTFS)/etc" || { echo "offline rootfs missing: $(ROOTFS)" >&2; exit 1; }
+	@test -s "$(BUILDDIR)/u-boot.bin" || { echo "offline U-Boot binary missing: $(BUILDDIR)/u-boot.bin" >&2; exit 1; }
+	@test -s "$(BUILDDIR)/fip.bin" || { echo "offline FSBL image missing: $(BUILDDIR)/fip.bin" >&2; exit 1; }
+	@rm -rf /tmp/genimage-offline
+	@cd "$(BUILDDIR)" && genimage --config /builder/genimage_$(STORAGE_TYPE).cfg --tmppath /tmp/genimage-offline --rootpath "$(ROOTFS)"
+	@rm -rf /tmp/genimage-offline
+	@if [ "$(STORAGE_TYPE)" = "emmc" ]; then \
+		python3 /builder/python/raw2cimg.py -v "$(BUILDDIR)/images/sdcard.img" "$(BUILDDIR)/images" "$(BOARD_PARTITION_FILE)"; \
+		mkdir -p /tmp/rom/; \
+		cp "$(BUILDDIR)/images/sdcard.img" /tmp/rom/; \
+		cp "$(BOARD_PARTITION_FILE)" /tmp/rom/partition_emmc.xml; \
+		cp "$(BUILDDIR)/fip.bin" /tmp/rom/; \
+		cd /tmp && zip "$(BOARD)_$(STORAGE_TYPE).zip" -r rom/; \
+		cp "/tmp/$(BOARD)_$(STORAGE_TYPE).zip" "$(OUTPUT_DIR)/"; \
+	else \
+		cp "$(BUILDDIR)/images/sdcard.img" "$(OUTPUT_DIR)/$(BOARD)_$(STORAGE_TYPE).img"; \
+	fi
+	@test -s "$(OUTPUT_DIR)/$(BOARD)_$(STORAGE_TYPE).img" || test -s "$(OUTPUT_DIR)/$(BOARD)_$(STORAGE_TYPE).zip"
 
 image-clean:
 	@rm -rf $(ROOTFS)

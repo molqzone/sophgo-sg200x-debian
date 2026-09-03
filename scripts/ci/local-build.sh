@@ -182,11 +182,12 @@ case "$target" in
 		;;
 	image)
 		if [[ $offline == 1 ]]; then
-			run_cache firmware linux osdrv middleware boot
+			echo "offline mode: generating image from prepared cache"
+			run_builder_make offline-image
 		else
 			run_cache firmware linux osdrv middleware boot rootfs
+			run_builder_make image
 		fi
-		run_builder_make image
 		test -s "/output/$expected_artifact"
 		;;
 	verify)
