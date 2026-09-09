@@ -6,7 +6,6 @@
 
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/leds/common.h>
 #ifndef __UBOOT__
 #include <dt-bindings/mailbox/cvitek-mailbox.h>
 #endif
@@ -135,18 +134,10 @@
                 pll_reg = <0x300207C>;
                 no-mmc;
                 no-sd;
-                status = "okay";
+                // SD1 is owned by the C906 SPI2 firmware on MaixCAM.
+                status = "disabled";
                 interrupts = <38 IRQ_TYPE_LEVEL_HIGH>;
                 interrupt-parent = <&plic0>;
-        };
-
-        leds {
-        	compatible = "gpio-leds";
-	        led0 {
-		        gpios = <&porta 14 GPIO_ACTIVE_LOW>;
-		        linux,default-trigger = "heartbeat";
-		        function = LED_FUNCTION_HEARTBEAT;
-	        };
         };
 #ifndef __UBOOT__        
 	rtos_cmdqu {
@@ -180,3 +171,18 @@
 	};
 #endif
 };
+
+/* Fixed C906 ownership; camera I2C4 stays with Linux. */
+&spi0 { status = "disabled"; };
+&spi1 { status = "disabled"; };
+&spi2 { status = "disabled"; };
+&spi3 { status = "disabled"; };
+&i2c0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+&i2c2 { status = "disabled"; };
+&i2c3 { status = "disabled"; };
+&i2c4 { status = "okay"; };
+&pwm0 { status = "disabled"; };
+&pwm1 { status = "disabled"; };
+&pwm2 { status = "disabled"; };
+&pwm3 { status = "disabled"; };

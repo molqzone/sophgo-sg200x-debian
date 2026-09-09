@@ -6,7 +6,6 @@
 
 #include <dt-bindings/input/linux-event-codes.h>
 #include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/leds/common.h>
 #ifndef __UBOOT__
 #include <dt-bindings/mailbox/cvitek-mailbox.h>
 #endif
@@ -26,7 +25,7 @@
 
 
 &i2c4 {
-        statuc = "okay";
+        status = "okay";
         gt9xx: gt9xx@14 {
                 compatible = "goodix,gt911";
                 reg = <0x14>;
@@ -101,14 +100,6 @@
                 interrupt-parent = <&plic0>;
         };
 
-        leds {
-        	compatible = "gpio-leds";
-	        led0 {
-		        gpios = <&porta 14 GPIO_ACTIVE_LOW>;
-		        linux,default-trigger = "heartbeat";
-		        function = LED_FUNCTION_HEARTBEAT;
-	        };
-        };
 #ifndef __UBOOT__        
         mbox: mbox@0x01900000 {
                 compatible = "cvitek,sg200x-mailbox";
@@ -135,3 +126,18 @@
 #endif
 };
 
+/* Fixed C906 ownership: Linux keeps camera/TP I2C4; C906 owns control buses. */
+&spi0 { status = "disabled"; };
+&spi1 { status = "disabled"; };
+&spi2 { status = "disabled"; };
+&spi3 { status = "disabled"; };
+&i2c0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+&i2c2 { status = "disabled"; };
+&i2c3 { status = "disabled"; };
+/* I2C4 remains Linux-owned for SC035HGS and the touch connector. */
+&i2c4 { status = "okay"; };
+&pwm0 { status = "disabled"; };
+&pwm1 { status = "disabled"; };
+&pwm2 { status = "disabled"; };
+&pwm3 { status = "disabled"; };
