@@ -14,5 +14,6 @@ while IFS= read -r -d '' script; do
 done < <(find "$repo_root" -path "$repo_root/.git" -prune -o -type f -name '*.sh' -print0)
 
 make -C "$repo_root/components/sg2002-ipc" verify OUTPUT_DIR="${OUTPUT_DIR:-/tmp/sg2002-ipc-tests}"
-python3 "$script_dir/validate.py" --allow-missing-image
+python3 "$script_dir/validate.py" \
+	--board maixcam-sc035hgs --storage sd --allow-missing-image
 bash "$script_dir/tests/test_package.sh"

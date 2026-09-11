@@ -79,32 +79,6 @@ jobs:
       - name: Host tests and repository validation
         run: bash scripts/ci/validate.sh
 
-  component:
-    needs: plan
-    if: needs.plan.outputs.defer_toolchain != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build standalone C906L and Linux tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          export BUILDER_IMAGE=$(bash scripts/ci/toolchain-ref.sh "$GITHUB_REPOSITORY_OWNER")
-          bash scripts/ci/build-component.sh maixcam component-output
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sg2002-ipc
-          path: component-output/
-          if-no-files-found: error
-
   boards:
     needs: plan
     if: needs.plan.outputs.defer_toolchain != 'true' && needs.plan.outputs.has_matrix == 'true'
