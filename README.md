@@ -43,6 +43,9 @@ powershell -ExecutionPolicy Bypass -File scripts/ci/local-build.ps1 -Target veri
 The runner creates `sg2002-sdk`, `sg2002-build`, and `sg2002-ccache` Docker
 volumes. Source hashes invalidate only the affected layers and their required
 downstream consumers. See [`docs/local-build.md`](docs/local-build.md).
+Hosts that cannot reach github.com directly (the GFW resets curl/git TLS
+transfers) should stage the sources first: see
+[`docs/offline-sources.md`](docs/offline-sources.md).
 
 ## Repository layers
 

@@ -18,6 +18,7 @@ debian_mirror=${DEBIAN_MIRROR:-https://deb.debian.org/debian}
 offline=${OFFLINE:-0}
 cache_root=${CACHE_ROOT:-$repo_root/.cache}
 offline_cache=${OFFLINE_CACHE:-$repo_root/offline-cache}
+source_cache=${SOURCE_CACHE:-$cache_root/source-cache}
 
 export HTTP_PROXY=$proxy_http
 export HTTPS_PROXY=$proxy_https
@@ -63,6 +64,9 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 			-t "$image" -f "$repo_root/scripts/Dockerfile" "$repo_root"
 	fi
 	mkdir -p "$cache_root/sdk" "$cache_root/build" "$cache_root/ccache" "$offline_cache"
+	if [[ ! -d "$source_cache" ]]; then
+		source_cache=/dev/null
+	fi
 	if [[ $output == /* ]]; then
 		output_host=$(realpath -m "$output")
 	else
@@ -83,6 +87,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-e CCACHE_DIR=/ccache \
 		-e OFFLINE="$offline" \
 		-e OFFLINE_CACHE=/offline-cache \
+		-e SDK_CACHE_NO_VERIFY="$SDK_CACHE_NO_VERIFY" \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
 		-e APT_HTTP_PROXY="$proxy_apt_http" \
@@ -98,6 +103,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-v "$cache_root/build:/build-cache" \
 		-v "$cache_root/ccache:/ccache" \
 		-v "$offline_cache:/offline-cache:ro" \
+		-v "$source_cache:/source-proxy:ro" \
 		-w /workspace --entrypoint /bin/bash \
 		"$image" \
 		/workspace/scripts/ci/local-build.sh "$target" --inside --board "$board" --storage "$storage" --output /output "${source_output_args[@]}"
@@ -112,6 +118,13 @@ case "$storage" in
 esac
 
 python3 /workspace/scripts/ci/plan.py validate
+# Allow builds to use locally mirrored, pinned source repositories when present.
+if [[ -f /source-proxy/firmware.git/HEAD ]]; then
+	git config --global url.file:///source-proxy/firmware.git.insteadOf https://github.com/armbian/firmware.git
+fi
+# The offline mirrors are staged by the host user while the build runs as root,
+# so git's ownership check must not reject them.
+git config --global --add safe.directory '*'
 expected_artifact=$(python3 /workspace/scripts/ci/plan.py artifact --board "$board" --storage "$storage")
 build_root="/build-cache/boards/$board-$storage"
 rootfs="$build_root/rootfs"
@@ -127,13 +140,17 @@ export OUTPUT_DIR=/output
 export CONFIG_ROOT=/configs
 
 run_cache() {
-	if [[ $offline == 1 ]]; then
-		echo "offline mode: preserving prepared build cache"
-		return 0
+	cache_args=()
+	# SDK_CACHE_NO_VERIFY lets an OFFLINE build run without a prepared cache:
+	# cache.py then records the current source hashes instead of refusing a
+	# layer that has never been built (the first build after staging sources
+	# from local mirrors).
+	if [[ $offline == 1 && -z ${SDK_CACHE_NO_VERIFY:-} ]]; then
+		cache_args+=(--verify)
 	fi
 	python3 /workspace/scripts/ci/cache.py \
 		--repo /workspace --config-root /configs --build-root "$build_root" \
-		--board "$board" --storage "$storage" --layers "$@"
+		--board "$board" --storage "$storage" "${cache_args[@]}" --layers "$@"
 }
 
 run_builder_make() {
@@ -182,7 +199,8 @@ case "$target" in
 		;;
 	image)
 		if [[ $offline == 1 ]]; then
-			echo "offline mode: generating image from prepared cache"
+			echo "offline mode: validating prepared build cache"
+			run_cache firmware linux osdrv middleware boot rootfs
 			run_builder_make offline-image
 		else
 			run_cache firmware linux osdrv middleware boot rootfs
