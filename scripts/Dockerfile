@@ -4,16 +4,18 @@ ARG BUILDER_BASE_IMAGE
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DEBIAN_SNAPSHOT
 ARG HOST_TOOLS_REPO
 ARG HOST_TOOLS_COMMIT
 
-RUN test -n "$DEBIAN_SNAPSHOT" \
-    && test -n "$HOST_TOOLS_REPO" \
+# apt comes from live sid, matching both the debian:sid base image and the
+# rootfs the image build produces (see scripts/Makefile's mmdebstrap call).
+# A dated snapshot here skews against the rolling base within days: apt then
+# refuses to install the package set ("... but it is not going to be
+# installed"), which is how this previously failed.
+RUN test -n "$HOST_TOOLS_REPO" \
     && test -n "$HOST_TOOLS_COMMIT" \
-    && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot \
     && rm -f /etc/apt/sources.list.d/* \
-    && printf 'deb http://snapshot.debian.org/archive/debian/%s sid main\n' "$DEBIAN_SNAPSHOT" > /etc/apt/sources.list
+    && printf 'deb http://deb.debian.org/debian sid main\n' > /etc/apt/sources.list
 
 RUN apt-get update \
     && apt-get install -y eatmydata \

@@ -82,7 +82,6 @@ if (-not $imageCached) {
   $buildArgs = @(
     'build',
     '--build-arg', "BUILDER_BASE_IMAGE=$($versions.BUILDER_BASE_IMAGE)",
-    '--build-arg', "DEBIAN_SNAPSHOT=$($versions.DEBIAN_SNAPSHOT)",
     '--build-arg', "HOST_TOOLS_REPO=$($versions.HOST_TOOLS_REPO)",
     '--build-arg', "HOST_TOOLS_COMMIT=$($versions.HOST_TOOLS_COMMIT)",
     '-t', $image,

@@ -69,12 +69,18 @@ build runs as root inside the container; `local-build.sh` therefore allows git
 to operate on them regardless of ownership.  When the pins in `versions.env`
 move, re-run the staging script to refresh the mirrors.
 
-## Why `BUILDER_BASE_IMAGE` has no digest
+## Why the builder is fully rolling
 
-It used to be pinned as `debian:sid@sha256:...`.  sid is republished daily and
-Docker Hub garbage-collects old manifests within days, so both the original pin
-and its replacement eventually failed CI with `debian:sid@sha256:...: not
-found`.  A digest pin on a rolling tag cannot stay resolvable, so the base image
-is now referenced by tag; what makes a build reproducible is unchanged and
-still pinned: `DEBIAN_SNAPSHOT` for the apt layer and the commit SHAs in
-`versions.env` for the sources.
+`BUILDER_BASE_IMAGE` used to be pinned as `debian:sid@sha256:...`.  sid is
+republished daily and Docker Hub garbage-collects old manifests within days, so
+both the original pin and its replacement eventually failed CI with
+`debian:sid@sha256:...: not found`.  A digest pin on a rolling tag cannot stay
+resolvable.
+
+The apt layer used to be pinned to a dated snapshot for the same reason, which
+then broke the other way: a fresh rolling base against a months-old snapshot
+skews, and apt refuses the package set (`... but it is not going to be
+installed`).  The builder therefore runs entirely on live sid — base image by
+tag, apt from `deb.debian.org sid main` — exactly like the rootfs the image
+build produces (`scripts/Makefile`'s mmdebstrap call).  What pins a build are
+the commit SHAs in `versions.env`; the builder's OS layer is not one of them.

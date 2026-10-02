@@ -58,7 +58,6 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		docker build \
 			"${proxy_build_args[@]}" \
 			--build-arg "BUILDER_BASE_IMAGE=$BUILDER_BASE_IMAGE" \
-			--build-arg "DEBIAN_SNAPSHOT=$DEBIAN_SNAPSHOT" \
 			--build-arg "HOST_TOOLS_REPO=$HOST_TOOLS_REPO" \
 			--build-arg "HOST_TOOLS_COMMIT=$HOST_TOOLS_COMMIT" \
 			-t "$image" -f "$repo_root/scripts/Dockerfile" "$repo_root"

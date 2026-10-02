@@ -165,11 +165,9 @@ else
 FROM ${BUILDER_BASE_IMAGE} AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG DEBIAN_SNAPSHOT
 
-RUN printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot \\
-    && rm -f /etc/apt/sources.list.d/* \\
-    && printf 'deb http://snapshot.debian.org/archive/debian/%s sid main\n' "${DEBIAN_SNAPSHOT}" > /etc/apt/sources.list
+RUN rm -f /etc/apt/sources.list.d/* \
+    && printf 'deb http://deb.debian.org/debian sid main\n' > /etc/apt/sources.list
 
 RUN apt-get update \\
     && apt-get install -y eatmydata \\
