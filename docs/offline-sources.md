@@ -69,15 +69,12 @@ build runs as root inside the container; `local-build.sh` therefore allows git
 to operate on them regardless of ownership.  When the pins in `versions.env`
 move, re-run the staging script to refresh the mirrors.
 
-## `BUILDER_BASE_IMAGE` and digest drift
+## Why `BUILDER_BASE_IMAGE` has no digest
 
-`toolchain.env` pins the builder base image by digest.  Debian sid is a rolling
-release, so an old digest eventually disappears from the registry and
-`docker build` fails to resolve it.  Refresh the pin with:
-
-```bash
-docker buildx imagetools inspect debian:sid --format '{{.Manifest.Digest}}'
-```
-
-and update `BUILDER_BASE_IMAGE` accordingly (this also changes the tag
-`toolchain-ref.sh` derives, so the image is rebuilt once).
+It used to be pinned as `debian:sid@sha256:...`.  sid is republished daily and
+Docker Hub garbage-collects old manifests within days, so both the original pin
+and its replacement eventually failed CI with `debian:sid@sha256:...: not
+found`.  A digest pin on a rolling tag cannot stay resolvable, so the base image
+is now referenced by tag; what makes a build reproducible is unchanged and
+still pinned: `DEBIAN_SNAPSHOT` for the apt layer and the commit SHAs in
+`versions.env` for the sources.
