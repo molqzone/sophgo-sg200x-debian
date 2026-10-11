@@ -8,7 +8,6 @@ image=${BUILDER_IMAGE:-$(bash "$repo_root/scripts/ci/toolchain-ref.sh")}
 
 docker build \
 	--build-arg "BUILDER_BASE_IMAGE=$BUILDER_BASE_IMAGE" \
-	--build-arg "DEBIAN_SNAPSHOT=$DEBIAN_SNAPSHOT" \
 	--build-arg "HOST_TOOLS_REPO=$HOST_TOOLS_REPO" \
 	--build-arg "HOST_TOOLS_COMMIT=$HOST_TOOLS_COMMIT" \
 	-t "$image" -f "$repo_root/scripts/Dockerfile" "$repo_root"
