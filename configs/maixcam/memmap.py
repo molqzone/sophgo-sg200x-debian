@@ -1,0 +1,103 @@
+SIZE_1M = 0x100000
+SIZE_1K = 1024
+
+
+# Only attributes in class MemoryMap are generated to .h
+class MemoryMap:
+    # No prefix "CVIMMAP_" for the items in _no_prefix[]
+    _no_prefix = [
+        "CONFIG_SYS_TEXT_BASE"  # u-boot's CONFIG_SYS_TEXT_BASE is used without CPP.
+    ]
+
+    DRAM_BASE = 0x80000000
+    DRAM_SIZE = 256 * SIZE_1M
+
+    # ==============
+    # C906L FreeRTOS
+    # ==============
+    FREERTOS_SIZE = 2 * SIZE_1M
+    # FreeRTOS is at the end of DRAM
+    FREERTOS_ADDR = DRAM_BASE + DRAM_SIZE - FREERTOS_SIZE
+    FSBL_C906L_START_ADDR = FREERTOS_ADDR
+
+    # The final page remains the boot trace. The two fixed-slot queues live
+    # immediately below it and are excluded from the FreeRTOS linker region.
+    RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
+    RTOS_SHM_SIZE = 132 * SIZE_1K
+    RTOS_SHM_ADDR = (
+        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - RTOS_SHM_SIZE
+    )
+    RTOS_FIRMWARE_SIZE = RTOS_SHM_ADDR - FREERTOS_ADDR
+    RTOS_BOOT_TRACE_ADDR = RTOS_SHM_ADDR + RTOS_SHM_SIZE
+    assert RTOS_SHM_ADDR >= FREERTOS_ADDR
+    assert RTOS_SHM_ADDR + RTOS_SHM_SIZE == (
+        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
+    )
+    assert RTOS_BOOT_TRACE_ADDR + RTOS_BOOT_TRACE_SIZE == (
+        FREERTOS_ADDR + FREERTOS_SIZE
+    )
+
+    # ==============================
+    # OpenSBI | arm-trusted-firmware
+    # ==============================
+    # Monitor is at the begining of DRAM
+    MONITOR_ADDR = DRAM_BASE
+
+    ATF_SIZE = 512 * SIZE_1K
+    OPENSBI_SIZE = 512 * SIZE_1K
+    OPENSBI_FDT_ADDR = MONITOR_ADDR + OPENSBI_SIZE
+
+    # =========================
+    # memory@DRAM_BASE in .dts.
+    # =========================
+    # Ignore the area of FreeRTOS in u-boot and kernel
+    KERNEL_MEMORY_ADDR = DRAM_BASE
+    KERNEL_MEMORY_SIZE = DRAM_SIZE - FREERTOS_SIZE
+
+    # =================
+    # Multimedia buffer. Used by u-boot/kernel/FreeRTOS
+    # =================
+    # Headless camera route is using 720p-oriented middleware defaults, but
+    # the vendor ISP path still needs some headroom above the 22 MiB floor.
+    ION_SIZE = 28 * SIZE_1M
+    H26X_BITSTREAM_SIZE = 2 * SIZE_1M
+    H26X_ENC_BUFF_SIZE = 0
+    ISP_MEM_BASE_SIZE = 20 * SIZE_1M
+    FREERTOS_RESERVED_ION_SIZE = H26X_BITSTREAM_SIZE + H26X_ENC_BUFF_SIZE + ISP_MEM_BASE_SIZE
+
+    # ION after FreeRTOS
+    ION_ADDR = FREERTOS_ADDR - ION_SIZE
+
+    # Buffers of the fast image are inside the ION buffer
+    H26X_BITSTREAM_ADDR = ION_ADDR
+    H26X_ENC_BUFF_ADDR = H26X_BITSTREAM_ADDR + H26X_BITSTREAM_SIZE
+    ISP_MEM_BASE_ADDR = H26X_ENC_BUFF_ADDR + H26X_ENC_BUFF_SIZE
+
+    assert ISP_MEM_BASE_ADDR + ISP_MEM_BASE_SIZE <= ION_ADDR + ION_SIZE
+
+    # Headless default: do not reserve a framebuffer/bootlogo carveout.
+    BOOTLOGO_SIZE = 0
+    BOOTLOGO_ADDR = ION_ADDR - BOOTLOGO_SIZE
+    FRAMEBUFFER_SIZE = BOOTLOGO_SIZE
+    FRAMEBUFFER_ADDR = BOOTLOGO_ADDR
+
+    # ===================
+    # FSBL and u-boot-2021
+    # ===================
+    CVI_UPDATE_HEADER_SIZE = SIZE_1K
+    UIMAG_SIZE = 16 * SIZE_1M
+
+    # kernel image loading buffer
+    UIMAG_ADDR = DRAM_BASE + 24 * SIZE_1M
+    CVI_UPDATE_HEADER_ADDR = UIMAG_ADDR - CVI_UPDATE_HEADER_SIZE
+
+    # FSBL decompress buffer
+    FSBL_UNZIP_ADDR = UIMAG_ADDR
+    FSBL_UNZIP_SIZE = UIMAG_SIZE
+
+    assert UIMAG_ADDR + UIMAG_SIZE <= BOOTLOGO_ADDR
+
+    # u-boot's run address and entry point
+    CONFIG_SYS_TEXT_BASE = DRAM_BASE + 2 * SIZE_1M
+    # u-boot's init stack point is only used before board_init_f()
+    CONFIG_SYS_INIT_SP_ADDR = UIMAG_ADDR + UIMAG_SIZE

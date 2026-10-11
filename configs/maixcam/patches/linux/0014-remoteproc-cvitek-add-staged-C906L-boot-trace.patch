@@ -1,0 +1,264 @@
+From aec5950bf44e74eb26ddb8a23b65e4d0a1d2739f Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 15:12:23 +0800
+Subject: [PATCH 14/14] remoteproc: cvitek: add staged C906L boot trace
+
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 174 +++++++++++++++++++++++++
+ 1 file changed, 174 insertions(+)
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+index f3c1749..3b220e4 100644
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -12,6 +12,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
+ #include <linux/interrupt.h>
++#include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/mailbox_client.h>
+ #include <linux/mfd/syscon.h>
+@@ -37,6 +38,22 @@
+ #define MBOX_TX 1
+ #define MBOX_MAX 2
+ 
++#define CVITEK_BOOT_TRACE_PAGE_SIZE 0x1000
++#define CVITEK_BOOT_TRACE_MAGIC 0x43565452
++#define CVITEK_BOOT_TRACE_VERSION 1
++#define CVITEK_BOOT_TRACE_HOST_COOKIE 0x48535431
++
++struct cvitek_boot_trace {
++	u32 magic;
++	u32 version;
++	u32 host_cookie;
++	u32 host_cookie_inverse;
++	u32 stage;
++	u32 stage_inverse;
++	u32 hart_id;
++	u32 hart_id_inverse;
++};
++
+ struct cvitek_rproc_config {};
+ 
+ struct cvitek_rproc {
+@@ -48,8 +65,134 @@ struct cvitek_rproc {
+ 	struct workqueue_struct *workqueue;
+ 	struct work_struct vq_work;
+ 	uint32_t vq_msg;
++	u64 boot_trace_da;
+ };
+ 
++static const char *cvitek_boot_trace_stage_name(u32 stage)
++{
++	switch (stage) {
++	case 0:
++		return "host_ready";
++	case 1:
++		return "boot0_entry";
++	case 2:
++		return "boot1_bss_ready";
++	case 3:
++		return "boot2_main";
++	case 4:
++		return "boot3_irq_ready";
++	case 5:
++		return "boot4_cmdqu_task";
++	default:
++		return "unknown";
++	}
++}
++
++static struct cvitek_boot_trace __iomem *
++cvitek_boot_trace_ptr(struct rproc *rproc)
++{
++	struct cvitek_rproc *ddata = rproc->priv;
++
++	if (!ddata->boot_trace_da)
++		return NULL;
++
++	return rproc_da_to_va(rproc, ddata->boot_trace_da,
++				   sizeof(struct cvitek_boot_trace));
++}
++
++static int cvitek_boot_trace_init(struct rproc *rproc)
++{
++	struct cvitek_rproc *ddata = rproc->priv;
++	struct cvitek_boot_trace __iomem *trace;
++
++	trace = cvitek_boot_trace_ptr(rproc);
++	if (!trace)
++		return -ENXIO;
++
++	writel(CVITEK_BOOT_TRACE_MAGIC, &trace->magic);
++	writel(CVITEK_BOOT_TRACE_VERSION, &trace->version);
++	writel(CVITEK_BOOT_TRACE_HOST_COOKIE, &trace->host_cookie);
++	writel(~CVITEK_BOOT_TRACE_HOST_COOKIE, &trace->host_cookie_inverse);
++	writel(0, &trace->stage);
++	writel(~0U, &trace->stage_inverse);
++	writel(~0U, &trace->hart_id);
++	writel(0, &trace->hart_id_inverse);
++	wmb();
++
++	if (readl(&trace->magic) != CVITEK_BOOT_TRACE_MAGIC ||
++	    readl(&trace->host_cookie) != CVITEK_BOOT_TRACE_HOST_COOKIE)
++		return -EIO;
++
++	dev_info(&rproc->dev, "boot trace host sentinel at 0x%llx\n",
++		 ddata->boot_trace_da);
++	return 0;
++}
++
++static ssize_t boot_trace_show(struct device *dev,
++			       struct device_attribute *attr, char *buf)
++{
++	struct platform_device *pdev = to_platform_device(dev);
++	struct rproc *rproc = platform_get_drvdata(pdev);
++	struct cvitek_rproc *ddata;
++	struct cvitek_boot_trace __iomem *trace;
++	u32 magic, version, cookie, cookie_inverse;
++	u32 stage, stage_inverse, hart_id, hart_id_inverse;
++	ssize_t ret;
++	bool valid;
++
++	if (!rproc)
++		return scnprintf(buf, PAGE_SIZE, "available=0 reason=no_rproc\n");
++
++	ddata = rproc->priv;
++	mutex_lock(&rproc->lock);
++	if (rproc->state != RPROC_RUNNING) {
++		ret = scnprintf(buf, PAGE_SIZE,
++				 "available=0 state=%u trace_da=0x%llx\n",
++				 rproc->state, ddata->boot_trace_da);
++		goto out_unlock;
++	}
++
++	trace = cvitek_boot_trace_ptr(rproc);
++	if (!trace) {
++		ret = scnprintf(buf, PAGE_SIZE,
++				 "available=0 reason=unmapped trace_da=0x%llx\n",
++				 ddata->boot_trace_da);
++		goto out_unlock;
++	}
++
++	rmb();
++	magic = readl(&trace->magic);
++	version = readl(&trace->version);
++	cookie = readl(&trace->host_cookie);
++	cookie_inverse = readl(&trace->host_cookie_inverse);
++	stage = readl(&trace->stage);
++	stage_inverse = readl(&trace->stage_inverse);
++	hart_id = readl(&trace->hart_id);
++	hart_id_inverse = readl(&trace->hart_id_inverse);
++	rmb();
++
++	valid = magic == CVITEK_BOOT_TRACE_MAGIC &&
++		version == CVITEK_BOOT_TRACE_VERSION &&
++		(cookie ^ cookie_inverse) == ~0U &&
++		(stage ^ stage_inverse) == ~0U &&
++		(hart_id ^ hart_id_inverse) == ~0U;
++
++	ret = scnprintf(buf, PAGE_SIZE,
++		"available=1 valid=%u trace_da=0x%llx magic=0x%08x "
++		"version=%u host_cookie=0x%08x host_cookie_inverse=0x%08x "
++		"stage=%u stage_inverse=0x%08x stage_name=%s "
++		"hart_id=%u hart_id_inverse=0x%08x\n",
++		valid, ddata->boot_trace_da, magic, version, cookie,
++		cookie_inverse, stage, stage_inverse,
++		cvitek_boot_trace_stage_name(stage), hart_id, hart_id_inverse);
++
++out_unlock:
++	mutex_unlock(&rproc->lock);
++	return ret;
++}
++
++static DEVICE_ATTR_RO(boot_trace);
++
+ static int cvitek_rproc_set_reset(struct rproc *rproc, bool assert)
+ {
+ #ifdef CONFIG_RISCV
+@@ -182,6 +325,7 @@ static int cvitek_rproc_mem_release(struct rproc *rproc,
+ 
+ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ {
++	struct cvitek_rproc *ddata = rproc->priv;
+ 	struct device *dev = rproc->dev.parent;
+ 	struct device_node *np = dev->of_node;
+ 	struct rproc_mem_entry *mem;
+@@ -191,6 +335,7 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 	int ret;
+ 
+ 	dev_dbg(dev, "Parsing firmware\n");
++	ddata->boot_trace_da = 0;
+ 
+ 	of_phandle_iterator_init(&it, np, "memory-region", NULL, 0);
+ 	while (of_phandle_iterator_next(&it) == 0) {
+@@ -207,6 +352,14 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 			continue;
+ 		}
+ 
++		if (!strcmp(it.node->name, "rproc") &&
++		    rmem->size >= CVITEK_BOOT_TRACE_PAGE_SIZE) {
++			ddata->boot_trace_da = rmem->base + rmem->size -
++				CVITEK_BOOT_TRACE_PAGE_SIZE;
++			dev_info(dev, "boot trace page: 0x%llx\n",
++				 ddata->boot_trace_da);
++		}
++
+ 		/*  No need to map vdev buffer */
+ 		if (strcmp(it.node->name, "vdev0buffer")) {
+ 			/* Register memory region */
+@@ -235,6 +388,11 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 		index++;
+ 	}
+ 
++	if (!ddata->boot_trace_da) {
++		dev_err(dev, "missing rproc boot trace page\n");
++		return -EINVAL;
++	}
++
+ 	ret = rproc_elf_load_rsc_table(rproc, fw);
+ 	if (ret == -EINVAL) {
+ 		dev_info(dev,
+@@ -284,6 +442,13 @@ static int cvitek_rproc_start(struct rproc *rproc)
+ 		return err;
+ 	}
+ 
++	err = cvitek_boot_trace_init(rproc);
++	if (err) {
++		dev_err(&rproc->dev, "Failed to initialize boot trace: %d\n",
++			err);
++		goto sw_reset_fail;
++	}
++
+ 	/*
+ 	 * The ELF loader writes through an ioremap_wc carveout. Ensure all
+ 	 * firmware stores reach DRAM before C906L leaves reset.
+@@ -454,8 +619,16 @@ static int cvitek_rproc_probe(struct platform_device *pdev)
+ 		goto free_clk;
+ 	}
+ 
++	ret = device_create_file(dev, &dev_attr_boot_trace);
++	if (ret) {
++		dev_err(dev, "failed to create boot_trace attribute: %d\n", ret);
++		goto del_rproc;
++	}
++
+ 	return 0;
+ 
++del_rproc:
++	rproc_del(rproc);
+ free_clk:
+ 	clk_unprepare(ddata->clk);
+ free_wkq:
+@@ -471,6 +644,7 @@ static int cvitek_rproc_remove(struct platform_device *pdev)
+ 	struct rproc *rproc = platform_get_drvdata(pdev);
+ 	struct cvitek_rproc *ddata = rproc->priv;
+ 
++	device_remove_file(&pdev->dev, &dev_attr_boot_trace);
+ 	rproc_del(rproc);
+ 
+ 	clk_disable_unprepare(ddata->clk);
+-- 
+2.53.0.windows.1
+

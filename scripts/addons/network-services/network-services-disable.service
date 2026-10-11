@@ -1,0 +1,13 @@
+[Unit]
+Description=Disable Network Services By Default
+After=load-systemko.service
+Before=network-pre.target
+Before=NetworkManager.service
+Before=wpa_supplicant.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/network-services disable
+
+[Install]
+WantedBy=multi-user.target

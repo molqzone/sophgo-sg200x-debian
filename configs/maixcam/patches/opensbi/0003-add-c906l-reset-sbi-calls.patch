@@ -1,0 +1,98 @@
+From dff55bb4929cdfd9910ff138829940188873b2f8 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Fri, 31 Jul 2026 06:33:55 +0800
+Subject: [PATCH] lib: sbi: add C906L reset calls
+
+Expose the vendor C906L reset, unreset, and combined reset calls through the existing base extension ABI used by the SG2002 Linux kernel.
+---
+ include/sbi/sbi_ecall_interface.h |  3 +++
+ lib/sbi/sbi_ecall_base.c          | 45 +++++++++++++++++++++++++++++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/include/sbi/sbi_ecall_interface.h b/include/sbi/sbi_ecall_interface.h
+index 559a33e..743a21f 100644
+--- a/include/sbi/sbi_ecall_interface.h
++++ b/include/sbi/sbi_ecall_interface.h
+@@ -37,6 +37,9 @@
+ #define SBI_EXT_BASE_GET_MVENDORID		0x4
+ #define SBI_EXT_BASE_GET_MARCHID		0x5
+ #define SBI_EXT_BASE_GET_MIMPID			0x6
++#define SBI_EXT_BASE_RESET_C906L		0x7
++#define SBI_EXT_BASE_RST_C906L			0x8
++#define SBI_EXT_BASE_UNRST_C906L		0x9
+ 
+ /* SBI function IDs for TIME extension*/
+ #define SBI_EXT_TIME_SET_TIMER			0x0
+diff --git a/lib/sbi/sbi_ecall_base.c b/lib/sbi/sbi_ecall_base.c
+index 786d2ac..3898059 100644
+--- a/lib/sbi/sbi_ecall_base.c
++++ b/lib/sbi/sbi_ecall_base.c
+@@ -14,6 +14,7 @@
+ #include <sbi/sbi_trap.h>
+ #include <sbi/sbi_version.h>
+ #include <sbi/riscv_asm.h>
++#include <sbi/riscv_io.h>
+ 
+ static int sbi_ecall_base_probe(unsigned long extid, unsigned long *out_val)
+ {
+@@ -32,6 +33,40 @@ static int sbi_ecall_base_probe(unsigned long extid, unsigned long *out_val)
+ 	return 0;
+ }
+ 
++#define SEC_SYS_BASE 0x020B0000
++
++static int sbi_ecall_base_rst_c906l(void)
++{
++	unsigned int value;
++
++	value = readl((void *)0x03003024);
++	writel(value & ~(1 << 6), (void *)0x03003024);
++
++	return 0;
++}
++
++static int sbi_ecall_base_unrst_c906l(unsigned long address)
++{
++	unsigned int value;
++
++	value = readl((void *)SEC_SYS_BASE + 0x04);
++	writel(value | (1 << 13), (void *)SEC_SYS_BASE + 0x04);
++	writel(address, (void *)SEC_SYS_BASE + 0x20);
++	writel(address >> 32, (void *)SEC_SYS_BASE + 0x24);
++
++	value = readl((void *)0x03003024);
++	writel(value | (1 << 6), (void *)0x03003024);
++
++	return 0;
++}
++
++static int sbi_ecall_base_reset_c906l(unsigned long address)
++{
++	sbi_ecall_base_rst_c906l();
++
++	return sbi_ecall_base_unrst_c906l(address);
++}
++
+ static int sbi_ecall_base_handler(unsigned long extid, unsigned long funcid,
+ 				  const struct sbi_trap_regs *regs,
+ 				  unsigned long *out_val,
+@@ -65,6 +100,16 @@ static int sbi_ecall_base_handler(unsigned long extid, unsigned long funcid,
+ 	case SBI_EXT_BASE_PROBE_EXT:
+ 		ret = sbi_ecall_base_probe(regs->a0, out_val);
+ 		break;
++	case SBI_EXT_BASE_RESET_C906L:
++		ret = sbi_ecall_base_reset_c906l(regs->a0);
++		*out_val = regs->a0;
++		break;
++	case SBI_EXT_BASE_RST_C906L:
++		ret = sbi_ecall_base_rst_c906l();
++		break;
++	case SBI_EXT_BASE_UNRST_C906L:
++		ret = sbi_ecall_base_unrst_c906l(regs->a0);
++		break;
+ 	default:
+ 		ret = SBI_ENOTSUPP;
+ 	}
+-- 
+2.53.0.windows.1
+

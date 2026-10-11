@@ -1,0 +1,70 @@
+#!/bin/sh
+# Arm a one-shot U-Boot cvi_utask boot while preserving the normal bootcmd.
+set -eu
+
+updater_bootcmd='setenv bootcmd ${maixcam_previous_bootcmd}; setenv maixcam_previous_bootcmd; saveenv; cvi_utask vid 13126 pid 4097'
+
+require_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo "must run as root" >&2
+    exit 1
+  fi
+}
+
+arm_update() {
+  reboot_after=${1:-no}
+  current=$(fw_printenv -n bootcmd)
+  if [ -z "$current" ]; then
+    echo "refusing to arm with an empty bootcmd" >&2
+    exit 1
+  fi
+  if [ "$current" = "$updater_bootcmd" ]; then
+    previous=$(fw_printenv -n maixcam_previous_bootcmd 2>/dev/null || true)
+    if [ -z "$previous" ]; then
+      echo "updater is armed but the previous bootcmd is missing" >&2
+      exit 1
+    fi
+  else
+    fw_setenv maixcam_previous_bootcmd "$current"
+    fw_setenv bootcmd "$updater_bootcmd"
+  fi
+  armed=$(fw_printenv -n bootcmd)
+  if [ "$armed" != "$updater_bootcmd" ]; then
+    echo "failed to verify updater bootcmd" >&2
+    exit 1
+  fi
+  sync
+  echo "USB updater armed"
+  if [ "$reboot_after" = "yes" ]; then
+    systemctl reboot --no-block
+  fi
+}
+
+cancel_update() {
+  previous=$(fw_printenv -n maixcam_previous_bootcmd)
+  fw_setenv bootcmd "$previous"
+  fw_setenv maixcam_previous_bootcmd
+  sync
+  echo "USB updater cancelled"
+}
+
+require_root
+case "${1:-status}" in
+  arm)
+    case "${2:-}" in
+      "") arm_update no ;;
+      --reboot) arm_update yes ;;
+      *) echo "usage: $0 arm [--reboot] | cancel | status" >&2; exit 2 ;;
+    esac
+    ;;
+  cancel)
+    cancel_update
+    ;;
+  status)
+    fw_printenv bootcmd maixcam_previous_bootcmd 2>/dev/null || fw_printenv bootcmd
+    ;;
+  *)
+    echo "usage: $0 arm [--reboot] | cancel | status" >&2
+    exit 2
+    ;;
+esac

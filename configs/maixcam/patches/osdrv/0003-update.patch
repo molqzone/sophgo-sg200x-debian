@@ -1,0 +1,96 @@
+From 08fd439f1f289ea4b7454a02c4f00db150925f87 Mon Sep 17 00:00:00 2001
+From: Lu Hui <luhui@sipeed.com>
+Date: Thu, 14 Mar 2024 11:52:41 +0800
+Subject: [PATCH] update
+
+---
+ interdrv/vi/chip/cv181x/vi.c          | 3 ++-
+ interdrv/vo/chip/cv181x/vo.c          | 3 ++-
+ interdrv/vo/common/vo_common.h        | 8 ++++----
+ interdrv/vpss/chip/cv181x/vpss_core.c | 3 ++-
+ interdrv/vpss/common/vpss_debug.h     | 8 ++++----
+ 5 files changed, 14 insertions(+), 11 deletions(-)
+
+diff --git a/interdrv/vi/chip/cv181x/vi.c b/interdrv/vi/chip/cv181x/vi.c
+index 8fd07b2..6d77f57 100644
+--- a/interdrv/vi/chip/cv181x/vi.c
++++ b/interdrv/vi/chip/cv181x/vi.c
+@@ -52,7 +52,8 @@
+ /*******************************************************
+  *  Global variables
+  ******************************************************/
+-u32 vi_log_lv = VI_ERR | VI_WARN | VI_NOTICE | VI_INFO | VI_DBG;
++//u32 vi_log_lv = VI_ERR | VI_WARN | VI_NOTICE | VI_INFO | VI_DBG;
++u32 vi_log_lv = 0;
+ module_param(vi_log_lv, int, 0644);
+ 
+ 
+diff --git a/interdrv/vo/chip/cv181x/vo.c b/interdrv/vo/chip/cv181x/vo.c
+index 7e3bbed..5f6e2d2 100644
+--- a/interdrv/vo/chip/cv181x/vo.c
++++ b/interdrv/vo/chip/cv181x/vo.c
+@@ -43,7 +43,8 @@
+ /*******************************************************
+  *  Global variables
+  ******************************************************/
+-u32 vo_log_lv = CVI_DBG_WARN;
++//u32 vo_log_lv = CVI_DBG_WARN;
++u32 vo_log_lv = 0;
+ int smooth;
+ int debug;
+ int job_init;
+diff --git a/interdrv/vo/common/vo_common.h b/interdrv/vo/common/vo_common.h
+index 395288f..6c918ee 100644
+--- a/interdrv/vo/common/vo_common.h
++++ b/interdrv/vo/common/vo_common.h
+@@ -14,10 +14,10 @@ extern u32 vo_log_lv;
+ #define _reg_write(addr, data) writel(data, (void __iomem *)addr)
+ 
+ #define CVI_DBG_ERR        1   /* error conditions                     */
+-#define CVI_DBG_WARN       2   /* warning conditions                   */
+-#define CVI_DBG_NOTICE     3   /* normal but significant condition     */
+-#define CVI_DBG_INFO       4   /* informational                        */
+-#define CVI_DBG_DEBUG      5   /* debug-level messages                 */
++#define CVI_DBG_WARN       5   /* warning conditions                   */
++#define CVI_DBG_NOTICE     0xf   /* normal but significant condition     */
++#define CVI_DBG_INFO       0xff  /* informational                        */
++#define CVI_DBG_DEBUG      0xfff /* debug-level messages                 */
+ 
+ #if defined(CONFIG_CVI_LOG)
+ #define CVI_TRACE_VO(level, fmt, ...) \
+diff --git a/interdrv/vpss/chip/cv181x/vpss_core.c b/interdrv/vpss/chip/cv181x/vpss_core.c
+index 3fac4f5..d235881 100644
+--- a/interdrv/vpss/chip/cv181x/vpss_core.c
++++ b/interdrv/vpss/chip/cv181x/vpss_core.c
+@@ -35,7 +35,8 @@
+ #include "sclr_test.h"
+ 
+ 
+-u32 vpss_log_lv = CVI_DBG_WARN;
++//u32 vpss_log_lv = CVI_DBG_WARN;
++u32 vpss_log_lv = 0;
+ int single_vb;
+ int debug;
+ int vip_clk_freq;
+diff --git a/interdrv/vpss/common/vpss_debug.h b/interdrv/vpss/common/vpss_debug.h
+index 2b14d2d..6bb7b17 100644
+--- a/interdrv/vpss/common/vpss_debug.h
++++ b/interdrv/vpss/common/vpss_debug.h
+@@ -6,10 +6,10 @@
+ extern u32 vpss_log_lv;
+ 
+ #define CVI_DBG_ERR        1   /* error conditions                     */
+-#define CVI_DBG_WARN       2   /* warning conditions                   */
+-#define CVI_DBG_NOTICE     3   /* normal but significant condition     */
+-#define CVI_DBG_INFO       4   /* informational                        */
+-#define CVI_DBG_DEBUG      5   /* debug-level messages                 */
++#define CVI_DBG_WARN       3   /* warning conditions                   */
++#define CVI_DBG_NOTICE     7   /* normal but significant condition     */
++#define CVI_DBG_INFO       0xf   /* informational                        */
++#define CVI_DBG_DEBUG      0xff   /* debug-level messages                 */
+ 
+ #if defined(CONFIG_CVI_LOG)
+ #define CVI_TRACE_VPSS(level, fmt, ...) \
+-- 
+2.34.1
+

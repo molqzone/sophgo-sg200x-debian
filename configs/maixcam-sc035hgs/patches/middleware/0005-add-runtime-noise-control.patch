@@ -1,0 +1,339 @@
+diff --git a/sample/test_mmf/isp_control.c b/sample/test_mmf/isp_control.c
+index 7b6a7f6..7b47166 100644
+--- a/sample/test_mmf/isp_control.c
++++ b/sample/test_mmf/isp_control.c
+@@ -4,6 +4,7 @@
+ #include <poll.h>
+ #include <stddef.h>
+ #include <stdint.h>
++#include <stdarg.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -18,7 +19,7 @@
+ #include "maix_mmf.h"
+ 
+ #define CONTROL_COMMAND_SIZE 256
+-#define CONTROL_RESPONSE_SIZE 512
++#define CONTROL_RESPONSE_SIZE 4096
+ #define CONTROL_MAX_ARGUMENTS 5
+ #define CONTROL_MAX_REQUESTS_PER_FRAME 8
+ #define CONTROL_CLIENT_TIMEOUT_MS 1000
+@@ -29,6 +30,18 @@
+ #define MANUAL_GAIN_MAX 0x7fffffffU
+ #define MANUAL_ISP_DGAIN_MAX 0x40000U
+ 
++struct noise_snapshot {
++	int valid;
++	ISP_NR_ATTR_S bnr;
++	ISP_NR_FILTER_ATTR_S bnr_filter;
++	ISP_YNR_ATTR_S ynr;
++	ISP_YNR_FILTER_ATTR_S ynr_filter;
++	ISP_TNR_ATTR_S tnr;
++	ISP_SHARPEN_ATTR_S sharpen;
++};
++
++static struct noise_snapshot saved_noise;
++
+ static int parse_u32(const char *text, uint32_t minimum, uint32_t maximum,
+ 		     uint32_t *value)
+ {
+@@ -104,6 +117,237 @@ static void format_status(int isp_channel, char *response, size_t response_size)
+ 		 info.u32DGain, info.u32ISPDGain);
+ }
+ 
++static int read_noise_snapshot(int isp_channel, struct noise_snapshot *snapshot)
++{
++	if (!snapshot)
++		return -EINVAL;
++
++	memset(snapshot, 0, sizeof(*snapshot));
++	if (CVI_ISP_GetNRAttr(isp_channel, &snapshot->bnr) != CVI_SUCCESS ||
++	    CVI_ISP_GetNRFilterAttr(isp_channel, &snapshot->bnr_filter) !=
++		CVI_SUCCESS ||
++	    CVI_ISP_GetYNRAttr(isp_channel, &snapshot->ynr) != CVI_SUCCESS ||
++	    CVI_ISP_GetYNRFilterAttr(isp_channel, &snapshot->ynr_filter) !=
++		CVI_SUCCESS ||
++	    CVI_ISP_GetTNRAttr(isp_channel, &snapshot->tnr) != CVI_SUCCESS ||
++	    CVI_ISP_GetSharpenAttr(isp_channel, &snapshot->sharpen) !=
++		CVI_SUCCESS)
++		return -EIO;
++	return 0;
++}
++
++static int save_noise_snapshot(int isp_channel)
++{
++	struct noise_snapshot snapshot;
++	int ret;
++
++	ret = read_noise_snapshot(isp_channel, &snapshot);
++	if (ret)
++		return ret;
++	snapshot.valid = 1;
++	saved_noise = snapshot;
++	return 0;
++}
++
++static int restore_noise_snapshot(int isp_channel)
++{
++	struct noise_snapshot current;
++	int failed = 0;
++
++	if (!saved_noise.valid)
++		return -ENOENT;
++
++	if (CVI_ISP_SetNRFilterAttr(isp_channel, &saved_noise.bnr_filter) !=
++	    CVI_SUCCESS)
++		failed = 1;
++	if (CVI_ISP_SetNRAttr(isp_channel, &saved_noise.bnr) != CVI_SUCCESS)
++		failed = 1;
++	if (CVI_ISP_SetYNRFilterAttr(isp_channel, &saved_noise.ynr_filter) !=
++	    CVI_SUCCESS)
++		failed = 1;
++	if (CVI_ISP_SetYNRAttr(isp_channel, &saved_noise.ynr) != CVI_SUCCESS)
++		failed = 1;
++	if (CVI_ISP_SetTNRAttr(isp_channel, &saved_noise.tnr) != CVI_SUCCESS)
++		failed = 1;
++	if (CVI_ISP_SetSharpenAttr(isp_channel, &saved_noise.sharpen) !=
++	    CVI_SUCCESS)
++		failed = 1;
++	if (failed)
++		return -EIO;
++
++	if (read_noise_snapshot(isp_channel, &current))
++		return -EIO;
++	if (memcmp(&current.bnr, &saved_noise.bnr, sizeof(current.bnr)) ||
++	    memcmp(&current.bnr_filter, &saved_noise.bnr_filter,
++		   sizeof(current.bnr_filter)) ||
++	    memcmp(&current.ynr, &saved_noise.ynr, sizeof(current.ynr)) ||
++	    memcmp(&current.ynr_filter, &saved_noise.ynr_filter,
++		   sizeof(current.ynr_filter)) ||
++	    memcmp(&current.tnr, &saved_noise.tnr, sizeof(current.tnr)) ||
++	    memcmp(&current.sharpen, &saved_noise.sharpen,
++		   sizeof(current.sharpen)))
++		return -EIO;
++	return 0;
++}
++
++static int append_response(char *response, size_t response_size, size_t *used,
++			   const char *format, ...)
++{
++	va_list arguments;
++	int length;
++
++	if (!response || !used || *used >= response_size)
++		return -ENOSPC;
++	va_start(arguments, format);
++	length = vsnprintf(response + *used, response_size - *used, format,
++			   arguments);
++	va_end(arguments);
++	if (length < 0)
++		return -EIO;
++	if ((size_t)length >= response_size - *used)
++		return -ENOSPC;
++	*used += (size_t)length;
++	return 0;
++}
++
++static int append_u8_curve(char *response, size_t response_size, size_t *used,
++			   const CVI_U8 *values)
++{
++	int ret;
++
++	for (size_t i = 0; i < ISP_AUTO_ISO_STRENGTH_NUM; ++i) {
++		ret = append_response(response, response_size, used, "%s%u",
++				      i ? "," : "", values[i]);
++		if (ret)
++			return ret;
++	}
++	return 0;
++}
++
++static void format_noise_status(int isp_channel, char *response,
++				size_t response_size)
++{
++	struct noise_snapshot current;
++	size_t used = 0;
++	int ret;
++
++	ret = read_noise_snapshot(isp_channel, &current);
++	if (ret) {
++		snprintf(response, response_size,
++			 "ERR noise_query_failed code=%d", ret);
++		return;
++	}
++
++	ret = append_response(response, response_size, &used,
++			      "OK snapshot=%d bnr enable=%d op=%d manual=%u auto=",
++			      saved_noise.valid, current.bnr.Enable,
++			      current.bnr.enOpType,
++			      current.bnr.stManual.NoiseSuppressStr);
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.bnr.stAuto.NoiseSuppressStr);
++	if (!ret)
++		ret = append_response(response, response_size, &used,
++			      " ynr enable=%d op=%d manual=%u auto=",
++			      current.ynr.Enable, current.ynr.enOpType,
++			      current.ynr.stManual.NoiseSuppressStr);
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.ynr.stAuto.NoiseSuppressStr);
++	if (!ret)
++		ret = append_response(response, response_size, &used,
++			      " tnr enable=%d op=%d manual=%u auto=",
++			      current.tnr.Enable, current.tnr.enOpType,
++			      current.tnr.stManual.TnrStrength0);
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.tnr.stAuto.TnrStrength0);
++	if (!ret)
++		ret = append_response(response, response_size, &used,
++			      " sharpen enable=%d op=%d manual=%u/%u/%u "
++			      "auto_global=", current.sharpen.Enable,
++			      current.sharpen.enOpType,
++			      current.sharpen.stManual.GlobalGain,
++			      current.sharpen.stManual.OverShootGain,
++			      current.sharpen.stManual.UnderShootGain);
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.sharpen.stAuto.GlobalGain);
++	if (!ret)
++		ret = append_response(response, response_size, &used,
++			      " auto_over=");
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.sharpen.stAuto.OverShootGain);
++	if (!ret)
++		ret = append_response(response, response_size, &used,
++			      " auto_under=");
++	if (!ret)
++		ret = append_u8_curve(response, response_size, &used,
++				      current.sharpen.stAuto.UnderShootGain);
++	if (ret)
++		snprintf(response, response_size, "ERR noise_response_too_large");
++}
++
++static int set_noise_value(int isp_channel, const char *module,
++			   uint32_t iso_index, uint32_t value)
++{
++	if (!saved_noise.valid)
++		return -ENOENT;
++	if (iso_index >= ISP_AUTO_ISO_STRENGTH_NUM || value > UINT8_MAX)
++		return -ERANGE;
++
++	if (!strcmp(module, "bnr")) {
++		ISP_NR_ATTR_S attr;
++
++		memset(&attr, 0, sizeof(attr));
++		if (CVI_ISP_GetNRAttr(isp_channel, &attr) != CVI_SUCCESS)
++			return -EIO;
++		if (attr.enOpType != OP_TYPE_AUTO)
++			return -EPERM;
++		attr.stAuto.NoiseSuppressStr[iso_index] = (CVI_U8)value;
++		return CVI_ISP_SetNRAttr(isp_channel, &attr) == CVI_SUCCESS ?
++			0 : -EIO;
++	}
++	if (!strcmp(module, "ynr")) {
++		ISP_YNR_ATTR_S attr;
++
++		memset(&attr, 0, sizeof(attr));
++		if (CVI_ISP_GetYNRAttr(isp_channel, &attr) != CVI_SUCCESS)
++			return -EIO;
++		if (attr.enOpType != OP_TYPE_AUTO)
++			return -EPERM;
++		attr.stAuto.NoiseSuppressStr[iso_index] = (CVI_U8)value;
++		return CVI_ISP_SetYNRAttr(isp_channel, &attr) == CVI_SUCCESS ?
++			0 : -EIO;
++	}
++	if (!strcmp(module, "tnr")) {
++		ISP_TNR_ATTR_S attr;
++
++		memset(&attr, 0, sizeof(attr));
++		if (CVI_ISP_GetTNRAttr(isp_channel, &attr) != CVI_SUCCESS)
++			return -EIO;
++		if (attr.enOpType != OP_TYPE_AUTO)
++			return -EPERM;
++		attr.stAuto.TnrStrength0[iso_index] = (CVI_U8)value;
++		return CVI_ISP_SetTNRAttr(isp_channel, &attr) == CVI_SUCCESS ?
++			0 : -EIO;
++	}
++	if (!strcmp(module, "sharpen")) {
++		ISP_SHARPEN_ATTR_S attr;
++
++		memset(&attr, 0, sizeof(attr));
++		if (CVI_ISP_GetSharpenAttr(isp_channel, &attr) != CVI_SUCCESS)
++			return -EIO;
++		if (attr.enOpType != OP_TYPE_AUTO)
++			return -EPERM;
++		attr.stAuto.GlobalGain[iso_index] = (CVI_U8)value;
++		return CVI_ISP_SetSharpenAttr(isp_channel, &attr) == CVI_SUCCESS ?
++			0 : -EIO;
++	}
++	return -EINVAL;
++}
++
+ static int set_auto_exposure(int isp_channel)
+ {
+ 	ISP_EXPOSURE_ATTR_S exposure;
+@@ -248,13 +492,58 @@ static void handle_command(int isp_channel, char *command, char *response,
+ 		snprintf(response, response_size,
+ 			 "OK commands=get|auto|manual <us> <iso>|exptime <us>|"
+ 			 "iso <n>|again <n>|dgain <n>|ispdgain <n>|"
+-			 "gains <again> <dgain> <ispdgain>");
++			 "gains <again> <dgain> <ispdgain>|noise get|"
++			 "noise save|noise restore|"
++			 "noise set <bnr|ynr|tnr|sharpen> <iso-index> <0-255>");
+ 		return;
+ 	}
+ 	if (!strcmp(arguments[0], "get") && argument_count == 1) {
+ 		format_status(isp_channel, response, response_size);
+ 		return;
+ 	}
++	if (!strcmp(arguments[0], "noise") && argument_count == 2 &&
++	    !strcmp(arguments[1], "get")) {
++		format_noise_status(isp_channel, response, response_size);
++		return;
++	}
++	if (!strcmp(arguments[0], "noise") && argument_count == 2 &&
++	    !strcmp(arguments[1], "save")) {
++		ret = save_noise_snapshot(isp_channel);
++		if (ret)
++			snprintf(response, response_size,
++				 "ERR noise_save_failed code=%d", ret);
++		else
++			snprintf(response, response_size, "OK noise_saved");
++		return;
++	}
++	if (!strcmp(arguments[0], "noise") && argument_count == 2 &&
++	    !strcmp(arguments[1], "restore")) {
++		ret = restore_noise_snapshot(isp_channel);
++		if (ret)
++			snprintf(response, response_size,
++				 "ERR noise_restore_failed code=%d", ret);
++		else
++			snprintf(response, response_size, "OK noise_restored");
++		return;
++	}
++	if (!strcmp(arguments[0], "noise") && argument_count == 5 &&
++	    !strcmp(arguments[1], "set")) {
++		if (parse_u32(arguments[3], 0,
++			      ISP_AUTO_ISO_STRENGTH_NUM - 1, &values[0]) ||
++		    parse_u32(arguments[4], 0, UINT8_MAX, &values[1])) {
++			snprintf(response, response_size,
++				 "ERR invalid_noise_value");
++			return;
++		}
++		ret = set_noise_value(isp_channel, arguments[2], values[0],
++				      values[1]);
++		if (ret)
++			snprintf(response, response_size,
++				 "ERR noise_apply_failed code=%d", ret);
++		else
++			snprintf(response, response_size, "OK noise_applied");
++		return;
++	}
+ 	if (!strcmp(arguments[0], "auto") && argument_count == 1) {
+ 		format_set_result(set_auto_exposure(isp_channel), response,
+ 				  response_size);
+

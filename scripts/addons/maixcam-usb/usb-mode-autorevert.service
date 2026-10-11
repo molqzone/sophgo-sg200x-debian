@@ -1,0 +1,7 @@
+[Unit]
+Description=Revert SG2002 USB management to ACM recovery mode
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/usb-mode-switch acm

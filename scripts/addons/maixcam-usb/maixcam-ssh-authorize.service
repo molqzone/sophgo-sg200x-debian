@@ -1,0 +1,12 @@
+[Unit]
+Description=Import MaixCAM SSH keys from the boot partition
+After=local-fs.target
+Before=ssh.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/maixcam-ssh-authorize
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

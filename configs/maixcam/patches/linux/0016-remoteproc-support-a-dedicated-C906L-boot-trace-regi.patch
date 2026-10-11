@@ -1,0 +1,35 @@
+From 69bfa1ea675ddc043e67c2b8a0fdbdf26a8fd255 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Sat, 1 Aug 2026 02:21:52 +0800
+Subject: [PATCH] remoteproc: support a dedicated C906L boot trace region
+
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+index 1f428bc..9848427 100644
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -526,8 +526,16 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 			continue;
+ 		}
+ 
+-		if (!strcmp(it.node->name, "rproc") &&
+-		    rmem->size >= CVITEK_BOOT_TRACE_PAGE_SIZE) {
++		if (of_property_read_bool(it.node, "cvitek,boot-trace")) {
++			if (rmem->size < CVITEK_BOOT_TRACE_PAGE_SIZE) {
++				dev_err(dev, "boot trace region is too small\n");
++				return -EINVAL;
++			}
++			ddata->boot_trace_da = rmem->base;
++			dev_info(dev, "boot trace region: 0x%llx\n",
++				 ddata->boot_trace_da);
++		} else if (!strcmp(it.node->name, "rproc") &&
++			   rmem->size >= CVITEK_BOOT_TRACE_PAGE_SIZE) {
+ 			ddata->boot_trace_da = rmem->base + rmem->size -
+ 				CVITEK_BOOT_TRACE_PAGE_SIZE;
+ 			dev_info(dev, "boot trace page: 0x%llx\n",
+-- 
+2.53.0.windows.1
+

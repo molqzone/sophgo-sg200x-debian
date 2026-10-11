@@ -1,0 +1,312 @@
+From 27d5e9ac04ef9485fc67eeef4fe5c4df1782ac02 Mon Sep 17 00:00:00 2001
+From: scpcom <scpcom@gmx.de>
+Date: Sat, 21 Sep 2024 01:58:24 +0200
+Subject: [PATCH] licheervnano: osdrv/interdrv/vi: disable vi_motion_level_calc
+ for backward compatibility
+
+---
+ interdrv/cvi_vc_drv/module/src/enc_ctx.c      |  4 ++++
+ .../vcodec/sample/main_enc_cvitest.c          |  4 ++++
+ interdrv/dwa/chip/cv181x/mesh.c               |  2 ++
+ .../include/chip/cv181x/uapi/linux/vi_uapi.h  |  4 ++++
+ interdrv/include/common/kapi/base_ctx.h       |  8 ++++++++
+ interdrv/include/common/kapi/vi_cb.h          |  2 ++
+ interdrv/vi/chip/cv181x/vi.c                  | 10 ++++++++++
+ interdrv/vi/chip/cv181x/vi.h                  |  2 ++
+ interdrv/vpss/common/vpss.c                   | 20 +++++++++++++++++++
+ 9 files changed, 56 insertions(+)
+
+diff --git a/interdrv/cvi_vc_drv/module/src/enc_ctx.c b/interdrv/cvi_vc_drv/module/src/enc_ctx.c
+index 7cefb42..9d028a3 100644
+--- a/interdrv/cvi_vc_drv/module/src/enc_ctx.c
++++ b/interdrv/cvi_vc_drv/module/src/enc_ctx.c
+@@ -1026,7 +1026,11 @@ static CVI_S32 vidEnc_enc_one_pic(CVI_VOID *ctx,
+ 		|| pEncCtx->base.rcMode == RC_MODE_AVBR) {
+ 		if (blk && (indexFrameDisplay & 0xffffff00)) {
+ 			pPicCfg->picMotionLevel = blk->buf.motion_lv;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 			pPicCfg->picDciLv = blk->buf.dci_lv;
++#else
++			pPicCfg->picDciLv = 0;
++#endif
+ 			pPicCfg->picMotionMap = mtable;
+ 			pPicCfg->picMotionMapSize = MO_TBL_SIZE;
+ 			memcpy(mtable, blk->buf.motion_table, MO_TBL_SIZE);
+diff --git a/interdrv/cvi_vc_drv/vcodec/sample/main_enc_cvitest.c b/interdrv/cvi_vc_drv/vcodec/sample/main_enc_cvitest.c
+index 112d13f..3e6b093 100644
+--- a/interdrv/cvi_vc_drv/vcodec/sample/main_enc_cvitest.c
++++ b/interdrv/cvi_vc_drv/vcodec/sample/main_enc_cvitest.c
+@@ -2848,7 +2848,11 @@ void cviCopyMotionMap(void *handle, cviEncOnePicCfg *pPicCfg, void *phandle)
+ 		mlv_info->vpss_grp = 0;
+ 		cvi_vc_get_motion_tbl((void *) mlv_info);
+ 		pPicCfg->picMotionLevel = mlv_info->m_lv_i.mlv_i.mlv_i_level;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 		pPicCfg->picDciLv = mlv_info->m_lv_i.dci_lv;
++#else
++		pPicCfg->picDciLv = 0;
++#endif
+ 		pPicCfg->picMotionMapSize = MO_TBL_SIZE;
+ 		memcpy(pPicCfg->picMotionMap, mlv_info->m_lv_i.mlv_i.mlv_i_table, MO_TBL_SIZE);
+ 	}
+diff --git a/interdrv/dwa/chip/cv181x/mesh.c b/interdrv/dwa/chip/cv181x/mesh.c
+index 5ad6e81..82fc6b1 100644
+--- a/interdrv/dwa/chip/cv181x/mesh.c
++++ b/interdrv/dwa/chip/cv181x/mesh.c
+@@ -148,7 +148,9 @@ static int init_ldc_param(const struct vb_s *vb_in, struct vb_s *vb_out,
+ 	vb_out->buf.u64PTS = stTask->stImgOut.stVFrame.u64PTS;
+ 	vb_out->buf.frm_num = vb_in->buf.frm_num;
+ 	vb_out->buf.motion_lv = vb_in->buf.motion_lv;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	vb_out->buf.dci_lv = vb_in->buf.dci_lv;
++#endif
+ 	memcpy(vb_out->buf.motion_table, vb_in->buf.motion_table,
+ 	       MO_TBL_SIZE);
+ 
+diff --git a/interdrv/include/chip/cv181x/uapi/linux/vi_uapi.h b/interdrv/include/chip/cv181x/uapi/linux/vi_uapi.h
+index 7ba86f1..85d1fa1 100644
+--- a/interdrv/include/chip/cv181x/uapi/linux/vi_uapi.h
++++ b/interdrv/include/chip/cv181x/uapi/linux/vi_uapi.h
+@@ -204,7 +204,11 @@ struct vi_event {
+ #endif
+ };
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ #define MO_TBL_SIZE 2048
++#else
++#define MO_TBL_SIZE 256
++#endif
+ /*
+  * Configure the structure of motion information.
+  */
+diff --git a/interdrv/include/common/kapi/base_ctx.h b/interdrv/include/common/kapi/base_ctx.h
+index b85cc42..45cbc48 100644
+--- a/interdrv/include/common/kapi/base_ctx.h
++++ b/interdrv/include/common/kapi/base_ctx.h
+@@ -78,7 +78,11 @@ typedef uint64_t VB_BLK;
+ 		(var) = (tvar))
+ #endif
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ #define MO_TBL_SIZE 2048
++#else
++#define MO_TBL_SIZE 256
++#endif
+ 
+ union vb_ctrl_cfg {
+ 	struct cvi_vb_blk_info 	vb_blk_info;
+@@ -97,8 +101,10 @@ struct mlv_i_s {
+ 
+ struct mlv_wrap_i_s {
+ 	struct mlv_i_s mlv_i;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	u32 dci_lv;
+ 	u8 raw_num;
++#endif
+ };
+ 
+ struct mod_ctx_s {
+@@ -131,7 +137,9 @@ struct cvi_buffer {
+ 
+ 	uint8_t  motion_lv;
+ 	uint8_t  motion_table[MO_TBL_SIZE];
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	uint32_t dci_lv;
++#endif
+ 
+ 	uint32_t flags; //bit 0: drop frame
+ 	uint32_t sequence;
+diff --git a/interdrv/include/common/kapi/vi_cb.h b/interdrv/include/common/kapi/vi_cb.h
+index e4df8d3..626d089 100644
+--- a/interdrv/include/common/kapi/vi_cb.h
++++ b/interdrv/include/common/kapi/vi_cb.h
+@@ -12,7 +12,9 @@ enum VI_CB_CMD {
+ 	VI_CB_SET_VIVPSSMODE,
+ 	VI_CB_RESET_ISP,
+ 	VI_CB_GDC_OP_DONE = DWA_CB_GDC_OP_DONE,
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	VI_CB_MOTION_CALC,
++#endif
+ 	VI_CB_MAX
+ };
+ 
+diff --git a/interdrv/vi/chip/cv181x/vi.c b/interdrv/vi/chip/cv181x/vi.c
+index a0d7936..809ba08 100644
+--- a/interdrv/vi/chip/cv181x/vi.c
++++ b/interdrv/vi/chip/cv181x/vi.c
+@@ -6027,6 +6027,7 @@ int vi_cb(void *dev, enum ENUM_MODULES_ID caller, u32 cmd, void *arg)
+ 		rc = 0;
+ 		break;
+ 	}
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	case VI_CB_MOTION_CALC:
+ 	{
+ 		struct mlv_wrap_i_s *mlv = (struct mlv_wrap_i_s *)arg;
+@@ -6038,6 +6039,7 @@ int vi_cb(void *dev, enum ENUM_MODULES_ID caller, u32 cmd, void *arg)
+ 		}
+ 		break;
+ 	}
++#endif
+ 	default:
+ 		break;
+ 	}
+@@ -6063,6 +6065,7 @@ static void _vi_timeout_chk(struct cvi_vi_dev *vdev)
+ 	}
+ }
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ #define VC_GRID_SIZE	(64)
+ #define MAX_MOTION_LEVEL	(255)
+ 
+@@ -6198,6 +6201,7 @@ static void vi_dci_calc(struct cvi_vi_dev *vdev, enum cvi_isp_raw raw_num, uint3
+ 	if (dci_means)
+ 		*dci_lv = 511 - *dci_lv / dci_means;
+ }
++#endif
+ 
+ #ifdef VI_PROFILE
+ static void _vi_update_chnRealFrameRate(VI_CHN_STATUS_S *pstViChnStatus)
+@@ -6296,10 +6300,16 @@ static int _vi_event_handler_thread(void * arg)
+ 			}
+ 
+ 			if (!gViCtx->pipeAttr[chn.s32ChnId].bYuvBypassPath) {
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 				vi_motion_level_calc(vdev, b.raw_id, vb->buf.motion_table, &vb->buf.motion_lv);
+ 				vi_dci_calc(vdev, b.raw_id, &vb->buf.dci_lv);
++#else
++				vi_fill_mlv_info(vb, 0, NULL, true);
++#endif
+ 				vi_fill_dis_info(vb);
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 				vi_motion_dbg(vdev, vb);
++#endif
+ 			}
+ 
+ 			// TODO: extchn only support works on original frame without GDC effect.
+diff --git a/interdrv/vi/chip/cv181x/vi.h b/interdrv/vi/chip/cv181x/vi.h
+index 6801fd2..84c642a 100644
+--- a/interdrv/vi/chip/cv181x/vi.h
++++ b/interdrv/vi/chip/cv181x/vi.h
+@@ -1530,9 +1530,11 @@ static int _vi_clk_ctrl(struct cvi_vi_dev *vdev, u8 enable);
+ #endif
+ static inline void vi_err_wake_up_th(struct cvi_vi_dev *vdev, enum cvi_isp_raw err_raw);
+ static inline void _post_rgbmap_update(struct isp_ctx *ctx, const enum cvi_isp_raw raw_num, const u32 frm_num);
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ static void vi_motion_level_calc(struct cvi_vi_dev *vdev, enum cvi_isp_raw raw_num,
+ 				 uint8_t *motion_table, uint8_t *motion_lv);
+ static void vi_dci_calc(struct cvi_vi_dev *vdev, enum cvi_isp_raw raw_num, uint32_t *dci_lv);
++#endif
+ void _postraw_outbuf_enq(struct cvi_vi_dev *vdev, const enum cvi_isp_raw raw_num);
+ void isp_fill_rgbmap(struct isp_ctx *ctx, enum cvi_isp_raw raw_num, const u8 chn_num);
+ struct cvi_isp_buf *_cvi_isp_next_buf(struct cvi_vi_dev *vdev, const u8 chn_num);
+diff --git a/interdrv/vpss/common/vpss.c b/interdrv/vpss/common/vpss.c
+index 6cba04b..6c972e1 100644
+--- a/interdrv/vpss/common/vpss.c
++++ b/interdrv/vpss/common/vpss.c
+@@ -573,6 +573,7 @@ static CVI_BOOL vpss_enable_handler_ctx(struct vpss_handler_ctx *ctx)
+ 	return CVI_FALSE;
+ }
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ static CVI_VOID _vpss_offline_set_mlv_info(struct vb_s *vb_in, struct cvi_buffer *buf,
+ 					   struct cvi_vpss_ctx *ctx, VPSS_CHN VpssChn)
+ {
+@@ -628,6 +629,7 @@ static CVI_VOID _vpss_offline_set_mlv_info(struct vb_s *vb_in, struct cvi_buffer
+ 		}
+ 	}
+ }
++#endif
+ 
+ static CVI_VOID _vpss_fill_cvi_buffer(MMF_CHN_S chn, struct vb_s *grp_vb_in,
+ 		uint64_t phy_addr, struct cvi_buffer *buf, struct cvi_vpss_ctx *ctx)
+@@ -663,10 +665,14 @@ static CVI_VOID _vpss_fill_cvi_buffer(MMF_CHN_S chn, struct vb_s *grp_vb_in,
+ 		buf->u64PTS = grp_vb_in->buf.u64PTS;
+ 		buf->frm_num = grp_vb_in->buf.frm_num;
+ 		buf->motion_lv = grp_vb_in->buf.motion_lv;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 		buf->dci_lv = grp_vb_in->buf.dci_lv;
++#endif
+ 		memcpy(buf->motion_table, grp_vb_in->buf.motion_table, MO_TBL_SIZE);
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 		_vpss_offline_set_mlv_info(grp_vb_in, buf, ctx, chn.s32ChnId);
++#endif
+ 	}
+ }
+ 
+@@ -1127,6 +1133,7 @@ static void hw_reset(VPSS_GRP VpssGrp, struct cvi_vpss_ctx *ctx)
+ static CVI_VOID _vpss_online_set_mlv_info(struct vb_s *blk, struct cvi_vpss_ctx *ctx, VPSS_CHN VpssChn)
+ {
+ 	CVI_U8 snr_num = blk->buf.dev_num;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	CVI_U32 x, y;
+ 	CVI_U32 fractional_bits = 8;
+ 	CVI_U32 x_scale, y_scale;
+@@ -1135,11 +1142,15 @@ static CVI_VOID _vpss_online_set_mlv_info(struct vb_s *blk, struct cvi_vpss_ctx
+ 	CVI_U32 out_ctu_w, out_ctu_h;
+ 	CVI_U32 opposite;
+ 	CVI_U8 temp;
++#endif
+ 
+ 	blk->buf.motion_lv = g_mlv_i[snr_num].mlv_i.mlv_i_level;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	blk->buf.dci_lv    = g_mlv_i[snr_num].dci_lv;
++#endif
+ 	memcpy(blk->buf.motion_table, g_mlv_i[snr_num].mlv_i.mlv_i_table, sizeof(blk->buf.motion_table));
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	in_ctu_w = ALIGN(ctx->stGrpAttr.u32MaxW, 64) >> 6;
+ 	in_ctu_h = ALIGN(ctx->stGrpAttr.u32MaxH, 64) >> 6;
+ 	out_ctu_w = ALIGN(ctx->stChnCfgs[VpssChn].stChnAttr.u32Width, 64) >> 6;
+@@ -1182,6 +1193,7 @@ static CVI_VOID _vpss_online_set_mlv_info(struct vb_s *blk, struct cvi_vpss_ctx
+ 			}
+ 		}
+ 	}
++#endif
+ }
+ 
+ static CVI_S32 _vpss_online_get_dpcm_wr_crop(CVI_U8 snr_num,
+@@ -2528,7 +2540,9 @@ static CVI_VOID vpss_handle_online_frame_done(struct vpss_handler_ctx *ctx, VPSS
+ 	CVI_U8 u8ChnMask;
+ 	struct vb_s *vb;
+ 	CVI_BOOL vc_sbm_enabled = _is_vc_sbm_enabled(workingGrp, vpss_ctx);
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	static struct mlv_wrap_i_s m_w_i;
++#endif
+ 
+ 	vpssCtx[workingGrp]->stGrpWorkStatus.u32RecvCnt++;
+ 	u8ChnMask = _vpss_get_chn_mask_by_dev(workingGrp, ctx->IntMask[workingGrp]);
+@@ -2537,9 +2551,11 @@ static CVI_VOID vpss_handle_online_frame_done(struct vpss_handler_ctx *ctx, VPSS
+ 	VpssChn = 0;
+ 	mutex_lock(&vpssCtx[workingGrp]->lock);
+ 
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	m_w_i.raw_num = workingGrp;
+ 	_vpss_call_cb(E_MODULE_VI, VI_CB_MOTION_CALC, &m_w_i);
+ 	vpss_set_mlv_info(workingGrp, &m_w_i);
++#endif
+ 
+ 	do {
+ 		if (vpss_ctx->stChnCfgs[VpssChn].stBufWrap.bEnable &&
+@@ -5230,7 +5246,9 @@ CVI_VOID vpss_set_mlv_info(CVI_U8 snr_num, struct mlv_wrap_i_s *p_m_lv_i)
+ 		return;
+ 	}
+ 	g_mlv_i[snr_num].mlv_i.mlv_i_level = p_m_lv_i->mlv_i.mlv_i_level;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	g_mlv_i[snr_num].dci_lv = p_m_lv_i->dci_lv;
++#endif
+ 	memcpy(g_mlv_i[snr_num].mlv_i.mlv_i_table, p_m_lv_i->mlv_i.mlv_i_table,
+ 	      sizeof(g_mlv_i[snr_num].mlv_i.mlv_i_table));
+ }
+@@ -5242,7 +5260,9 @@ CVI_VOID vpss_get_mlv_info(CVI_U8 snr_num, struct mlv_wrap_i_s *p_m_lv_i)
+ 		return;
+ 	}
+ 	p_m_lv_i->mlv_i.mlv_i_level = g_mlv_i[snr_num].mlv_i.mlv_i_level;
++#ifdef WANT_VI_MOTION_LEVEL_CALC
+ 	p_m_lv_i->dci_lv = g_mlv_i[snr_num].dci_lv;
++#endif
+ 	memcpy(p_m_lv_i->mlv_i.mlv_i_table, g_mlv_i[snr_num].mlv_i.mlv_i_table,
+ 	      sizeof(g_mlv_i[snr_num].mlv_i.mlv_i_table));
+ }
+-- 
+2.34.1
+

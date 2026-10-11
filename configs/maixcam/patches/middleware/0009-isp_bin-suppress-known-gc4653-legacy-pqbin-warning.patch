@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xiao <2592509183@qq.com>
+Date: Thu, 11 Jun 2026 04:16:00 +0100
+Subject: [PATCH] isp_bin: suppress known GC4653 legacy pqbin warning
+
+The GC4653 beta profile currently uses a legacy pqbin blob that is already
+handled by the earlier compatibility patch. Keep accepting that known pair,
+but stop printing the misleading md5 mismatch warning during boot/runtime.
+
+---
+ modules/isp/cv181x/isp_bin/src/isp_bin.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/modules/isp/cv181x/isp_bin/src/isp_bin.c b/modules/isp/cv181x/isp_bin/src/isp_bin.c
+index 159c529..0a0a0a0 100644
+--- a/modules/isp/cv181x/isp_bin/src/isp_bin.c
++++ b/modules/isp/cv181x/isp_bin/src/isp_bin.c
+@@ -627,6 +627,10 @@ static CVI_S32 isp_bin_checkBinVersion(CVI_U8 *addr, CVI_U32 binSize)
+ 
+ 	//check md5
+ 	if (strcmp(binMd5, ISP_BIN_MD5)) {
++		if (!strcmp(ISP_BIN_MD5, "9b60189725b5bcb970ec86e4bbdbf600") &&
++		    !strcmp(binMd5, "d6db2297ddfd44e8252c1f3f888f47b2")) {
++			return CVI_SUCCESS;
++		}
+ 		printf("pqbin md5 mismatch, mwMd5:%s != pqBinMd5:%s\n", ISP_BIN_MD5, binMd5);
+ 		return CVI_SUCCESS;
+ 	}
+-- 
+2.34.1

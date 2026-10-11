@@ -1,0 +1,23 @@
+diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -1157,6 +1157,9 @@ char* mmf_get_sensor_name(void)
+ 	    case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
+ 		snprintf(name, sizeof(name), "sms_sc035gs");
+ 		return name;
++	    case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++		snprintf(name, sizeof(name), "sms_sc035hgs");
++		return name;
+ 	    case LONTIUM_LT6911_2M_60FPS_8BIT:
+ 		snprintf(name, sizeof(name), "lt6911");
+ 		return name;
+@@ -1187,7 +1190,8 @@ int mmf_vi_format_init(void)
+ 	// config vi param
+ 	char *sensor_name = mmf_get_sensor_name();
+ 
+-	if (!strcmp(sensor_name, "sms_sc035gs")) {
++	if (!strcmp(sensor_name, "sms_sc035gs") ||
++	    !strcmp(sensor_name, "sms_sc035hgs")) {
+ 		vi_format = PIXEL_FORMAT_NV21;
+ 		vi_vpss_format = PIXEL_FORMAT_YUV_400;
+ 	} else if (!strcmp(sensor_name, "ov_ov2685")) {

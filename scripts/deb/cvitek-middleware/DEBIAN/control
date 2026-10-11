@@ -1,0 +1,6 @@
+Package: cvitek-middleware
+Architecture: riscv64
+Maintainer: @scpcom
+Priority: optional
+Version: 1.0.0
+Description: Middleware for the CV18xx and SG200X series of RISC-V SoC's

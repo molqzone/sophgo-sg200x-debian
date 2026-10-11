@@ -1,0 +1,39 @@
+From bf27b84872e42bcaf1d1d7cb06b697f3bddf7083 Mon Sep 17 00:00:00 2001
+From: Xiao <Cong.Liu_Xiao@outlook.com>
+Date: Thu, 11 Jun 2026 05:47:00 +0100
+Subject: [PATCH] fix ion header duplicate carveout declaration
+
+The vendor ion header declares ion_carveout_heap_create() twice when
+CONFIG_ION_CVITEK and CONFIG_ION_CARVEOUT_HEAP are both enabled.
+This breaks osdrv builds that include ion/ion.h through sys.h.
+
+Keep the generic declaration and drop the duplicate copy from the
+Cvitek-specific block.
+
+---
+ drivers/staging/android/ion/ion.h | 9 ---------
+ 1 file changed, 9 deletions(-)
+
+diff --git a/drivers/staging/android/ion/ion.h b/drivers/staging/android/ion/ion.h
+index c2d267d..af609c6 100644
+--- a/drivers/staging/android/ion/ion.h
++++ b/drivers/staging/android/ion/ion.h
+@@ -370,15 +370,6 @@ int ion_buf_begin_cpu_access(struct ion_buffer *buffer);
+ int ion_buf_end_cpu_access(struct ion_buffer *buffer);
+ int ion_get_memory_statics(uint64_t *total_size, uint64_t *free_size, uint64_t *max_avail_size);
+ 
+-#ifdef CONFIG_ION_CARVEOUT_HEAP
+-struct ion_heap *ion_carveout_heap_create(struct ion_platform_heap *heap_data);
+-#else
+-static inline struct ion_heap
+-*ion_carveout_heap_create(struct ion_platform_heap *heap_data)
+-{
+-	return ERR_PTR(-EINVAL);
+-}
+-#endif
+ #endif
+ #ifdef CONFIG_ION_CHUNK_HEAP
+ struct ion_heap
+-- 
+2.43.0
+

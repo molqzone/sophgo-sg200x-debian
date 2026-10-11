@@ -1,0 +1,164 @@
+From eada0ace3da40cf83f1375ae457695a8a014b36a Mon Sep 17 00:00:00 2001
+From: scpcom <scpcom@gmx.de>
+Date: Tue, 11 Feb 2025 01:06:05 +0100
+Subject: [PATCH] modules: isp_bin: add hack for legacy cvi_sdr_bin
+
+---
+ modules/isp/cv181x/isp_bin/src/isp_3a_bin.c |  7 ++++-
+ modules/isp/cv181x/isp_bin/src/isp_3a_bin.h |  2 +-
+ modules/isp/cv181x/isp_bin/src/isp_bin.c    | 34 +++++++++++++++++----
+ 3 files changed, 35 insertions(+), 8 deletions(-)
+
+diff --git a/modules/isp/cv181x/isp_bin/src/isp_3a_bin.c b/modules/isp/cv181x/isp_bin/src/isp_3a_bin.c
+index 3978b6b..5d7d9a5 100644
+--- a/modules/isp/cv181x/isp_bin/src/isp_3a_bin.c
++++ b/modules/isp/cv181x/isp_bin/src/isp_3a_bin.c
+@@ -214,7 +214,7 @@ CVI_S32 isp_3aBinAttr_get_parambuf(VI_PIPE ViPipe, CVI_U8 *buffer)
+ 	return CVI_SUCCESS;
+ }
+ 
+-CVI_S32 isp_3aBinAttr_set_param(VI_PIPE ViPipe, CVI_U8 **binPtr)
++CVI_S32 isp_3aBinAttr_set_param(VI_PIPE ViPipe, CVI_U8 **binPtr, CVI_BOOL bStats)
+ {
+ 	// AE
+ 	ISP_WDR_EXPOSURE_ATTR_S stWDRExpAttr = { 0 };
+@@ -298,6 +298,11 @@ CVI_S32 isp_3aBinAttr_set_param(VI_PIPE ViPipe, CVI_U8 **binPtr)
+ 	(*binPtr) += sizeof(ISP_AWB_Calibration_Gain_S_EX);
+ 	CVI_ISP_SetWBCalibrationEx(ViPipe, &stWBCalibEx);
+ 
++	if (!bStats) {
++		printf("%s: CVI_ISP_SetStatisticsConfig skipped.\n", __func__);
++		return CVI_SUCCESS;
++	}
++
+ 	ISP_STATISTICS_CFG_S stStatCfg = {0};
+ 
+ 	memcpy(&stStatCfg, (*binPtr), sizeof(ISP_STATISTICS_CFG_S));
+diff --git a/modules/isp/cv181x/isp_bin/src/isp_3a_bin.h b/modules/isp/cv181x/isp_bin/src/isp_3a_bin.h
+index 54df28b..d30f778 100644
+--- a/modules/isp/cv181x/isp_bin/src/isp_3a_bin.h
++++ b/modules/isp/cv181x/isp_bin/src/isp_3a_bin.h
+@@ -21,7 +21,7 @@ extern "C" {
+ CVI_S32 isp_3aBinAttr_get_size(VI_PIPE ViPipe, CVI_U32 *size);
+ CVI_S32 isp_3aBinAttr_get_param(VI_PIPE ViPipe, FILE *fp);
+ CVI_S32 isp_3aBinAttr_get_parambuf(VI_PIPE ViPipe, CVI_U8 *buffer);
+-CVI_S32 isp_3aBinAttr_set_param(VI_PIPE ViPipe, CVI_U8 **binPtr);
++CVI_S32 isp_3aBinAttr_set_param(VI_PIPE ViPipe, CVI_U8 **binPtr, CVI_BOOL bStats);
+ CVI_S32 isp_3aJsonAttr_set_param(VI_PIPE ViPipe, ISP_3A_Parameter_Structures *stPtr);
+ CVI_S32 isp_3aJsonAttr_get_param(VI_PIPE ViPipe, ISP_3A_Parameter_Structures *stPtr);
+ 
+diff --git a/modules/isp/cv181x/isp_bin/src/isp_bin.c b/modules/isp/cv181x/isp_bin/src/isp_bin.c
+index a653fd7..159c529 100644
+--- a/modules/isp/cv181x/isp_bin/src/isp_bin.c
++++ b/modules/isp/cv181x/isp_bin/src/isp_bin.c
+@@ -112,12 +112,13 @@ static CVI_S32 isp_bin_getBinSizeImp(VI_PIPE ViPipe, CVI_U32 *binSize);
+ static CVI_S32 isp_bin_getBinParamImp(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize);
+ static CVI_S32 isp_bin_setBinParamImp(VI_PIPE ViPipe, FILE *fp);
+ static CVI_S32 isp_bin_setBinParamImptobuf(VI_PIPE ViPipe, unsigned char *buffer);
+-static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize);
++static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize, CVI_U32 *pBinPad);
+ static CVI_S32 isp_bin_checkBinVersion(CVI_U8 *addr, CVI_U32 binSize);
+ static CVI_S32 isp_get_paramstruct(VI_PIPE ViPipe, ISP_Parameter_Structures *pstParaBuf);
+ static CVI_S32 isp_set_paramstruct(VI_PIPE ViPipe, ISP_Parameter_Structures *pstParaBuf);
+ 
+ static ISP_BIN_BYPASS g_binBypassParams = {0};
++static CVI_CHAR g_pqBinMd5[BIN_MD5_SIZE] = { 0 };
+ 
+ CVI_S32 header_bin_getBinSize(CVI_U32 *binSize)
+ {
+@@ -421,10 +422,11 @@ static CVI_S32 isp_bin_getBinSizeImp(VI_PIPE ViPipe, CVI_U32 *binSize)
+ static CVI_S32 isp_bin_getBinParamImp(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize)
+ {
+ 	CVI_S32 ret = CVI_SUCCESS;
++	CVI_U32 binPad = 0;
+ 	CVI_U8 *buf_ofs = addr;
+ 	CVI_BIN_HEADER *pstHeader = (CVI_BIN_HEADER *)buf_ofs;
+ 
+-	if (isp_bin_checkMd5(ViPipe, addr, binSize) != CVI_SUCCESS) {
++	if (isp_bin_checkMd5(ViPipe, addr, binSize, &binPad) != CVI_SUCCESS) {
+ 		CVI_TRACE_ISP_BIN(LOG_WARNING, "section[CVI_BIN_ID_ISP%d] Md5 not matched\n", ViPipe);
+ 		return CVI_FAILURE;
+ 	}
+@@ -434,7 +436,7 @@ static CVI_S32 isp_bin_getBinParamImp(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binS
+ 
+ 	isp_set_paramstruct(ViPipe, (ISP_Parameter_Structures *)buf_ofs);
+ 	buf_ofs += sizeof(ISP_Parameter_Structures);
+-	isp_3aBinAttr_set_param(ViPipe, &buf_ofs);
++	isp_3aBinAttr_set_param(ViPipe, &buf_ofs, !binPad);
+ 
+ 	CVI_TRACE_ISP_BIN(LOG_DEBUG, "apply bin setting to %d\n", ViPipe);
+ 
+@@ -479,10 +481,11 @@ static CVI_S32 isp_bin_setBinParamImptobuf(VI_PIPE ViPipe, unsigned char *buffer
+ 	return ret;
+ }
+ 
+-static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize)
++static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize, CVI_U32 *pBinPad)
+ {
+ 	CVI_S32 ret = CVI_SUCCESS;
+ 	CVI_U32 size = 0;
++	CVI_U32 binPad = 0;
+ 	CVI_CHAR binCommitId[BIN_COMMIT_SIZE];
+ 	CVI_CHAR binGerrit[BIN_GERRIT_SIZE];
+ 	CVI_CHAR curMd5[BIN_MD5_SIZE] = { 0 };
+@@ -494,6 +497,18 @@ static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize)
+ 	bin_get_repo_info(binGerrit, binCommitId, curMd5);
+ 
+ 	if (strcmp(binMd5, curMd5)) {
++		if(!strcmp(binMd5, "")) {
++			strncpy(binMd5, g_pqBinMd5, BIN_MD5_SIZE);
++		}
++		if (!strcmp(curMd5, "9b60189725b5bcb970ec86e4bbdbf600") &&
++		    !strcmp(binMd5, "d6db2297ddfd44e8252c1f3f888f47b2")) {
++			strncpy(binMd5, curMd5, BIN_MD5_SIZE);
++			binPad = 248;
++		}
++	}
++
++	if (strcmp(binMd5, curMd5)) {
++		printf("pqbin md5 mismatch, mwMd5:%s != pqBinMd5:%s\n", curMd5, binMd5);
+ 		CVI_TRACE_ISP_BIN(LOG_ERR, "%s%s%s",
+ 			"md5 mismatch means that you will read json in PQBIN, ",
+ 			"but the disadvantage is that the boot speed is slightly reduced. ",
+@@ -503,7 +518,8 @@ static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize)
+ 		ret = CVI_FAILURE;
+ 	} else {
+ 		isp_bin_getBinSizeImp(ViPipe, &size);
+-		if (size != binSize) {
++		if (size != binSize && size != binSize + binPad) {
++			printf("vi(%d), Bin Size not matched(%u vs %u)\n", ViPipe, size, binSize);
+ 			CVI_TRACE_ISP_BIN(LOG_ERR, "vi(%d), Bin Size not matched(%u vs %u),", ViPipe, size, binSize);
+ 			CVI_TRACE_ISP_BIN(LOG_ERR, "%s%s",
+ 				"Size mismatch means that someone added the pqbin structure ",
+@@ -514,6 +530,10 @@ static CVI_S32 isp_bin_checkMd5(VI_PIPE ViPipe, CVI_U8 *addr, CVI_U32 binSize)
+ 		}
+ 	}
+ 
++	if (pBinPad) {
++		*pBinPad = binPad;
++	}
++
+ 	return ret;
+ }
+ 
+@@ -594,6 +614,8 @@ static CVI_S32 isp_bin_checkBinVersion(CVI_U8 *addr, CVI_U32 binSize)
+ 		"tool Version:", toolVersion, "mode:", pqbinMode);
+ 	printf("********************************************************************************\n");
+ 
++	strncpy(g_pqBinMd5, binMd5, BIN_MD5_SIZE);
++
+ 	// check sensor
+ 	for (CVI_U8 i = 0; i < sensorInfo.num; ++i) {
+ 		if (strcmp(sensorInfo.name[i], sensorName[i]) != 0) {
+@@ -605,7 +627,7 @@ static CVI_S32 isp_bin_checkBinVersion(CVI_U8 *addr, CVI_U32 binSize)
+ 
+ 	//check md5
+ 	if (strcmp(binMd5, ISP_BIN_MD5)) {
+-		printf("pqbin md5 mismatch, mwMd5:%s != pqBinMd5:%s", ISP_BIN_MD5, binMd5);
++		printf("pqbin md5 mismatch, mwMd5:%s != pqBinMd5:%s\n", ISP_BIN_MD5, binMd5);
+ 		return CVI_SUCCESS;
+ 	}
+ 
+-- 
+2.34.1
+

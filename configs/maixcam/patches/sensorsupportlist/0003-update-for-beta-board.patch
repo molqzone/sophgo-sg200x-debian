@@ -1,0 +1,28 @@
+From a4cfd56ef791a38e3cbc45b3d0772377ba33b563 Mon Sep 17 00:00:00 2001
+From: Lu <luhui@sipeed.com>
+Date: Tue, 26 Mar 2024 09:39:28 +0800
+Subject: [PATCH 03/12] update, for beta board
+
+---
+ sensor/cv182x/gcore_gc4653/gc4653_cmos_param.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sensor/cv182x/gcore_gc4653/gc4653_cmos_param.h b/sensor/cv182x/gcore_gc4653/gc4653_cmos_param.h
+index c4dec7d..0dc377c 100644
+--- a/sensor/cv182x/gcore_gc4653/gc4653_cmos_param.h
++++ b/sensor/cv182x/gcore_gc4653/gc4653_cmos_param.h
+@@ -199,9 +199,9 @@ struct combo_dev_attr_s gc4653_rx_attr = {
+ 	.mipi_attr = {
+ 		.raw_data_type = RAW_DATA_10BIT,
+ 		// alpha board
+-		.lane_id = {2, 1, 0, -1, -1},
++		//.lane_id = {2, 1, 0, -1, -1},
+ 		// beta board
+-		//.lane_id = {4, 3, 2, -1, -1},
++		.lane_id = {4, 3, 2, -1, -1},
+ 		.pn_swap = {0, 0, 0, 0, 0},
+ 		.wdr_mode = CVI_MIPI_WDR_MODE_NONE,
+ 	},
+-- 
+2.34.1
+

@@ -1,0 +1,13 @@
+diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -258,7 +258,8 @@ static void priv_param_init(void)
+ 	g_priv.enc_h26x_enable = (priv.vb_max_pool_cnt > priv.vb_conf.u32MaxPoolCnt) ? 1 : 0;
+ 	if (g_priv.enc_h26x_enable) {
+ 		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkSize = ALIGN(1280, DEFAULT_ALIGN) * ALIGN(720, DEFAULT_ALIGN) * 3 / 2;
+-		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkCnt = 1;
++		/* Two VPSS output buffers + caller frame + persistent VENC staging. */
++		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].u32BlkCnt = 4;
+ 		priv.vb_conf.astCommPool[priv.vb_enc_h26x_id].enRemapMode = VB_REMAP_MODE_CACHED;
+ 		priv.vb_conf.u32MaxPoolCnt ++;
+ 	}

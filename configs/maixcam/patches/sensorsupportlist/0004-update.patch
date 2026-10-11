@@ -1,0 +1,25 @@
+From 1d37cf3396ee36f7b3d77fddebeb5da7779763bb Mon Sep 17 00:00:00 2001
+From: Lu Hui <luhui@sipeed.com>
+Date: Sun, 7 Apr 2024 09:41:20 +0800
+Subject: [PATCH 04/12] update
+
+---
+ sensor/cv182x/ov_os04a10/os04a10_cmos_param.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sensor/cv182x/ov_os04a10/os04a10_cmos_param.h b/sensor/cv182x/ov_os04a10/os04a10_cmos_param.h
+index 2f71974..4052a94 100644
+--- a/sensor/cv182x/ov_os04a10/os04a10_cmos_param.h
++++ b/sensor/cv182x/ov_os04a10/os04a10_cmos_param.h
+@@ -211,7 +211,7 @@ struct combo_dev_attr_s os04a10_rx_attr = {
+ 	.mac_clk = RX_MAC_CLK_400M,
+ 	.mipi_attr = {
+ 		.raw_data_type = RAW_DATA_12BIT,
+-		.lane_id = {0, 1, 2, 3, 4},
++		.lane_id = {2, 1, 3, 0, 4},
+ 		.wdr_mode = CVI_MIPI_WDR_MODE_VC,
+ 		.dphy = {
+ 			.enable = 1,
+-- 
+2.34.1
+

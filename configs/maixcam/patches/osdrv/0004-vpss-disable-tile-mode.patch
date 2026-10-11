@@ -1,0 +1,47 @@
+From 91babab1b3c793492dc21dd2af7a048d107fd023 Mon Sep 17 00:00:00 2001
+From: scpcom <scpcom@gmx.de>
+Date: Sat, 21 Sep 2024 02:01:59 +0200
+Subject: [PATCH] licheervnano: osdrv/interdrv/vpss: disable tile mode for
+ backward compatibility
+
+---
+ interdrv/vpss/chip/cv181x/chip.mk     | 2 +-
+ interdrv/vpss/chip/cv181x/vpss_core.c | 2 ++
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/interdrv/vpss/chip/cv181x/chip.mk b/interdrv/vpss/chip/cv181x/chip.mk
+index 781343a..0d83e22 100644
+--- a/interdrv/vpss/chip/cv181x/chip.mk
++++ b/interdrv/vpss/chip/cv181x/chip.mk
+@@ -1,7 +1,7 @@
+ CONFIG_SCLR_TEST = 0
+ CONFIG_CVI_LOG = 1
+ CONFIG_REG_DUMP = 1
+-CONFIG_TILE_MODE = 1
++CONFIG_TILE_MODE = 0
+ CONFIG_RGN_EX = 0
+ 
+ $(CVIARCH_L)_vpss-objs += chip/$(CVIARCH_L)/vip_img.o
+diff --git a/interdrv/vpss/chip/cv181x/vpss_core.c b/interdrv/vpss/chip/cv181x/vpss_core.c
+index d235881..fc07edf 100644
+--- a/interdrv/vpss/chip/cv181x/vpss_core.c
++++ b/interdrv/vpss/chip/cv181x/vpss_core.c
+@@ -441,6 +441,7 @@ static void cvi_img_device_run(struct cvi_img_vdev *idev, bool sc_need_check[])
+ 	idev->job_flags |= TRANS_RUNNING;
+ 	//spin_unlock_irqrestore(&dev->job_lock, flags);
+ 
++#if defined(CONFIG_TILE_MODE)
+ 	if (idev->is_tile) {
+ 		is_left_tile = !idev->is_work_on_r_tile;
+ 		if (!idev->is_work_on_r_tile) {
+@@ -474,6 +475,7 @@ static void cvi_img_device_run(struct cvi_img_vdev *idev, bool sc_need_check[])
+ 			}
+ 		}
+ 	}
++#endif
+ 
+ 
+ 	sclr_img_checksum_en(idev->img_type, true);
+-- 
+2.34.1
+

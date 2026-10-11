@@ -1,0 +1,29 @@
+From 195a74a964e3fcef09614f1d354dd4d3c43b684e Mon Sep 17 00:00:00 2001
+From: lxowalle <lxowalle@outlook.com>
+Date: Mon, 14 Oct 2024 15:21:27 +0800
+Subject: [PATCH] * disable vi_dbg_handler
+
+---
+ modules/vi/src/cvi_vi.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/modules/vi/src/cvi_vi.c b/modules/vi/src/cvi_vi.c
+index fd8585f..e0f092a 100644
+--- a/modules/vi/src/cvi_vi.c
++++ b/modules/vi/src/cvi_vi.c
+@@ -1519,7 +1519,11 @@ CVI_S32 CVI_VI_EnableChn(VI_PIPE ViPipe, VI_CHN ViChn)
+ 			pthread_attr_setschedparam(&attr, &param);
+ 			pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+ 
+-			pthread_create(&gViDbgTH.vi_dbg_thread, &attr, (void *)vi_dbg_handler, NULL);
++			setenv("VI_DBG_HANDLER_ENABLE", "0", 0);
++			char *value = getenv("VI_DBG_HANDLER_ENABLE");
++			if (atoi(value)) {
++				pthread_create(&gViDbgTH.vi_dbg_thread, &attr, (void *)vi_dbg_handler, NULL);
++			}
+ 		}
+ 	}
+ 
+-- 
+2.34.1
+

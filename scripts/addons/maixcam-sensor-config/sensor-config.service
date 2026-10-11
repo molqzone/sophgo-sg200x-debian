@@ -1,0 +1,13 @@
+[Unit]
+Description=Configure Sensor
+After=load-systemko.service
+Before=device-key.service
+Before=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=busybox sh /etc/init.d/sensor-config.sh start
+
+[Install]
+WantedBy=multi-user.target

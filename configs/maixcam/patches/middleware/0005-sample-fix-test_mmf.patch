@@ -1,0 +1,106 @@
+From 7cb5d00ce68e71f99cf22d92bc64b78fbed71b91 Mon Sep 17 00:00:00 2001
+From: scpcom <scpcom@gmx.de>
+Date: Sat, 8 Mar 2025 04:44:09 +0100
+Subject: [PATCH] sample: fix test_mmf
+
+---
+ sample/test_mmf/Makefile                     |  9 +++++++--
+ sample/test_mmf/maix_mmf/sophgo_middleware.c | 10 +++++++++-
+ 2 files changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/sample/test_mmf/Makefile b/sample/test_mmf/Makefile
+index c0b7b4b..c10a866 100644
+--- a/sample/test_mmf/Makefile
++++ b/sample/test_mmf/Makefile
+@@ -12,7 +12,8 @@ INCS = -I$(MW_INC) -I$(ISP_INC) -I../common/ -I$(KERNEL_INC) -I$(MW_INC)/linux -
+ SRCS_CPP += $(wildcard $(SDIR)/rtsp_server/src/*.cpp)
+ 
+ CFLAGS += -I$(SDIR)/rtsp_server/inc
+-CPPFLAGS += -I$(SDIR)/media_server-1.0.x/include \
++CPPFLAGS += $(subst -std=gnu11,-std=gnu++11, $(CFLAGS)) \
++-I$(SDIR)/media_server-1.0.x/include \
+ -I$(SDIR)/media_server-1.0.x/media-server/librtsp/include \
+ -I$(SDIR)/media_server-1.0.x/media-server/librtsp/source/server \
+ -I$(SDIR)/media_server-1.0.x/sdk/include \
+@@ -101,9 +102,13 @@ $(COMMON_DIR)/%.o: $(COMMON_DIR)/%.c
+ 	@echo [$(notdir $(CC))] $(notdir $@)
+ 
+ $(SDIR)/%.o: $(SDIR)/%.c
+-	@$(CC) $(DEPFLAGS) $(CFLAGS) $(EXTRA_CFLAGS) -o $@ -c $<
++	@$(CC) $(DEPFLAGS) $(filter-out -Werror, $(CFLAGS)) $(EXTRA_CFLAGS) -o $@ -c $<
+ 	@echo [$(notdir $(CC))] $(notdir $@)
+ 
++$(SDIR)/%.o: $(SDIR)/%.cpp
++	@$(CXX) $(DEPFLAGS) $(filter-out -Werror, $(CPPFLAGS)) $(EXTRA_CFLAGS) -o $@ -c $<
++	@echo [$(notdir $(CXX))] $(notdir $@)
++
+ $(TARGET): mmflibs $(COMM_OBJ) $(OBJS) $(ISP_OBJ) $(MW_LIB)/libvenc.a $(MW_LIB)/libsys.a
+ 	@$(CXX) -o $@ -Wl,--start-group $(OBJS) $(COMM_OBJS) -lsys $(MW_LIB)/libsys.a -Wl,--end-group -lmaix_mmf $(ELFFLAGS) $(EXTRA_LDFLAGS)
+ 	@echo -e $(BLUE)[LINK]$(END)[$(notdir $(CXX))] $(notdir $@)
+diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+index db370d0..08d578c 100644
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -442,7 +442,7 @@ static int _free_leak_memory_of_ion(void)
+ 			if (strcmp(buffer_name, "VI_DMA_BUF")
+ 				&& strcmp(buffer_name, "ISP_SHARED_BUFFER_0"))
+ 				continue;
+-			struct sys_ion_data2 ion_data;
++			struct sys_ion_data ion_data;
+ 
+ 			alloc_buf_size = atoi(alloc_buf_size_str);
+ 			phy_addr = (unsigned int)strtol(phy_addr_str, NULL, 16);
+@@ -1149,7 +1149,9 @@ char* mmf_get_sensor_name(void)
+ 		snprintf(name, sizeof(name), "gcore_gc2083");
+ 		return name;
+ 	    case GCORE_GC4653_MIPI_4M_30FPS_10BIT:
++#if 0
+ 	    case GCORE_GC4653_MIPI_720P_60FPS_10BIT:
++#endif
+ 		snprintf(name, sizeof(name), "gcore_gc4653");
+ 		return name;
+ 	    case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
+@@ -1161,9 +1163,11 @@ char* mmf_get_sensor_name(void)
+ 	    case OV_OS04A10_MIPI_4M_1440P_30FPS_12BIT:
+ 		snprintf(name, sizeof(name), "ov_os04a10");
+ 		return name;
++#if defined(SENSOR_OV_OV2685)
+ 	    case GCORE_OV2685_MIPI_1600x1200_30FPS_10BIT:
+ 		snprintf(name, sizeof(name), "ov_ov2685");
+ 		return name;
++#endif
+ 	    case OV_OV5647_MIPI_2M_30FPS_10BIT:
+ 		snprintf(name, sizeof(name), "ov_ov5647");
+ 		return name;
+@@ -5248,10 +5252,12 @@ void mmf_vi_set_pop_timeout(int ms)
+ 	priv.vi_pop_timeout = ms;
+ }
+ 
++#if 0
+ int mmf_vi_channel_set_windowing(int ch, int x, int y, int w, int h)
+ {
+ 	return -1;
+ }
++#endif
+ 
+ int mmf_get_again(int ch, uint32_t *gain)
+ {
+@@ -5340,6 +5346,7 @@ int mmf_set_ispdgain(int ch, uint32_t gain)
+ 	return 0;
+ }
+ 
++#if 0
+ int mmf_set_wb_mode(int ch, int mode)
+ {
+ 	return -1;
+@@ -5349,6 +5356,7 @@ int mmf_get_wb_mode(int ch)
+ {
+ 	return 0;
+ }
++#endif
+ 
+ int mmf_init0(uint32_t param, ...)
+ {
+-- 
+2.34.1
+

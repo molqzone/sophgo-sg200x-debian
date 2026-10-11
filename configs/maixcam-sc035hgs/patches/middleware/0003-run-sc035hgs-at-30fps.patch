@@ -1,0 +1,201 @@
+diff --git a/sample/common/sample_common_sensor.c b/sample/common/sample_common_sensor.c
+--- a/sample/common/sample_common_sensor.c
++++ b/sample/common/sample_common_sensor.c
+@@ -866,19 +866,21 @@ CVI_S32 SAMPLE_COMM_SNS_GetIspAttrBySns(SAMPLE_SNS_TYPE_E enSnsType, ISP_PUB_ATT
+ 		pstPubAttr->enWDRMode = WDR_MODE_2To1_LINE;
+ 
+ 	// FPS
+ 	switch (enSnsType) {
+ 	case CVSENS_CV4001_MIPI_4M_1440P_15FPS_WDR2TO1:
+ 	case OV_OS02N10_1L_MIPI_2M_15FPS_10BIT:
+ 		pstPubAttr->f32FrameRate = 15;
+ 		break;
++	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++		pstPubAttr->f32FrameRate = 30;
++		break;
+ 	case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
+ 	case SMS_SC035GS_1L_MIPI_480P_120FPS_10BIT:
+-	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
+ 	case SMS_SC035HGS_1L_MIPI_480P_120FPS_10BIT:
+ 	case OV_OV6211_MIPI_400P_120FPS_10BIT:
+ 	case OV_OV7251_MIPI_480P_120FPS_10BIT:
+ 		pstPubAttr->f32FrameRate = 120;
+ 		break;
+ 	case SMS_SC1336_1L_MIPI_1M_60FPS_10BIT:
+ 	case SMS_SC1336_1L_MIPI_1M_60FPS_10BIT_WDR2TO1:
+ 	case SMS_SC1346_1L_MIPI_1M_60FPS_10BIT:
+diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -1305,13 +1305,34 @@ int mmf_try_deinit(bool force)
+ }
+ 
+ int mmf_get_vi_unused_channel(void) {
+ 	return _vi_get_unused_ch();
+ }
+ 
+-static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width, int height, PIXEL_FORMAT_E format, int fps, int depth, bool mirror, bool flip, int fit)
++static int _mmf_get_sensor_fps(bool *is_live)
++{
++	ISP_PUB_ATTR_S pub_attr;
++
++	*is_live = false;
++	memset(&pub_attr, 0, sizeof(pub_attr));
++	if (CVI_ISP_GetPubAttr(0, &pub_attr) == CVI_SUCCESS &&
++	    pub_attr.f32FrameRate >= 1.0f && pub_attr.f32FrameRate <= 1000.0f) {
++		*is_live = true;
++		return (int)(pub_attr.f32FrameRate + 0.5f);
++	}
++
++	memset(&pub_attr, 0, sizeof(pub_attr));
++	if (SAMPLE_COMM_SNS_GetIspAttrBySns(priv.sensor_type, &pub_attr) != CVI_SUCCESS)
++		return -1;
++	if (pub_attr.f32FrameRate < 1.0f || pub_attr.f32FrameRate > 1000.0f)
++		return -1;
++
++	return (int)(pub_attr.f32FrameRate + 0.5f);
++}
++
++static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width, int height, PIXEL_FORMAT_E format, int src_fps, int dst_fps, int depth, bool mirror, bool flip, int fit)
+ {
+ #if 1
+ 	VPSS_GRP_ATTR_S stGrpAttr;
+ 	VPSS_CROP_INFO_S stChnCropInfo;
+ 	VPSS_CHN_ATTR_S chn_attr;
+ 	CVI_S32 s32Ret = CVI_SUCCESS;
+@@ -1327,14 +1348,14 @@ static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width,
+ 	CVI_U32 crop_w = -1, crop_h = -1;
+ 	if (fit == 0) {
+ 		chn_attr.u32Width                    = width;
+ 		chn_attr.u32Height                   = height;
+ 		chn_attr.enVideoFormat               = VIDEO_FORMAT_LINEAR;
+ 		chn_attr.enPixelFormat               = format;
+-		chn_attr.stFrameRate.s32SrcFrameRate = fps;
+-		chn_attr.stFrameRate.s32DstFrameRate = fps;
++		chn_attr.stFrameRate.s32SrcFrameRate = src_fps;
++		chn_attr.stFrameRate.s32DstFrameRate = dst_fps;
+ 		chn_attr.u32Depth                    = depth;
+ 		chn_attr.bMirror                     = mirror;
+ 		chn_attr.bFlip                       = flip;
+ 		chn_attr.stAspectRatio.enMode        = ASPECT_RATIO_MANUAL;
+ 		chn_attr.stAspectRatio.stVideoRect.s32X       = 0;
+ 		chn_attr.stAspectRatio.stVideoRect.s32Y       = 0;
+@@ -1347,14 +1368,14 @@ static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width,
+ 		stChnCropInfo.bEnable = false;
+ 	} else if (fit == 1) {
+ 		chn_attr.u32Width                    = width;
+ 		chn_attr.u32Height                   = height;
+ 		chn_attr.enVideoFormat               = VIDEO_FORMAT_LINEAR;
+ 		chn_attr.enPixelFormat               = format;
+-		chn_attr.stFrameRate.s32SrcFrameRate = fps;
+-		chn_attr.stFrameRate.s32DstFrameRate = fps;
++		chn_attr.stFrameRate.s32SrcFrameRate = src_fps;
++		chn_attr.stFrameRate.s32DstFrameRate = dst_fps;
+ 		chn_attr.u32Depth                    = depth;
+ 		chn_attr.bMirror                     = mirror;
+ 		chn_attr.bFlip                       = flip;
+ 		chn_attr.stAspectRatio.enMode        = ASPECT_RATIO_AUTO;
+ 		chn_attr.stAspectRatio.bEnableBgColor = CVI_TRUE;
+ 		chn_attr.stAspectRatio.u32BgColor    = COLOR_RGB_BLACK;
+@@ -1363,14 +1384,14 @@ static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width,
+ 		stChnCropInfo.bEnable = false;
+ 	} else {
+ 		chn_attr.u32Width                    = width;
+ 		chn_attr.u32Height                   = height;
+ 		chn_attr.enVideoFormat               = VIDEO_FORMAT_LINEAR;
+ 		chn_attr.enPixelFormat               = format;
+-		chn_attr.stFrameRate.s32SrcFrameRate = fps;
+-		chn_attr.stFrameRate.s32DstFrameRate = fps;
++		chn_attr.stFrameRate.s32SrcFrameRate = src_fps;
++		chn_attr.stFrameRate.s32DstFrameRate = dst_fps;
+ 		chn_attr.u32Depth                    = depth;
+ 		chn_attr.bMirror                     = mirror;
+ 		chn_attr.bFlip                       = flip;
+ 		chn_attr.stAspectRatio.enMode        = ASPECT_RATIO_AUTO;
+ 		chn_attr.stAspectRatio.bEnableBgColor = CVI_TRUE;
+ 		chn_attr.stAspectRatio.u32BgColor    = COLOR_RGB_BLACK;
+@@ -1415,14 +1436,14 @@ static CVI_S32 _mmf_vpss_chn_init(VPSS_GRP VpssGrp, VPSS_CHN VpssChn, int width,
+ 	CVI_S32 s32Ret;
+ 	VPSS_CHN_ATTR_S chn_attr = {0};
+ 	chn_attr.u32Width                    = width;
+ 	chn_attr.u32Height                   = height;
+ 	chn_attr.enVideoFormat               = VIDEO_FORMAT_LINEAR;
+ 	chn_attr.enPixelFormat               = format;
+-	chn_attr.stFrameRate.s32SrcFrameRate = fps;
+-	chn_attr.stFrameRate.s32DstFrameRate = fps;
++	chn_attr.stFrameRate.s32SrcFrameRate = src_fps;
++	chn_attr.stFrameRate.s32DstFrameRate = dst_fps;
+ 	chn_attr.u32Depth                    = depth;
+ 	chn_attr.bMirror                     = mirror;
+ 	chn_attr.bFlip                       = flip;
+ 	chn_attr.stAspectRatio.enMode        = ASPECT_RATIO_MANUAL;
+ 	chn_attr.stAspectRatio.stVideoRect.s32X       = 0;
+ 	chn_attr.stAspectRatio.stVideoRect.s32Y       = 0;
+@@ -1633,13 +1654,21 @@ _need_deinit_vpss:
+ 	s32Ret = _mmf_vpss_chn_deinit(priv.vi_vpss, ch);
+ 	if (s32Ret != CVI_SUCCESS) {
+ 		printf("_mmf_vpss_chn_deinit failed with %#x!\n", s32Ret);
+ 		return CVI_FAILURE;
+ 	}
+ 
+-	s32Ret = _mmf_vpss_chn_init(priv.vi_vpss, ch, width_out, height_out, format_out, fps, depth, mirror, flip, fit);
++	bool is_live_fps;
++	int src_fps = _mmf_get_sensor_fps(&is_live_fps);
++	const char *fps_source = is_live_fps ? "live" : "configured";
++	if (src_fps < 0) {
++		src_fps = fps;
++		fps_source = "requested";
++	}
++	printf("vi channel %d frame rate %d -> %d (%s)\n", ch, src_fps, fps, fps_source);
++	s32Ret = _mmf_vpss_chn_init(priv.vi_vpss, ch, width_out, height_out, format_out, src_fps, fps, depth, mirror, flip, fit);
+ 	if (s32Ret != CVI_SUCCESS) {
+ 		printf("_mmf_vpss_chn_init failed with %#x!\n", s32Ret);
+ 		return CVI_FAILURE;
+ 	}
+ 
+ 	s32Ret = SAMPLE_COMM_VI_Bind_VPSS(priv.vi_vpss, ch, 0);
+@@ -1979,13 +2008,13 @@ static int _mmf_add_vo_channel(int layer, int ch, int width, int height, int for
+ 		s32Ret = _mmf_vpss_chn_deinit(priv.vo_vpss, ch);
+ 		if (s32Ret != CVI_SUCCESS) {
+ 			printf("_mmf_vpss_chn_deinit failed with %#x!\n", s32Ret);
+ 			goto error_and_deinit_vpss;
+ 		}
+ 
+-		s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, stSizeOut.u32Width, stSizeOut.u32Height, formatOut, fps, depth, mirror, flip, fit);
++		s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, stSizeOut.u32Width, stSizeOut.u32Height, formatOut, fps, fps, depth, mirror, flip, fit);
+ 		if (s32Ret != CVI_SUCCESS) {
+ 			printf("_mmf_vpss_chn_init failed with %#x!\n", s32Ret);
+ 			goto error_and_deinit_vpss;
+ 		}
+ 
+ 		s32Ret = SAMPLE_COMM_VPSS_Bind_VO(priv.vo_vpss, ch, layer, ch);
+@@ -2312,13 +2341,13 @@ int mmf_vo_frame_push2(int layer, int ch, int fit, void *frame_info) {
+ 			s32Ret = _mmf_vpss_chn_deinit(priv.vo_vpss, ch);
+ 			if (s32Ret != CVI_SUCCESS) {
+ 				printf("_mmf_vpss_chn_deinit failed with %#x!\n", s32Ret);
+ 				return -1;
+ 			}
+ 
+-			s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, width_out, height_out, PIXEL_FORMAT_NV21, fps_out, depth_out, mirror_out, flip_out, fit);
++			s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, width_out, height_out, PIXEL_FORMAT_NV21, fps_out, fps_out, depth_out, mirror_out, flip_out, fit);
+ 			if (s32Ret != CVI_SUCCESS) {
+ 				printf("_mmf_vpss_chn_init failed with %#x!\n", s32Ret);
+ 				return -1;
+ 			}
+ 
+ 			s32Ret = SAMPLE_COMM_VPSS_Bind_VO(priv.vo_vpss, ch, layer, ch);
+@@ -2411,13 +2440,13 @@ int mmf_vo_frame_push_with_fit(int layer, int ch, void *data, int len, int width
+ 			s32Ret = _mmf_vpss_chn_deinit(priv.vo_vpss, ch);
+ 			if (s32Ret != CVI_SUCCESS) {
+ 				printf("_mmf_vpss_chn_deinit failed with %#x!\n", s32Ret);
+ 				return -1;
+ 			}
+ 
+-			s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, width_out, height_out, PIXEL_FORMAT_NV21, fps_out, depth_out, mirror_out, flip_out, fit);
++			s32Ret = _mmf_vpss_chn_init(priv.vo_vpss, ch, width_out, height_out, PIXEL_FORMAT_NV21, fps_out, fps_out, depth_out, mirror_out, flip_out, fit);
+ 			if (s32Ret != CVI_SUCCESS) {
+ 				printf("_mmf_vpss_chn_init failed with %#x!\n", s32Ret);
+ 				return -1;
+ 			}
+ 
+ 			s32Ret = SAMPLE_COMM_VPSS_Bind_VO(priv.vo_vpss, ch, layer, ch);

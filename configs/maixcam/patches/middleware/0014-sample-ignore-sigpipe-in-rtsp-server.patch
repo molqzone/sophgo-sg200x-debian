@@ -1,0 +1,10 @@
+diff --git a/sample/test_mmf/sample_vio.c b/sample/test_mmf/sample_vio.c
+--- a/sample/test_mmf/sample_vio.c
++++ b/sample/test_mmf/sample_vio.c
+@@ -3000,5 +3000,6 @@ static int _test_i2c_oled(void)
+ int test_pre_init(void)
+ {
++	signal(SIGPIPE, SIG_IGN);
+ 	signal(SIGINT, sig_handle);
+ 	signal(SIGTERM, sig_handle);
+ 	signal(SIGSEGV, exit_handle);

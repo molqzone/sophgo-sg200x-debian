@@ -1,0 +1,12 @@
+components/guidance-fw/ports/osdrv/patches/*.patch -whitespace
+configs/**/patches/**/*.patch -whitespace
+
+# These files are executed by Linux during camera bring-up, including when
+# the image is built from a Windows checkout.
+components/guidance-fw/tools/rtos-mode text eol=lf
+components/guidance-fw/linux/systemd/load-systemko.service.d/20-guidance-fw.conf text eol=lf
+scripts/addons/load-systemko/load-systemko.sh text eol=lf
+scripts/addons/load-systemko/load-systemko.service text eol=lf
+scripts/addons/maixcam-sensor-config/sensor-config.sh text eol=lf
+scripts/addons/maixcam-sensor-config/sensor-config.service text eol=lf
+scripts/addons/maixcam-usb/run_usb.sh text eol=lf

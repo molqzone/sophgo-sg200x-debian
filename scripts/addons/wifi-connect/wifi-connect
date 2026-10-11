@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+usage() {
+	echo "Usage: wifi-connect <ssid> <password> [ifname]" >&2
+	exit 2
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+
+ssid=$1
+password=$2
+ifname=${3:-wlan0}
+
+# Keep the connection name equal to the SSID so reconnecting is predictable.
+nmcli connection delete "$ssid" >/dev/null 2>&1 || true
+exec nmcli dev wifi connect "$ssid" password "$password" ifname "$ifname" name "$ssid"

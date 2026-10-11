@@ -1,0 +1,10 @@
+[Unit]
+Description=Revert SG2002 USB management when SSH key provisioning fails
+
+[Timer]
+OnActiveSec=180s
+AccuracySec=1s
+Unit=usb-mode-autorevert.service
+
+[Install]
+WantedBy=timers.target
