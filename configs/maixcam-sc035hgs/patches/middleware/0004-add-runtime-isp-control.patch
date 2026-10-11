@@ -1,0 +1,695 @@
+diff --git a/sample/test_mmf/isp_control.c b/sample/test_mmf/isp_control.c
+new file mode 100644
+index 0000000..7b6a7f6
+--- /dev/null
++++ b/sample/test_mmf/isp_control.c
+@@ -0,0 +1,546 @@
++#include "isp_control.h"
++
++#include <errno.h>
++#include <poll.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++#include "cvi_ae.h"
++#include "cvi_comm_isp.h"
++#include "cvi_isp.h"
++#include "maix_mmf.h"
++
++#define CONTROL_COMMAND_SIZE 256
++#define CONTROL_RESPONSE_SIZE 512
++#define CONTROL_MAX_ARGUMENTS 5
++#define CONTROL_MAX_REQUESTS_PER_FRAME 8
++#define CONTROL_CLIENT_TIMEOUT_MS 1000
++#define EXPOSURE_TIME_MAX_US 33000U
++#define MANUAL_ISO_MIN 100U
++#define MANUAL_ISO_MAX 0x7fffffffU
++#define MANUAL_GAIN_MIN 0x400U
++#define MANUAL_GAIN_MAX 0x7fffffffU
++#define MANUAL_ISP_DGAIN_MAX 0x40000U
++
++static int parse_u32(const char *text, uint32_t minimum, uint32_t maximum,
++		     uint32_t *value)
++{
++	char *end = NULL;
++	unsigned long long parsed;
++
++	if (!text || !*text || !value || *text == '-')
++		return -EINVAL;
++
++	errno = 0;
++	parsed = strtoull(text, &end, 0);
++	if (errno || !end || *end || parsed < minimum || parsed > maximum)
++		return -ERANGE;
++
++	*value = (uint32_t)parsed;
++	return 0;
++}
++
++static int get_exposure_attr(int isp_channel, ISP_EXPOSURE_ATTR_S *exposure)
++{
++	if (!exposure)
++		return -EINVAL;
++	memset(exposure, 0, sizeof(*exposure));
++	return CVI_ISP_GetExposureAttr(isp_channel, exposure) == CVI_SUCCESS ?
++		0 : -EIO;
++}
++
++static int set_exposure_attr(int isp_channel, ISP_EXPOSURE_ATTR_S *exposure)
++{
++	if (!exposure)
++		return -EINVAL;
++	return CVI_ISP_SetExposureAttr(isp_channel, exposure) == CVI_SUCCESS ?
++		0 : -EIO;
++}
++
++static int query_exposure_info(int isp_channel, ISP_EXP_INFO_S *info)
++{
++	if (!info)
++		return -EINVAL;
++	memset(info, 0, sizeof(*info));
++	return CVI_ISP_QueryExposureInfo(isp_channel, info) == CVI_SUCCESS ?
++		0 : -EIO;
++}
++
++static void format_status(int isp_channel, char *response, size_t response_size)
++{
++	ISP_EXPOSURE_ATTR_S exposure;
++	ISP_EXP_INFO_S info;
++	const char *gain_mode = "unknown";
++	const char *mode = "unknown";
++	int ret;
++
++	ret = get_exposure_attr(isp_channel, &exposure);
++	if (!ret)
++		ret = query_exposure_info(isp_channel, &info);
++	if (ret) {
++		snprintf(response, response_size, "ERR query_failed code=%d", ret);
++		return;
++	}
++	if (exposure.enOpType == OP_TYPE_AUTO) {
++		mode = "auto";
++		gain_mode = "auto";
++	} else if (exposure.enOpType == OP_TYPE_MANUAL) {
++		mode = "manual";
++		gain_mode = exposure.stManual.enGainType == AE_TYPE_GAIN ?
++			"gain" : "iso";
++	}
++
++	snprintf(response, response_size,
++		 "OK mode=%s gain_mode=%s exptime_us=%u iso=%u again=%u "
++		 "dgain=%u ispdgain=%u",
++		 mode, gain_mode, info.u32ExpTime, info.u32ISO, info.u32AGain,
++		 info.u32DGain, info.u32ISPDGain);
++}
++
++static int set_auto_exposure(int isp_channel)
++{
++	ISP_EXPOSURE_ATTR_S exposure;
++	int ret;
++
++	ret = get_exposure_attr(isp_channel, &exposure);
++	if (ret)
++		return ret;
++	exposure.bByPass = CVI_FALSE;
++	exposure.enOpType = OP_TYPE_AUTO;
++	exposure.stManual.enExpTimeOpType = OP_TYPE_AUTO;
++	exposure.stManual.enAGainOpType = OP_TYPE_AUTO;
++	exposure.stManual.enDGainOpType = OP_TYPE_AUTO;
++	exposure.stManual.enISPDGainOpType = OP_TYPE_AUTO;
++	exposure.stManual.enISONumOpType = OP_TYPE_AUTO;
++	return set_exposure_attr(isp_channel, &exposure);
++}
++
++static int set_manual_iso(int isp_channel, uint32_t exptime, uint32_t iso)
++{
++	ISP_EXPOSURE_ATTR_S exposure;
++	int ret;
++
++	ret = get_exposure_attr(isp_channel, &exposure);
++	if (ret)
++		return ret;
++	exposure.bByPass = CVI_FALSE;
++	exposure.enOpType = OP_TYPE_MANUAL;
++	exposure.stManual.enExpTimeOpType = OP_TYPE_MANUAL;
++	exposure.stManual.u32ExpTime = exptime;
++	exposure.stManual.enGainType = AE_TYPE_ISO;
++	exposure.stManual.enISONumOpType = OP_TYPE_MANUAL;
++	exposure.stManual.u32ISONum = iso;
++	exposure.stManual.enAGainOpType = OP_TYPE_AUTO;
++	exposure.stManual.enDGainOpType = OP_TYPE_AUTO;
++	exposure.stManual.enISPDGainOpType = OP_TYPE_AUTO;
++	return set_exposure_attr(isp_channel, &exposure);
++}
++
++static int set_manual_value(int isp_channel, int value_index, uint32_t value)
++{
++	ISP_EXPOSURE_ATTR_S exposure;
++	int ret;
++
++	ret = get_exposure_attr(isp_channel, &exposure);
++	if (ret)
++		return ret;
++	if (exposure.enOpType != OP_TYPE_MANUAL)
++		return -EPERM;
++
++	switch (value_index) {
++	case 0:
++		exposure.stManual.enExpTimeOpType = OP_TYPE_MANUAL;
++		exposure.stManual.u32ExpTime = value;
++		break;
++	case 1:
++		exposure.stManual.enGainType = AE_TYPE_ISO;
++		exposure.stManual.enISONumOpType = OP_TYPE_MANUAL;
++		exposure.stManual.u32ISONum = value;
++		break;
++	case 2:
++		exposure.stManual.enGainType = AE_TYPE_GAIN;
++		exposure.stManual.enISONumOpType = OP_TYPE_AUTO;
++		exposure.stManual.enAGainOpType = OP_TYPE_MANUAL;
++		exposure.stManual.u32AGain = value;
++		break;
++	case 3:
++		exposure.stManual.enGainType = AE_TYPE_GAIN;
++		exposure.stManual.enISONumOpType = OP_TYPE_AUTO;
++		exposure.stManual.enDGainOpType = OP_TYPE_MANUAL;
++		exposure.stManual.u32DGain = value;
++		break;
++	case 4:
++		exposure.stManual.enGainType = AE_TYPE_GAIN;
++		exposure.stManual.enISONumOpType = OP_TYPE_AUTO;
++		exposure.stManual.enISPDGainOpType = OP_TYPE_MANUAL;
++		exposure.stManual.u32ISPDGain = value;
++		break;
++	default:
++		return -EINVAL;
++	}
++	return set_exposure_attr(isp_channel, &exposure);
++}
++
++static int set_manual_gains(int isp_channel, uint32_t again, uint32_t dgain,
++			    uint32_t ispdgain)
++{
++	ISP_EXPOSURE_ATTR_S exposure;
++	int ret;
++
++	ret = get_exposure_attr(isp_channel, &exposure);
++	if (ret)
++		return ret;
++	if (exposure.enOpType != OP_TYPE_MANUAL)
++		return -EPERM;
++
++	exposure.stManual.enGainType = AE_TYPE_GAIN;
++	exposure.stManual.enISONumOpType = OP_TYPE_AUTO;
++	exposure.stManual.enAGainOpType = OP_TYPE_MANUAL;
++	exposure.stManual.enDGainOpType = OP_TYPE_MANUAL;
++	exposure.stManual.enISPDGainOpType = OP_TYPE_MANUAL;
++	exposure.stManual.u32AGain = again;
++	exposure.stManual.u32DGain = dgain;
++	exposure.stManual.u32ISPDGain = ispdgain;
++	return set_exposure_attr(isp_channel, &exposure);
++}
++
++static void format_set_result(int ret, char *response, size_t response_size)
++{
++	if (ret == -EPERM) {
++		snprintf(response, response_size,
++			 "ERR manual_mode_required");
++		return;
++	}
++	if (ret) {
++		snprintf(response, response_size, "ERR apply_failed code=%d", ret);
++		return;
++	}
++	snprintf(response, response_size, "OK applied");
++}
++
++static void handle_command(int isp_channel, char *command, char *response,
++			   size_t response_size)
++{
++	char *arguments[CONTROL_MAX_ARGUMENTS] = {0};
++	char *saveptr = NULL;
++	char *token;
++	uint32_t values[3];
++	int argument_count = 0;
++	int ret = 0;
++
++	for (token = strtok_r(command, " \t\r\n", &saveptr); token;
++	     token = strtok_r(NULL, " \t\r\n", &saveptr)) {
++		if (argument_count == CONTROL_MAX_ARGUMENTS) {
++			snprintf(response, response_size, "ERR too_many_arguments");
++			return;
++		}
++		arguments[argument_count++] = token;
++	}
++
++	if (!argument_count || !strcmp(arguments[0], "help")) {
++		snprintf(response, response_size,
++			 "OK commands=get|auto|manual <us> <iso>|exptime <us>|"
++			 "iso <n>|again <n>|dgain <n>|ispdgain <n>|"
++			 "gains <again> <dgain> <ispdgain>");
++		return;
++	}
++	if (!strcmp(arguments[0], "get") && argument_count == 1) {
++		format_status(isp_channel, response, response_size);
++		return;
++	}
++	if (!strcmp(arguments[0], "auto") && argument_count == 1) {
++		format_set_result(set_auto_exposure(isp_channel), response,
++				  response_size);
++		return;
++	}
++	if (!strcmp(arguments[0], "manual") && argument_count == 3) {
++		if (parse_u32(arguments[1], 1, EXPOSURE_TIME_MAX_US, &values[0]) ||
++		    parse_u32(arguments[2], MANUAL_ISO_MIN, MANUAL_ISO_MAX,
++			      &values[1])) {
++			snprintf(response, response_size, "ERR invalid_manual_value");
++			return;
++		}
++		ret = set_manual_iso(isp_channel, values[0], values[1]);
++		format_set_result(ret, response, response_size);
++		return;
++	}
++	if ((!strcmp(arguments[0], "exptime") ||
++	     !strcmp(arguments[0], "iso")) && argument_count == 2) {
++		uint32_t minimum = !strcmp(arguments[0], "exptime") ?
++			1 : MANUAL_ISO_MIN;
++		uint32_t maximum = !strcmp(arguments[0], "exptime") ?
++			EXPOSURE_TIME_MAX_US : MANUAL_ISO_MAX;
++		int value_index = !strcmp(arguments[0], "exptime") ? 0 : 1;
++		if (parse_u32(arguments[1], minimum, maximum, &values[0])) {
++			snprintf(response, response_size, "ERR invalid_value");
++			return;
++		}
++		ret = set_manual_value(isp_channel, value_index, values[0]);
++		format_set_result(ret, response, response_size);
++		return;
++	}
++	if ((!strcmp(arguments[0], "again") ||
++	     !strcmp(arguments[0], "dgain") ||
++	     !strcmp(arguments[0], "ispdgain")) && argument_count == 2) {
++		int gain_index = !strcmp(arguments[0], "again") ? 2 :
++			(!strcmp(arguments[0], "dgain") ? 3 : 4);
++		uint32_t maximum = gain_index == 4 ?
++			MANUAL_ISP_DGAIN_MAX : MANUAL_GAIN_MAX;
++		if (parse_u32(arguments[1], MANUAL_GAIN_MIN, maximum,
++			      &values[0])) {
++			snprintf(response, response_size, "ERR invalid_gain");
++			return;
++		}
++		format_set_result(set_manual_value(isp_channel, gain_index, values[0]),
++				  response, response_size);
++		return;
++	}
++	if (!strcmp(arguments[0], "gains") && argument_count == 4) {
++		for (int i = 0; i < 3; ++i) {
++			uint32_t maximum = i == 2 ?
++				MANUAL_ISP_DGAIN_MAX : MANUAL_GAIN_MAX;
++			if (parse_u32(arguments[i + 1], MANUAL_GAIN_MIN,
++				      maximum, &values[i])) {
++				snprintf(response, response_size, "ERR invalid_gain");
++				return;
++			}
++		}
++		format_set_result(set_manual_gains(isp_channel, values[0], values[1],
++						   values[2]),
++				  response, response_size);
++		return;
++	}
++
++	snprintf(response, response_size, "ERR invalid_command");
++}
++
++static int socket_address(const char *path, struct sockaddr_un *address,
++			  socklen_t *address_length)
++{
++	size_t path_length;
++
++	if (!path || !address || !address_length)
++		return -EINVAL;
++	path_length = strlen(path);
++	if (!path_length || path_length >= sizeof(address->sun_path))
++		return -ENAMETOOLONG;
++
++	memset(address, 0, sizeof(*address));
++	address->sun_family = AF_UNIX;
++	memcpy(address->sun_path, path, path_length + 1);
++	*address_length = (socklen_t)(offsetof(struct sockaddr_un, sun_path) +
++				      path_length + 1);
++	return 0;
++}
++
++int maixcam_isp_control_server_open(const char *path)
++{
++	struct sockaddr_un address;
++	struct stat status;
++	socklen_t address_length;
++	int fd;
++	int ret;
++
++	ret = socket_address(path, &address, &address_length);
++	if (ret)
++		return ret;
++	fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++	if (fd < 0)
++		return -errno;
++
++	if (lstat(path, &status) == 0) {
++		if (!S_ISSOCK(status.st_mode)) {
++			close(fd);
++			return -EEXIST;
++		}
++		if (unlink(path) < 0) {
++			ret = -errno;
++			close(fd);
++			return ret;
++		}
++	} else if (errno != ENOENT) {
++		ret = -errno;
++		close(fd);
++		return ret;
++	}
++	if (bind(fd, (struct sockaddr *)&address, address_length) < 0) {
++		ret = -errno;
++		close(fd);
++		return ret;
++	}
++	if (chmod(path, S_IRUSR | S_IWUSR) < 0) {
++		ret = -errno;
++		close(fd);
++		unlink(path);
++		return ret;
++	}
++	return fd;
++}
++
++int maixcam_isp_control_server_poll(int fd, int isp_channel)
++{
++	int processed = 0;
++
++	if (fd < 0)
++		return -EINVAL;
++	while (processed < CONTROL_MAX_REQUESTS_PER_FRAME) {
++		struct sockaddr_un peer;
++		socklen_t peer_length = sizeof(peer);
++		char command[CONTROL_COMMAND_SIZE];
++		char response[CONTROL_RESPONSE_SIZE];
++		size_t response_length;
++		ssize_t length;
++		ssize_t sent;
++
++		length = recvfrom(fd, command, sizeof(command), 0,
++				  (struct sockaddr *)&peer, &peer_length);
++		if (length < 0) {
++			if (errno == EAGAIN || errno == EWOULDBLOCK)
++				break;
++			return -errno;
++		}
++		++processed;
++		if (peer_length <= offsetof(struct sockaddr_un, sun_path) ||
++		    peer.sun_family != AF_UNIX)
++			continue;
++		if ((size_t)length >= sizeof(command)) {
++			snprintf(response, sizeof(response), "ERR command_too_long");
++		} else {
++			command[length] = '\0';
++			handle_command(isp_channel, command, response,
++				       sizeof(response));
++		}
++		response_length = strlen(response);
++		do {
++			sent = sendto(fd, response, response_length, MSG_NOSIGNAL,
++				      (struct sockaddr *)&peer, peer_length);
++		} while (sent < 0 && errno == EINTR);
++		if (sent < 0)
++			return -errno;
++		if ((size_t)sent != response_length)
++			return -EIO;
++	}
++	return processed;
++}
++
++void maixcam_isp_control_server_close(int *fd, const char *path)
++{
++	if (fd && *fd >= 0) {
++		close(*fd);
++		*fd = -1;
++		if (path)
++			unlink(path);
++	}
++}
++
++int maixcam_isp_control_client(int argc, char *argv[])
++{
++	struct sockaddr_un client_address;
++	struct sockaddr_un server_address;
++	socklen_t client_length;
++	socklen_t server_length;
++	struct pollfd poll_fd;
++	char command[CONTROL_COMMAND_SIZE];
++	char response[CONTROL_RESPONSE_SIZE];
++	size_t used = 0;
++	int fd;
++	int ret;
++
++	if (argc < 1) {
++		fprintf(stderr, "usage: test_mmf --ispctl <command> [value ...]\n");
++		return 2;
++	}
++	for (int i = 0; i < argc; ++i) {
++		ret = snprintf(command + used, sizeof(command) - used, "%s%s",
++			       i ? " " : "", argv[i]);
++		if (ret < 0 || (size_t)ret >= sizeof(command) - used) {
++			fprintf(stderr, "ispctl command is too long\n");
++			return 2;
++		}
++		used += (size_t)ret;
++	}
++
++	fd = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
++	if (fd < 0) {
++		perror("ispctl socket");
++		return 1;
++	}
++	memset(&client_address, 0, sizeof(client_address));
++	client_address.sun_family = AF_UNIX;
++	ret = snprintf(client_address.sun_path + 1,
++		       sizeof(client_address.sun_path) - 1, "maixcam-ispctl-%ld",
++		       (long)getpid());
++	if (ret < 0 || (size_t)ret >= sizeof(client_address.sun_path) - 1) {
++		close(fd);
++		return 1;
++	}
++	client_length = (socklen_t)(offsetof(struct sockaddr_un, sun_path) +
++				     1 + (size_t)ret);
++	if (bind(fd, (struct sockaddr *)&client_address, client_length) < 0) {
++		perror("ispctl bind");
++		close(fd);
++		return 1;
++	}
++	ret = socket_address(MAIXCAM_ISP_CONTROL_SOCKET, &server_address,
++			     &server_length);
++	if (ret) {
++		fprintf(stderr, "ispctl invalid server address: %d\n", ret);
++		close(fd);
++		return 1;
++	}
++	do {
++		ret = (int)sendto(fd, command, used, MSG_NOSIGNAL,
++				  (struct sockaddr *)&server_address, server_length);
++	} while (ret < 0 && errno == EINTR);
++	if (ret < 0) {
++		perror("ispctl send");
++		close(fd);
++		return 1;
++	}
++	if ((size_t)ret != used) {
++		fprintf(stderr, "ispctl short send: %d/%zu\n", ret, used);
++		close(fd);
++		return 1;
++	}
++
++	poll_fd.fd = fd;
++	poll_fd.events = POLLIN;
++	poll_fd.revents = 0;
++	do {
++		ret = poll(&poll_fd, 1, CONTROL_CLIENT_TIMEOUT_MS);
++	} while (ret < 0 && errno == EINTR);
++	if (ret == 0) {
++		fprintf(stderr, "ispctl response timeout\n");
++		close(fd);
++		return 1;
++	}
++	if (ret < 0) {
++		perror("ispctl poll");
++		close(fd);
++		return 1;
++	}
++	if (!(poll_fd.revents & POLLIN)) {
++		fprintf(stderr, "ispctl socket error: revents=0x%x\n",
++			poll_fd.revents);
++		close(fd);
++		return 1;
++	}
++	do {
++		ret = (int)recv(fd, response, sizeof(response) - 1, 0);
++	} while (ret < 0 && errno == EINTR);
++	close(fd);
++	if (ret < 0) {
++		perror("ispctl receive");
++		return 1;
++	}
++	response[ret] = '\0';
++	puts(response);
++	return strncmp(response, "OK ", 3) ? 1 : 0;
++}
+diff --git a/sample/test_mmf/isp_control.h b/sample/test_mmf/isp_control.h
+new file mode 100644
+index 0000000..fdafab6
+--- /dev/null
++++ b/sample/test_mmf/isp_control.h
+@@ -0,0 +1,11 @@
++#ifndef MAIXCAM_ISP_CONTROL_H
++#define MAIXCAM_ISP_CONTROL_H
++
++#define MAIXCAM_ISP_CONTROL_SOCKET "/run/maixcam-isp.sock"
++
++int maixcam_isp_control_server_open(const char *path);
++int maixcam_isp_control_server_poll(int fd, int isp_channel);
++void maixcam_isp_control_server_close(int *fd, const char *path);
++int maixcam_isp_control_client(int argc, char *argv[]);
++
++#endif
+diff --git a/sample/test_mmf/sample_vio.c b/sample/test_mmf/sample_vio.c
+index 1a99da8..0730532 100644
+--- a/sample/test_mmf/sample_vio.c
++++ b/sample/test_mmf/sample_vio.c
+@@ -20,6 +20,7 @@
+ #include "cvi_awb.h"
+ 
+ #include "sample_comm.h"
++#include "isp_control.h"
+ #include "maix_mmf.h"
+ // #include "vo_uapi.h"
+ #include "rtsp_server.h"
+@@ -2416,6 +2417,9 @@ static int _test_rtsp_h26x(void)
+ 
+ static int _test_vi_venc_h26x_rtsp(void)
+ {
++	int isp_control_fd = -1;
++	int result = 0;
++
+ 	if (0 != rtsp_server_init(NULL, 8554)) {
+ 		printf("rtsp server init\n");
+ 		return 0;
+@@ -2462,8 +2466,14 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 	}
+ 
+ 	mmf_vi_set_pop_timeout(100);
++	isp_control_fd = maixcam_isp_control_server_open(
++		MAIXCAM_ISP_CONTROL_SOCKET);
++	if (isp_control_fd < 0)
++		printf("ISP control socket unavailable: %d\n", isp_control_fd);
+ 
+ 	printf("rtsp://%s:%d/live\n", rtsp_get_server_ip(), rtsp_get_server_port());
++	if (isp_control_fd >= 0)
++		printf("ISP control socket: %s\n", MAIXCAM_ISP_CONTROL_SOCKET);
+ 
+ 	uint64_t start = _get_time_us();
+ 	uint64_t last_loop_us = start;
+@@ -2474,6 +2484,13 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 		void *data;
+ 		int data_size, width, height, format;
+ 
++		if (isp_control_fd >= 0) {
++			int control_ret = maixcam_isp_control_server_poll(
++				isp_control_fd, 0);
++			if (control_ret < 0)
++				printf("ISP control request failed: %d\n", control_ret);
++		}
++
+ 		if (!last_vi_pop) {
+ 			start = _get_time_us();
+ 			mmf_vi_frame_free(vi_ch);
+@@ -2498,6 +2515,7 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 		start = _get_time_us();
+ 		if (mmf_venc_push(ch, data, img_w, img_h, img_fmt)) {
+ 			printf("mmf_venc_push failed\n");
++			result = -1;
+ 			goto _exit;
+ 		}
+ 		DEBUG("use %ld us\r\n", _get_time_us() - start);
+@@ -2506,6 +2524,7 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 		mmf_stream_t stream;
+ 		if (mmf_venc_pop(ch, &stream)) {
+ 			printf("mmf_venc_pop failed\n");
++			result = -1;
+ 			goto _exit;
+ 		}
+ 		DEBUG("use %ld us\r\n", _get_time_us() - start);
+@@ -2540,6 +2559,7 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 		start = _get_time_us();
+ 		if (mmf_venc_free(ch)) {
+ 			printf("mmf_venc_free failed\n");
++			result = -1;
+ 			goto _exit;
+ 		}
+ 		DEBUG("use %ld us\r\n", _get_time_us() - start);
+@@ -2549,23 +2569,24 @@ static int _test_vi_venc_h26x_rtsp(void)
+ 		last_loop_us = _get_time_us();
+ 	}
+ 
++_exit:
++	maixcam_isp_control_server_close(&isp_control_fd,
++					 MAIXCAM_ISP_CONTROL_SOCKET);
+ 	if (mmf_del_venc_channel(ch)) {
+ 		printf("mmf_del_venc_channel failed\n");
+-		return -1;
++		result = -1;
+ 	}
+-
+ 	if (0 != rtsp_server_deinit()) {
+ 		printf("rtsp server deinit\n");
+-		return 0;
++		result = -1;
+ 	}
+-_exit:
+ 	mmf_del_vi_channel(vi_ch);
+ 	mmf_vi_deinit();
+ 	if (0 != mmf_deinit()) {
+ 		printf("mmf deinit\n");
+ 	}
+ 	free(filebuf);
+-	return 0;
++	return result;
+ }
+ 
+ static int _test_rtsp_h265(void)
+diff --git a/sample/test_mmf/sample_vio_main.c b/sample/test_mmf/sample_vio_main.c
+index dd7cbad..d3ede84 100644
+--- a/sample/test_mmf/sample_vio_main.c
++++ b/sample/test_mmf/sample_vio_main.c
+@@ -11,6 +11,7 @@
+ #include <sys/ioctl.h>
+ 
+ #include "sample_comm.h"
++#include "isp_control.h"
+ #include "sample_vio.h"
+ #include "cvi_sys.h"
+ #include <linux/cvi_type.h>
+@@ -56,6 +57,8 @@ int main(int argc, char *argv[])
+ 		SAMPLE_VIO_Usage(argv[0]);
+ 		return CVI_FAILURE;
+ 	}
++	if (!strcmp(argv[1], "--ispctl"))
++		return maixcam_isp_control_client(argc - 2, argv + 2);
+ 
+ 	if (!strncmp(argv[1], "-h", 2)) {
+ 		SAMPLE_VIO_Usage(argv[0]);

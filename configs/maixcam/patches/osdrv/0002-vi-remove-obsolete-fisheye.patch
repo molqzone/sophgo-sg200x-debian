@@ -1,0 +1,26 @@
+From cd94ea2d2052a1826be96adef9d1868b53bce5c1 Mon Sep 17 00:00:00 2001
+From: scpcom <scpcom@gmx.de>
+Date: Sun, 22 Sep 2024 20:14:14 +0200
+Subject: [PATCH] licheervnano: osdrv/interdrv/vi: remove obsolete
+ vi_fill_mlv_info call
+
+---
+ interdrv/vi/chip/cv181x/vi.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/interdrv/vi/chip/cv181x/vi.c b/interdrv/vi/chip/cv181x/vi.c
+index 809ba08..72f29a1 100644
+--- a/interdrv/vi/chip/cv181x/vi.c
++++ b/interdrv/vi/chip/cv181x/vi.c
+@@ -6303,8 +6303,6 @@ static int _vi_event_handler_thread(void * arg)
+ #ifdef WANT_VI_MOTION_LEVEL_CALC
+ 				vi_motion_level_calc(vdev, b.raw_id, vb->buf.motion_table, &vb->buf.motion_lv);
+ 				vi_dci_calc(vdev, b.raw_id, &vb->buf.dci_lv);
+-#else
+-				vi_fill_mlv_info(vb, 0, NULL, true);
+ #endif
+ 				vi_fill_dis_info(vb);
+ #ifdef WANT_VI_MOTION_LEVEL_CALC
+-- 
+2.34.1
+

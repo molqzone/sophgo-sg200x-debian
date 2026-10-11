@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MaixCAM Build <build@maixcam.local>
+Date: Sat, 1 Aug 2026 00:00:00 +0000
+Subject: [PATCH] aic8800: disable the unsupported P2P device interface
+
+---
+ .../aic8800/aic8800_fdrv/rwnx_main.c          | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/drivers/net/wireless/aic8800/aic8800_fdrv/rwnx_main.c b/drivers/net/wireless/aic8800/aic8800_fdrv/rwnx_main.c
+index ba4a33f7406d..af6fa9f0359f 100644
+--- a/drivers/net/wireless/aic8800/aic8800_fdrv/rwnx_main.c
++++ b/drivers/net/wireless/aic8800/aic8800_fdrv/rwnx_main.c
+@@ -360,11 +360,6 @@ static struct ieee80211_iface_limit rwnx_limits[] = {
+ 	{ .max = 1,
+ #endif
+ 	  .types = BIT(NL80211_IFTYPE_P2P_CLIENT) | BIT(NL80211_IFTYPE_P2P_GO)},
+-#ifndef CONFIG_USE_P2P0
+-	{ .max = 1,
+-	  .types = BIT(NL80211_IFTYPE_P2P_DEVICE),
+-	}
+-#endif
+ };
+ 
+ static struct ieee80211_iface_limit rwnx_limits_dfs[] = {
+@@ -6907,9 +6902,6 @@ static int rwnx_platform_init(struct rwnx_plat *rwnx_plat, void **platform_data)
+ 	BIT(NL80211_IFTYPE_AP_VLAN)     |
+ 	BIT(NL80211_IFTYPE_P2P_CLIENT)  |
+ 	BIT(NL80211_IFTYPE_P2P_GO)      |
+-#ifndef CONFIG_USE_P2P0
+-	BIT(NL80211_IFTYPE_P2P_DEVICE)  |
+-#endif
+ 	BIT(NL80211_IFTYPE_MONITOR);
+ 
+ #if IS_ENABLED(CONFIG_PM)
+-- 
+2.50.1

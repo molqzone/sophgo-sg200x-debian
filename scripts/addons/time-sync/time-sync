@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+server=${1:-time.nist.gov}
+
+busybox rdate -s "$server"
+date
+
+if command -v fake-hwclock >/dev/null 2>&1; then
+	fake-hwclock save >/dev/null 2>&1 || true
+fi

@@ -1,0 +1,26 @@
+From 223cde97bfdc1482ebf6791c4e1f9d9d2e28507a Mon Sep 17 00:00:00 2001
+From: Lu Hui <luhui@sipeed.com>
+Date: Tue, 20 Feb 2024 11:25:12 +0800
+Subject: [PATCH] sample/common/sample_common_sensor.c: fix sensor pixel format
+
+---
+ sample/common/sample_common_sensor.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/sample/common/sample_common_sensor.c b/sample/common/sample_common_sensor.c
+index 7ce8cb4..120ff09 100644
+--- a/sample/common/sample_common_sensor.c
++++ b/sample/common/sample_common_sensor.c
+@@ -1034,7 +1034,9 @@ CVI_S32 SAMPLE_COMM_SNS_GetIspAttrBySns(SAMPLE_SNS_TYPE_E enSnsType, ISP_PUB_ATT
+ 	case GCORE_GC4653_SLAVE_MIPI_4M_30FPS_10BIT:
+ 	case TECHPOINT_TP2850_MIPI_2M_30FPS_8BIT:
+ 	case TECHPOINT_TP2850_MIPI_4M_30FPS_8BIT:
+-		pstPubAttr->enBayer = BAYER_GRBG;
++		// on licheervnano
++		pstPubAttr->enBayer = BAYER_RGGB;
++		//pstPubAttr->enBayer = BAYER_GRBG;
+ 		break;
+ 	default:
+ 		pstPubAttr->enBayer = BAYER_BGGR;
+-- 
+2.34.1

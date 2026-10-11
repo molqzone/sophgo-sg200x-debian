@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 31 Jul 2026 05:30:00 +0800
+Subject: [PATCH] remoteproc: cvitek: support mailbox-only firmware
+
+The C906L FreeRTOS image used by the vendor cmdqu path has no RPMsg
+resource table.  It also leaves the RPMsg-only reserved-memory regions at
+size zero.  Treat that combination as a valid mailbox-only firmware and do
+not claim the mailbox channels that the vendor cmdqu driver needs.
+
+Firmware with a resource table keeps the existing RPMsg behavior.
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 28 +++++++++++++++++++++-------
+ 1 file changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+index 64e0ce21d711..4a9e9e6bcb2b 100644
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -141,6 +141,7 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 	struct reserved_mem *rmem;
+ 	struct of_phandle_iterator it;
+ 	int index = 0;
++	int ret;
+ 
+ 	dev_dbg(dev, "Parsing firmware\n");
+ 
+@@ -151,6 +152,12 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 			return -EINVAL;
+ 		}
+ 
++		if (!rmem->size) {
++			dev_dbg(dev, "skipping empty memory-region: %s\n",
++				it.node->name);
++			continue;
++		}
++
+ 		/*  No need to map vdev buffer */
+ 		if (strcmp(it.node->name, "vdev0buffer")) {
+ 			/* Register memory region */
+@@ -181,7 +188,14 @@ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ 		index++;
+ 	}
+ 
+-	return rproc_elf_load_rsc_table(rproc, fw);
++	ret = rproc_elf_load_rsc_table(rproc, fw);
++	if (ret == -EINVAL) {
++		dev_info(dev,
++			 "firmware has no resource table; using mailbox-only mode\n");
++		return 0;
++	}
++
++	return ret;
+ }
+ 
+ static int cvitek_rproc_start(struct rproc *rproc)
+@@ -193,7 +207,7 @@ static int cvitek_rproc_start(struct rproc *rproc)
+ 	dev_dbg(&rproc->dev, "Starting\n");
+ 
+ 
+-	if (ddata->mbox_client_vq.dev) {
++	if (ddata->mbox_client_vq.dev && rproc->table_ptr) {
+ 		/*
+ 		* To control a co-processor without IPC mechanism.
+ 		* This driver can be used without mbox and rpmsg.
+@@ -251,9 +265,13 @@ static int cvitek_rproc_stop(struct rproc *rproc)
+ 
+ 	clk_disable(ddata->clk);
+ 
+-	if (ddata->mbox_client_vq.dev) {
++	if (ddata->mbox_chan[MBOX_RX]) {
+ 		mbox_free_channel(ddata->mbox_chan[MBOX_RX]);
++		ddata->mbox_chan[MBOX_RX] = NULL;
++	}
++	if (ddata->mbox_chan[MBOX_TX]) {
+ 		mbox_free_channel(ddata->mbox_chan[MBOX_TX]);
++		ddata->mbox_chan[MBOX_TX] = NULL;
+ 	}
+ 
+ 
+@@ -392,18 +410,14 @@ static int cvitek_rproc_remove(struct platform_device *pdev)
+ {
+ 	struct rproc *rproc = platform_get_drvdata(pdev);
+ 	struct cvitek_rproc *ddata = rproc->priv;
+-	int i;
+ 
+ 	rproc_del(rproc);
+ 
+ 	clk_disable_unprepare(ddata->clk);
+ 
+-	for (i = 0; i < MBOX_MAX; i++)
+-		mbox_free_channel(ddata->mbox_chan[i]);
+-
+ 	destroy_workqueue(ddata->workqueue);
+ 
+ 	rproc_free(rproc);
+ 
+ 	return 0;
+ }
+-- 
+2.45.2

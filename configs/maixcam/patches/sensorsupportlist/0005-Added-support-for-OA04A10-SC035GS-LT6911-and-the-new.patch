@@ -1,0 +1,228 @@
+From 5615b337f641b8e775aad7b0a47cc9ee0edcdb2a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=9F=90=E6=9D=B0=E5=90=8C=E5=AD=A6?= <1220627966@qq.com>
+Date: Wed, 15 May 2024 00:00:53 -0700
+Subject: [PATCH 05/12] Added support for OA04A10, SC035GS, LT6911, and the new
+ 5-inch LCD
+
+Added support for OA04A10, SC035GS, LT6911, and the new 5-inch display
+---
+ sensor/cv182x/lontium_lt6911/lt6911_cmos.c    | 10 +++---
+ .../cv182x/lontium_lt6911/lt6911_cmos_param.h |  8 ++---
+ .../cv182x/lontium_lt6911/lt6911_sensor_ctl.c | 34 ++++++++++++++++---
+ sensor/cv182x/ov_os04a10/os04a10_sensor_ctl.c | 14 ++++++++
+ .../cv182x/sms_sc035gs/sc035gs_cmos_param.h   |  8 +++--
+ .../cv182x/sms_sc035gs/sc035gs_sensor_ctl.c   | 13 +++++++
+ 6 files changed, 72 insertions(+), 15 deletions(-)
+
+diff --git a/sensor/cv182x/lontium_lt6911/lt6911_cmos.c b/sensor/cv182x/lontium_lt6911/lt6911_cmos.c
+index c704e30..6020987 100644
+--- a/sensor/cv182x/lontium_lt6911/lt6911_cmos.c
++++ b/sensor/cv182x/lontium_lt6911/lt6911_cmos.c
+@@ -26,8 +26,8 @@
+ 
+ #define LT6911_ID 6911
+ 
+-#define INPUT_WIDTH         (1920)
+-#define INPUT_HEIGHT        (1080)
++#define INPUT_WIDTH         (1920)		// 1920	1280 800
++#define INPUT_HEIGHT        (1080)		// 1080	720  600
+ 
+ /****************************************************************************
+  * global variables                                                            *
+@@ -400,6 +400,7 @@ static CVI_S32 sensor_set_init(VI_PIPE ViPipe, ISP_INIT_ATTR_S *pstInitAttr)
+ 
+ static CVI_S32 sensor_probe(VI_PIPE ViPipe)
+ {
++	printf("[sensor_prob = lt6911_probe] \n");
+ 	return lt6911_probe(ViPipe);
+ }
+ 
+@@ -418,5 +419,6 @@ ISP_SNS_OBJ_S stSnsLT6911_Obj = {
+ 	.pfnGetRxAttr           = sensor_rx_attr,
+ 	.pfnExpSensorCb         = cmos_init_sensor_exp_function,
+ 	.pfnExpAeCb             = cmos_init_ae_exp_function,
+-	.pfnSnsProbe		= sensor_probe,
+-};
+\ No newline at end of file
++	.pfnSnsProbe		    = sensor_probe,
++};
++
+diff --git a/sensor/cv182x/lontium_lt6911/lt6911_cmos_param.h b/sensor/cv182x/lontium_lt6911/lt6911_cmos_param.h
+index 81f38a5..064141b 100644
+--- a/sensor/cv182x/lontium_lt6911/lt6911_cmos_param.h
++++ b/sensor/cv182x/lontium_lt6911/lt6911_cmos_param.h
+@@ -18,8 +18,8 @@ extern "C" {
+ #include "lt6911_cmos_ex.h"
+ 
+ // not real time resolution
+-#define WIDTH   3840//3840 1920
+-#define HEIGHT  2160//2160 1080
++#define WIDTH   1920	// 3840 1920 1280 800
++#define HEIGHT  1080	// 2160 1080 720  600
+ 
+ static LT6911_MODE_S g_astLt6911_mode[LT6911_MODE_NUM] = {
+ 	[LT6911_MODE_NORMAL] = {
+@@ -48,8 +48,8 @@ struct combo_dev_attr_s lt6911_rx_attr = {
+ 	.mac_clk = RX_MAC_CLK_600M,
+ 	.mipi_attr = {
+ 		.raw_data_type = YUV422_8BIT,
+-		.lane_id = {2, 0, 1, 3, 4}, //3, 0, 1, 2, 4  ;   1, 4, 3, 2, 0  2, 0, 1, 3, 4   3, 1, 2, 4, 0
+-		.pn_swap = {1, 1, 1, 1, 1},
++		.lane_id = {2, 4, 3, 1, 0}, //3, 0, 1, 2, 4  ;   1, 4, 3, 2, 0  2, 0, 1, 3, 4   3, 1, 2, 4, 0
++		.pn_swap = {0, 0, 0, 0, 0},
+ 		.wdr_mode = CVI_MIPI_WDR_MODE_NONE,
+ 		.dphy = {
+ 			.enable = 1,
+diff --git a/sensor/cv182x/lontium_lt6911/lt6911_sensor_ctl.c b/sensor/cv182x/lontium_lt6911/lt6911_sensor_ctl.c
+index 13bb1fc..f5c2f44 100644
+--- a/sensor/cv182x/lontium_lt6911/lt6911_sensor_ctl.c
++++ b/sensor/cv182x/lontium_lt6911/lt6911_sensor_ctl.c
+@@ -16,10 +16,11 @@
+ #include "cvi_sns_ctrl.h"
+ #include "lt6911_cmos_ex.h"
+ 
+-#define LT6911_I2C_DEV 3
++
++#define LT6911_I2C_DEV 4
+ #define LT6911_I2C_BANK_ADDR 0xff
+ 
+-CVI_U8 lt6911_i2c_addr = 0x2b;
++CVI_U8 lt6911_i2c_addr = 0x56;
+ const CVI_U32 lt6911_addr_byte = 1;
+ const CVI_U32 lt6911_data_byte = 1;
+ static int g_fd[VI_MAX_PIPE_NUM] = {[0 ... (VI_MAX_PIPE_NUM - 1)] = -1};
+@@ -144,6 +145,7 @@ static int lt6911_i2c_read(VI_PIPE ViPipe, int RegAddr)
+ 	uint8_t bank = RegAddr >> 8;
+ 	uint8_t addr = RegAddr & 0xff;
+ 
++	printf("[lt6911_i2c_read] : addr = %x \n", addr);
+ 	lt6911_write_register(ViPipe, LT6911_I2C_BANK_ADDR, bank);
+ 	return lt6911_read_register(ViPipe, addr);
+ }
+@@ -153,6 +155,7 @@ static int lt6911_i2c_write(VI_PIPE ViPipe, int RegAddr, int data)
+ 	uint8_t bank = RegAddr >> 8;
+ 	uint8_t addr = RegAddr & 0xff;
+ 
++	printf("[lt6911_i2c_write] : addr = %x. data = %x \n", addr, data);
+ 	lt6911_write_register(ViPipe, LT6911_I2C_BANK_ADDR, bank);
+ 	return lt6911_write_register(ViPipe, addr, data);
+ }
+@@ -184,22 +187,43 @@ int  lt6911_probe(VI_PIPE ViPipe)
+ 	int nVal;
+ 	int nVal2;
+ 
++	// PinMUX
++	printf("###########   PinMux  #######################################################################\n");
++	system("devmem 0x0300116C 32 0x3");
++	system("devmem 0x03001170 32 0x3");
++	system("devmem 0x03001174 32 0x3");
++	system("devmem 0x03001178 32 0x3");
++	system("devmem 0x0300117C 32 0x3");
++	system("devmem 0x03001180 32 0x3");
++	system("devmem 0x03001184 32 0x3");
++	system("devmem 0x03001188 32 0x3");
++	system("devmem 0x0300118C 32 0x3");
++	system("devmem 0x03001190 32 0x3");
++	printf("###########   PinMux End  #######################################################################\n");
++
+ 	usleep(50);
++	printf("[lt6911_probe] -189 \n");
+ 	if (lt6911_i2c_init(ViPipe) != CVI_SUCCESS)
+ 		return CVI_FAILURE;
+ 
++	printf("[lt6911_probe] -195 \n");
+ 	nVal  = lt6911_read(ViPipe, LT6911_CHIP_ID_ADDR_H);
+ 	nVal2 = lt6911_read(ViPipe, LT6911_CHIP_ID_ADDR_L);
+ 	if (nVal < 0 || nVal2 < 0) {
+-		CVI_TRACE_SNS(CVI_DBG_ERR, "read sensor id error.\n");
+-		return nVal;
++		CVI_TRACE_SNS(CVI_DBG_ERR, "read sensor id error. \n");
++		printf("[lt6911_probe] jump return nVal -198 \n");
++		// return nVal;
+ 	}
++
++	printf("[lt6911_probe] -201 \n");
+ 	printf("data:%02x %02x\n", nVal, nVal2);
+ 	if ((((nVal & 0xFF) << 8) | (nVal2 & 0xFF)) != LT6911_CHIP_ID) {
+ 		CVI_TRACE_SNS(CVI_DBG_ERR, "Sensor ID Mismatch! Use the wrong sensor??\n");
+-		return CVI_FAILURE;
++		printf("[lt6911_probe] jump return CVI_FAILURE -206 \n");
++		// return CVI_FAILURE;
+ 	}
+ 
++	printf("[lt6911_probe] -208 = exit success \n");
+ 	return CVI_SUCCESS;
+ }
+ 
+diff --git a/sensor/cv182x/ov_os04a10/os04a10_sensor_ctl.c b/sensor/cv182x/ov_os04a10/os04a10_sensor_ctl.c
+index 529cbd8..e8bc150 100644
+--- a/sensor/cv182x/ov_os04a10/os04a10_sensor_ctl.c
++++ b/sensor/cv182x/ov_os04a10/os04a10_sensor_ctl.c
+@@ -251,6 +251,20 @@ void os04a10_init(VI_PIPE ViPipe)
+ 	enWDRMode   = g_pastOs04a10[ViPipe]->enWDRMode;
+ 	u8ImgMode   = g_pastOs04a10[ViPipe]->u8ImgMode;
+ 
++		// PinMUX
++	printf("###########   PinMux  #######################################################################\n");
++	system("devmem 0x0300116C 32 0x3");
++	system("devmem 0x03001170 32 0x3");
++	system("devmem 0x03001174 32 0x3");
++	system("devmem 0x03001178 32 0x3");
++	system("devmem 0x0300117C 32 0x3");
++	system("devmem 0x03001180 32 0x3");
++	system("devmem 0x03001184 32 0x3");
++	system("devmem 0x03001188 32 0x3");
++	system("devmem 0x0300118C 32 0x3");
++	system("devmem 0x03001190 32 0x3");
++	printf("###########   PinMux End  #######################################################################\n");
++
+ 	os04a10_i2c_init(ViPipe);
+ 
+ 	if (enWDRMode == WDR_MODE_2To1_LINE) {
+diff --git a/sensor/cv182x/sms_sc035gs/sc035gs_cmos_param.h b/sensor/cv182x/sms_sc035gs/sc035gs_cmos_param.h
+index c85429c..9a1077f 100644
+--- a/sensor/cv182x/sms_sc035gs/sc035gs_cmos_param.h
++++ b/sensor/cv182x/sms_sc035gs/sc035gs_cmos_param.h
+@@ -99,9 +99,13 @@ struct combo_dev_attr_s sc035gs_rx_attr = {
+ 	.mac_clk = RX_MAC_CLK_200M,
+ 	.mipi_attr = {
+ 		.raw_data_type = RAW_DATA_12BIT,
+-		.lane_id = {2, 0, 1, -1, -1},
++		.lane_id = {4, 3, 2, -1, -1},
++		.pn_swap = {0, 0, 0, 0, 0},
+ 		.wdr_mode = CVI_MIPI_WDR_MODE_NONE,
+-		.pn_swap = {1, 1, 1, 0, 0},
++		.dphy = {
++			.enable = 1,
++			.hs_settle = 8,
++		},
+ 	},
+ 	.mclk = {
+ 		.cam = 0,
+diff --git a/sensor/cv182x/sms_sc035gs/sc035gs_sensor_ctl.c b/sensor/cv182x/sms_sc035gs/sc035gs_sensor_ctl.c
+index 97ba708..5f897ef 100644
+--- a/sensor/cv182x/sms_sc035gs/sc035gs_sensor_ctl.c
++++ b/sensor/cv182x/sms_sc035gs/sc035gs_sensor_ctl.c
+@@ -207,6 +207,19 @@ void sc035gs_exit(VI_PIPE ViPipe)
+ /* 1296P30 and 1296P25 */
+ static void sc035gs_linear_1296P30_init(VI_PIPE ViPipe)
+ {
++	printf("###########   PinMux  #######################################################################\n");
++	system("devmem 0x0300116C 32 0x3");
++	system("devmem 0x03001170 32 0x3");
++	system("devmem 0x03001174 32 0x3");
++	system("devmem 0x03001178 32 0x3");
++	system("devmem 0x0300117C 32 0x3");
++	system("devmem 0x03001180 32 0x3");
++	system("devmem 0x03001184 32 0x3");
++	system("devmem 0x03001188 32 0x3");
++	system("devmem 0x0300118C 32 0x5");
++	system("devmem 0x03001190 32 0x3");
++	printf("###########   PinMux End  #######################################################################\n");
++	
+ 	sc035gs_write_register(ViPipe, 0x0103, 0x01);
+ 	delay_ms(33);
+ 	sc035gs_write_register(ViPipe, 0x0100, 0x00);
+-- 
+2.34.1
+

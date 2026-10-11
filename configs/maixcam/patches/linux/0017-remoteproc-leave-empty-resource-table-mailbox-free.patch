@@ -1,0 +1,25 @@
+From: Codex <codex@local>
+Subject: [PATCH] remoteproc: cvitek: do not claim mailboxes for an empty table
+
+The mailbox-only C906L firmware can include a valid 16-byte resource-table
+header with num == 0.  table_ptr is non-NULL for that firmware, but there are
+no virtqueues to notify.  Claiming the channels pins the mailbox driver and
+makes the vendor cmdqu probe fail with EBUSY when the media stack starts.
+
+Treat an empty table like an absent table, retaining the existing behavior
+for firmware with resource entries.
+
+diff --git a/drivers/remoteproc/cvitek_remoteproc.c b/drivers/remoteproc/cvitek_remoteproc.c
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -594,7 +594,9 @@ static int cvitek_rproc_start(struct rproc *rproc)
+ 	dev_dbg(&rproc->dev, "Starting\n");
+ 
+ 
+-	if (ddata->mbox_client_vq.dev && rproc->table_ptr) {
++	/* An empty resource table has no virtqueues and needs no mailbox. */
++	if (ddata->mbox_client_vq.dev && rproc->table_ptr &&
++	    rproc->table_ptr->num) {
+ 		/*
+ 		* To control a co-processor without IPC mechanism.
+ 		* This driver can be used without mbox and rpmsg.
