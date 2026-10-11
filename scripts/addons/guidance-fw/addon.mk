@@ -25,6 +25,6 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 		"$(GUIDANCE_FW_COMPONENT)/linux/systemd/c906-ready.service" \
 		"$(ROOTFS)/etc/systemd/system/c906-ready.service"
 	@mkdir -p "$(ROOTFS)/tmp/install/"
-	@grep -qx "c906-ready" "$(ROOTFS)/tmp/install/systemd-enable" 2>/dev/null || \
+	@grep -q "c906-ready" "$(ROOTFS)/tmp/install/systemd-enable" 2>/dev/null || \
 		echo " c906-ready" >> "$(ROOTFS)/tmp/install/systemd-enable"
 	@touch $@
