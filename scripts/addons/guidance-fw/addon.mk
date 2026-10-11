@@ -21,4 +21,10 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 	@install -D -m 0644 \
 		"$(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.service.d/20-guidance-fw.conf" \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
+	@install -D -m 0644 \
+		"$(GUIDANCE_FW_COMPONENT)/linux/systemd/c906-ready.service" \
+		"$(ROOTFS)/etc/systemd/system/c906-ready.service"
+	@mkdir -p "$(ROOTFS)/tmp/install/"
+	@grep -qx "c906-ready" "$(ROOTFS)/tmp/install/systemd-enable" 2>/dev/null || \
+		echo " c906-ready" >> "$(ROOTFS)/tmp/install/systemd-enable"
 	@touch $@

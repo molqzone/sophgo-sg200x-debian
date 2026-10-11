@@ -17,6 +17,8 @@ tools/rtos-mode              board tool: start the C906L remoteproc at boot
 tools/guidance-cmd.py        board tool: ping / led commands over the doorbell
 linux/systemd/load-systemko.service.d/20-guidance-fw.conf
                              boot drop-in: rproc start before the media chain
+linux/systemd/c906-ready.service
+                             doorbell pings, ordered after load-systemko
 ```
 
 ## Firmware provenance
@@ -32,9 +34,9 @@ mirrored from the vendor reference implementation.
 Board usage:
 
 ```sh
-sudo python3 /usr/local/bin/guidance-cmd.py ping
-sudo python3 /usr/local/bin/guidance-cmd.py led on
-sudo python3 /usr/local/bin/guidance-cmd.py status
+sudo python3 /usr/bin/guidance-cmd.py ping
+sudo python3 /usr/bin/guidance-cmd.py led on
+sudo python3 /usr/bin/guidance-cmd.py status
 ```
 
 The reply is polled from the mailbox buffer rather than completing through

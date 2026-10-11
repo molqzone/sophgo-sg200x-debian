@@ -4,14 +4,14 @@
 Runs ON THE BOARD as root (needs /dev/mem for the shared page and the mailbox,
 and /dev/cvi-rtos-cmdqu for the doorbell):
 
-    sudo python3 /usr/local/bin/guidance-cmd.py format
-    sudo python3 /usr/local/bin/guidance-cmd.py ping
-    sudo python3 /usr/local/bin/guidance-cmd.py led on
-    sudo python3 /usr/local/bin/guidance-cmd.py led off
-    sudo python3 /usr/local/bin/guidance-cmd.py status
-    sudo python3 /usr/local/bin/guidance-cmd.py log [--new]
-    sudo python3 /usr/local/bin/guidance-cmd.py park
-    sudo python3 /usr/local/bin/guidance-cmd.py restart
+    sudo python3 /usr/bin/guidance-cmd.py format
+    sudo python3 /usr/bin/guidance-cmd.py ping
+    sudo python3 /usr/bin/guidance-cmd.py led on
+    sudo python3 /usr/bin/guidance-cmd.py led off
+    sudo python3 /usr/bin/guidance-cmd.py status
+    sudo python3 /usr/bin/guidance-cmd.py log [--new]
+    sudo python3 /usr/bin/guidance-cmd.py park
+    sudo python3 /usr/bin/guidance-cmd.py restart
 
 `log` streams the C906L console from the shared-page log ring (the firmware's
 XR_LOG/STDIO output; Ctrl-C stops). `--new` skips the bytes already retained
