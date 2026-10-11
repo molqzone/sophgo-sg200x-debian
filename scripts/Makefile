@@ -129,8 +129,19 @@ _PACKAGES = $(call strip-quotes,$(PACKAGES))
 
 FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/blank.bin
 ifneq ($(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),)
+# The firmware artifact is still pinned and verified, but it is never handed
+# to the FSBL: releasing the C906L before U-Boot lets U-Boot and the early
+# kernel race the firmware over the shared AXI DMA controller they both need,
+# which hangs the board after a few minutes. cvitek_remoteproc loads the ELF
+# and starts the core once Linux has finished booting instead.
 FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
-FSBL_BLCP_2ND_PATH := $(GUIDANCE_FW_FIRMWARE_BIN)
+# fiptool only writes a BLCP_2ND_RUNADDR when the image it is handed is
+# non-empty, and bl2_opt.c's load_blcp_2nd() treats a zero run address as
+# "No C906L image" and returns without releasing the core.  The 8-byte blank
+# placeholder would still be packed with the 0x8fe00000 run address from
+# blmacros, so the FSBL would release the core into it.  An empty input is
+# what actually suppresses the release.
+FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/no-blcp-2nd.bin
 endif
 
 MEDIA_IMAGE_TARGETS :=
@@ -461,6 +472,7 @@ $(BUILDDIR)/fsbl-prepare-patch-stamp: $(BUILDDIR)/fsbl-prepare-checkout-stamp
 	$(foreach file,$(FSBL_PATCHES),cd $(BUILDDIR)/fsbl && git apply --ignore-whitespace $(file);)
 	@python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/fsbl/plat/$(FSBL_CHIP)/include/cvi_board_memmap.h
 	@printf '\163\000\120\020\157\360\337\377' > $(BUILDDIR)/fsbl/blank.bin
+	@: > $(BUILDDIR)/fsbl/no-blcp-2nd.bin
 	@touch $@
 
 $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/opensbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp $(FSBL_RTOS_TARGET)
@@ -468,7 +480,7 @@ $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)
 	@if [ "$(OFFLINE)" = 1 ] && [ -s "$(BUILDDIR)/fip.bin" ]; then \
 		echo "offline mode: reusing cached FSBL"; \
 	else \
-		test -s $(FSBL_BLCP_2ND_PATH); \
+		test -f $(FSBL_BLCP_2ND_PATH); \
 		cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(FSBL_CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin CROSS_COMPILE=$(CROSS_COMPILE); \
 		cp $(BUILDDIR)/fsbl/build/$(FSBL_CHIP)/fip.bin $(BUILDDIR); \
 	fi

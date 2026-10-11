@@ -10,7 +10,7 @@ kernel patch, and the boot wiring.
 
 ```text
 firmware/c906-mcu.elf        product RISC-V firmware (remoteproc artifact)
-firmware/c906-mcu.bin        raw image injected into the FSBL/FIP BLCP_2ND slot
+firmware/c906-mcu.bin        raw image, only for an opt-in FSBL/FIP build
 firmware/sha256sums.txt      integrity pins for the two artifacts
 ports/osdrv/patches/        0001-cmdqu-allow-user-commands.patch (doorbell)
 tools/rtos-mode              board tool: start the C906L remoteproc at boot
@@ -55,5 +55,14 @@ transactions. The patch is applied to the OSdrv tree when
 `load-systemko.service` runs `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
-media chain without stopping the remote processor. The FSBL path additionally
-embeds `c906-mcu.bin` into the FIP image (`BLCP_2ND_PATH`).
+media chain without stopping the remote processor.
+
+The FSBL never releases the core on this path. `scripts/Makefile` hands fiptool
+an empty `BLCP_2ND` input, which leaves `BLCP_2ND_RUNADDR` at zero in the FIP;
+`bl2_opt.c`'s `load_blcp_2nd()` reads a zero run address as "No C906L image"
+and returns without calling `reset_c906l()`. That is deliberate: the core is
+started only after Linux has finished booting, because U-Boot and the early
+kernel read the SD card over the same shared AXI DMA controller the firmware's
+SPI driver uses. Setting `FSBL_BLCP_2ND_PATH` back to `c906-mcu.bin` restores
+the FSBL boot path, which is retained only for comparison and is known to hang
+the board after a few minutes.
