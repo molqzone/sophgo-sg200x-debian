@@ -1,0 +1,17 @@
+[Unit]
+Description=Per-boot persistent system snapshots (post-mortem log)
+Documentation=file:/usr/local/sbin/bootlogd
+# Start as early as the root filesystem allows, and strictly before the media
+# chain: load-systemko is the stage that hangs when the camera firmware fails,
+# and its hang blocks the network, so the snapshots must already be running.
+After=local-fs.target
+Before=load-systemko.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/bootlogd
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
