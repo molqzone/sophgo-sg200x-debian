@@ -135,15 +135,19 @@ ifneq ($(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),)
 # controller they both need.  cvitek_remoteproc loads the ELF and starts the
 # core once Linux has finished booting instead.
 FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
-# The blank placeholder is deliberate, and it must stay non-empty.  fiptool
-# packs it with the 0x8fe00000 run address from blmacros, so the FSBL takes
-# the full load_blcp_2nd() path: it loads the placeholder, calls
-# init_comm_info(0) -- which the kernel's cmdqu driver depends on -- and
-# releases the core into the 8-byte magic.  Linux then resets the core through
-# cvitek_remoteproc and loads the real firmware.  An *empty* input instead
-# leaves BLCP_2ND_RUNADDR at zero, which makes load_blcp_2nd() return at the
-# "No C906L image" branch before init_comm_info(0) ever runs, and the board
-# never reaches userspace: no USB, no LED, no serial.
+# An empty input leaves BLCP_2ND_RUNADDR at zero, and bl2_opt.c's
+# load_blcp_2nd() reads a zero run address as "No C906L image" and returns
+# without calling reset_c906l().  That is the point: the FSBL must not release
+# the core, because U-Boot and the early kernel still own the shared DMA
+# controller at that stage.
+#
+# Verified on the board, not just by reading the code: with this input the
+# target boots to userspace, cvitek_remoteproc starts the core from
+# /lib/firmware/c906-mcu.elf, the Linux doorbell is received, and the BMI088
+# brings up.  Do not "fix" this into the non-empty blank.bin placeholder
+# without re-measuring -- that variant packs the 0x8fe00000 run address and
+# does release the core early, which is the behaviour being avoided here.
+FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/no-blcp-2nd.bin
 endif
 
 MEDIA_IMAGE_TARGETS :=
@@ -474,6 +478,7 @@ $(BUILDDIR)/fsbl-prepare-patch-stamp: $(BUILDDIR)/fsbl-prepare-checkout-stamp
 	$(foreach file,$(FSBL_PATCHES),cd $(BUILDDIR)/fsbl && git apply --ignore-whitespace $(file);)
 	@python3 /builder/python/mmap_conv.py --type h $(BOARD_MEMMAP) $(BUILDDIR)/fsbl/plat/$(FSBL_CHIP)/include/cvi_board_memmap.h
 	@printf '\163\000\120\020\157\360\337\377' > $(BUILDDIR)/fsbl/blank.bin
+	@: > $(BUILDDIR)/fsbl/no-blcp-2nd.bin
 	@touch $@
 
 $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)/opensbi-compile-stamp $(BUILDDIR)/uboot-compile-stamp $(FSBL_RTOS_TARGET)
@@ -481,7 +486,7 @@ $(BUILDDIR)/fsbl-compile-stamp: $(BUILDDIR)/fsbl-prepare-patch-stamp $(BUILDDIR)
 	@if [ "$(OFFLINE)" = 1 ] && [ -s "$(BUILDDIR)/fip.bin" ]; then \
 		echo "offline mode: reusing cached FSBL"; \
 	else \
-		test -s $(FSBL_BLCP_2ND_PATH); \
+		test -f $(FSBL_BLCP_2ND_PATH); \
 		cd $(BUILDDIR)/fsbl && OD_CLK_SEL=y $(MAKE) -j$(NPROCS) ARCH=$(ARCH) CHIP_ARCH=$(FSBL_CHIP) BOOT_CPU=$(BOOT_CPU) DDR_CFG=$(DDR_CFG) RTOS_ENABLE_FREERTOS=y BLCP_2ND_PATH=$(FSBL_BLCP_2ND_PATH) LOADER_2ND_PATH=$(BUILDDIR)/u-boot.bin CROSS_COMPILE=$(CROSS_COMPILE); \
 		cp $(BUILDDIR)/fsbl/build/$(FSBL_CHIP)/fip.bin $(BUILDDIR); \
 	fi
