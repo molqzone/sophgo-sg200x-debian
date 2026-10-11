@@ -53,7 +53,6 @@ jobs:
           {
             echo "image=$image"
             echo "base=$BUILDER_BASE_IMAGE"
-            echo "snapshot=$DEBIAN_SNAPSHOT"
             echo "host_tools_repo=$HOST_TOOLS_REPO"
             echo "host_tools_commit=$HOST_TOOLS_COMMIT"
           } >> "$GITHUB_OUTPUT"
@@ -67,7 +66,6 @@ jobs:
           tags: ${{ steps.vars.outputs.image }}
           build-args: |
             BUILDER_BASE_IMAGE=${{ steps.vars.outputs.base }}
-            DEBIAN_SNAPSHOT=${{ steps.vars.outputs.snapshot }}
             HOST_TOOLS_REPO=${{ steps.vars.outputs.host_tools_repo }}
             HOST_TOOLS_COMMIT=${{ steps.vars.outputs.host_tools_commit }}
           cache-from: type=gha,scope=sg2002-toolchain
