@@ -86,7 +86,7 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		-e CCACHE_DIR=/ccache \
 		-e OFFLINE="$offline" \
 		-e OFFLINE_CACHE=/offline-cache \
-		-e SDK_CACHE_NO_VERIFY="$SDK_CACHE_NO_VERIFY" \
+		-e SDK_CACHE_NO_VERIFY="${SDK_CACHE_NO_VERIFY:-}" \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
 		-e APT_HTTP_PROXY="$proxy_apt_http" \
