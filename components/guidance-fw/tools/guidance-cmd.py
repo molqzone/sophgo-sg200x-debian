@@ -39,6 +39,7 @@ PAGE_SIZE - sizeof(Region<Command>) = 4096 - 32 = 4064, with write_state at
 The page header is shared-page-xr's PageHeader (32 bytes).
 """
 
+import fcntl
 import glob
 import mmap
 import os
@@ -78,6 +79,9 @@ DOORBELL_CMD = 0x7F
 DOORBELL_BLOCK = 1
 DOORBELL_TIMEOUT_MS = 1000
 REPLY_TIMEOUT_S = 3.0
+
+CMDQU_DEV = "/dev/cvi-rtos-cmdqu"
+RTOS_CMDQU_SEND = 0x40087201  # _IOW('r', 1, unsigned long), non-blocking
 
 # Mirror of the vendor cmdqu_t (packed, 8 bytes).
 CMDQU = struct.Struct("<BBHI")
@@ -202,15 +206,27 @@ def write_command(payload):
 
 
 def send_doorbell(seq):
-    """Ring the mailbox doorbell by writing the mailbox registers directly.
+    """Ring the mailbox doorbell through the vendor cmdqu driver.
 
-    /dev/cvi-rtos-cmdqu only exists on images that load the vendor media
-    chain, so the request is published straight into a mailbox context slot
-    and the doorbell register is written from /dev/mem.  The sequence mirrors
-    the C906L reply path (driver/sg200x_mailbox.cpp): payload, header word,
-    then clr + enable + mbox_set on the C906L (CPU2) set.
+    The context buffer is only writable through the driver: a raw store from
+    /dev/mem is taken as a whole 32-bit write with the other three byte lanes
+    zeroed, so a payload plus header can never be composed here.  The driver's
+    memcpy_toio path writes words and works.  Fall back to the direct register
+    sequence only when the device node is missing, and say so.
     """
-    cmd_block = (DOORBELL_CMD & 0x7F) | (DOORBELL_BLOCK << 7)
+    # cmdqu_t packs cmd_id:7 | block:1 into one byte; the kernel driver
+    # overwrites the slot's resv with its own valid bits, so ip_id, this
+    # command byte and param_ptr are all that reach the c906L.
+    cmd_block = DOORBELL_CMD | (DOORBELL_BLOCK << 7)
+    if os.path.exists(CMDQU_DEV):
+        fd = os.open(CMDQU_DEV, os.O_RDWR)
+        try:
+            fcntl.ioctl(fd, RTOS_CMDQU_SEND,
+                        CMDQU.pack(IP_SYSTEM, cmd_block, DOORBELL_BLOCK, seq))
+            return
+        finally:
+            os.close(fd)
+
     slot = None
     for index in range(8):
         state = MAILBOX.slot(index)
