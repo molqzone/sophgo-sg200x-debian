@@ -11,7 +11,7 @@ diff --git a/sample/common/sample_common_sensor.c b/sample/common/sample_common_
  		pstPubAttr->f32FrameRate = 15;
  		break;
 +	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
-+		pstPubAttr->f32FrameRate = 30;
++		pstPubAttr->f32FrameRate = 120;
 +		break;
  	case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
  	case SMS_SC035GS_1L_MIPI_480P_120FPS_10BIT:
@@ -131,7 +131,7 @@ diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix
  	chn_attr.stAspectRatio.enMode        = ASPECT_RATIO_MANUAL;
  	chn_attr.stAspectRatio.stVideoRect.s32X       = 0;
  	chn_attr.stAspectRatio.stVideoRect.s32Y       = 0;
-@@ -1633,13 +1654,21 @@ _need_deinit_vpss:
+@@ -1633,13 +1654,29 @@ _need_deinit_vpss:
  	s32Ret = _mmf_vpss_chn_deinit(priv.vi_vpss, ch);
  	if (s32Ret != CVI_SUCCESS) {
  		printf("_mmf_vpss_chn_deinit failed with %#x!\n", s32Ret);
@@ -140,6 +140,14 @@ diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix
  
 -	s32Ret = _mmf_vpss_chn_init(priv.vi_vpss, ch, width_out, height_out, format_out, fps, depth, mirror, flip, fit);
 +	bool is_live_fps;
++	{
++		ISP_PUB_ATTR_S force_pub_attr;
++		memset(&force_pub_attr, 0, sizeof(force_pub_attr));
++		if (CVI_ISP_GetPubAttr(0, &force_pub_attr) == CVI_SUCCESS) {
++			force_pub_attr.f32FrameRate = 120;
++			CVI_ISP_SetPubAttr(0, &force_pub_attr);
++		}
++	}
 +	int src_fps = _mmf_get_sensor_fps(&is_live_fps);
 +	const char *fps_source = is_live_fps ? "live" : "configured";
 +	if (src_fps < 0) {
