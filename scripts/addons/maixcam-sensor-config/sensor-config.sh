@@ -35,8 +35,15 @@ then
 			exit 1
 		fi
 		cp "$SENSOR_CONFIG_DEFAULT" /mnt/data/sensor_cfg.ini
-		# MIPI RX 4N PINMUX MIPI RX 4N
-		devmem 0x0300116C 32 0x3
+		# MIPI RX lane pads to the VI function so the D-PHY receives the
+		# adapter's clock (RX2) and data (RX4/RX3) lanes.  Without this the
+		# pads stay at their reset default (GPIO) and the CIF sees nothing.
+		devmem 0x0300116C 32 0x1
+		devmem 0x03001170 32 0x1
+		devmem 0x03001174 32 0x1
+		devmem 0x03001178 32 0x1
+		devmem 0x0300117C 32 0x1
+		devmem 0x03001180 32 0x1
 		# MIPI RX 0N PINMUX MCLK1
 		devmem 0x0300118C 32 0x5
 		echo -n " fixed "
