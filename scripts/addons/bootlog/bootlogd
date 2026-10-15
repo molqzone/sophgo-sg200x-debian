@@ -1,0 +1,69 @@
+#!/bin/sh
+# bootlogd - per-boot persistent system snapshots for post-mortem debugging.
+#
+# Runs early in the boot (before load-systemko, the media-chain stage that is
+# known to hang on a bad camera firmware) and appends a snapshot every 15s to
+# the FAT boot partition.  The boot partition is chosen deliberately: when the
+# board hangs before the network comes up, the card can be pulled and read by
+# any computer -- no serial console, SSH, or running Linux required.
+#
+# Layout: /boot/bootlog/current-<boot_id8>/00-marker   boot identity line
+#                                    /snap.log        rolling snapshots
+# Rotation: only the newest 10 boots are kept; each boot's log is capped.
+set -u
+
+DIR=/boot/bootlog
+KEEP=10          # boots to keep
+CAP=4194304      # per-boot log cap (bytes); older tail is dropped
+TAILKEEP=2097152 # how much of the tail to keep after capping
+INTERVAL=15      # seconds between snapshots
+
+mkdir -p "$DIR" || exit 1
+
+BID=$(cut -c1-8 /proc/sys/kernel/random/boot_id 2>/dev/null)
+[ -n "$BID" ] || BID=unknown
+
+# Rotate: older current-* dirs beyond the newest KEEP are removed.  The boot
+# id is unique per boot, so stale dirs from previous boots accumulate here.
+ls -dt "$DIR"/current-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
+	rm -rf "$old"
+done
+
+CUR="$DIR/current-$BID"
+mkdir -p "$CUR" || exit 1
+
+echo "boot $(date -u +%Y%m%dT%H%M%SZ) id=$BID kernel=$(uname -r)" \
+	> "$CUR/00-marker"
+
+snapshot() {
+	echo "===== $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
+	uptime
+	echo "--- dmesg tail:"
+	dmesg 2>/dev/null | tail -30
+	echo "--- ps:"
+	ps aux --sort=-%cpu 2>/dev/null | head -12
+	echo "--- interrupts:"
+	head -18 /proc/interrupts 2>/dev/null
+	echo "--- net:"
+	ip -br addr 2>/dev/null
+	echo "--- temp:"
+	cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null
+	echo "--- mem:"
+	head -2 /proc/meminfo 2>/dev/null
+	echo "--- media:"
+	lsmod 2>/dev/null | grep -E "cif|mipi|vi|vpss|snsr" | head -10
+}
+
+while true; do
+	{
+		snapshot
+	} >> "$CUR/snap.log" 2>&1
+
+	SZ=$(stat -c %s "$CUR/snap.log" 2>/dev/null || echo 0)
+	if [ "$SZ" -gt "$CAP" ]; then
+		tail -c "$TAILKEEP" "$CUR/snap.log" > "$CUR/snap.log.tmp" 2>/dev/null \
+			&& mv "$CUR/snap.log.tmp" "$CUR/snap.log"
+	fi
+
+	sleep "$INTERVAL"
+done
