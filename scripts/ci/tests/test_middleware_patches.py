@@ -140,7 +140,7 @@ class MiddlewarePatchTests(unittest.TestCase):
         self.assertRegex(
             patch_text,
             r"(?m)^\+\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:\n"
-            r"^\+\t\tpstPubAttr->f32FrameRate = 120;\n",
+            r"^\+\t\tpstPubAttr->f32FrameRate = 180;\n",
         )
         self.assertIn(
             "-\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:", patch_text
