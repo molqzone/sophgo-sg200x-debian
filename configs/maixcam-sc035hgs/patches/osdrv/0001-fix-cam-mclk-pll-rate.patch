@@ -1,0 +1,108 @@
+diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
+--- a/interdrv/cif/chip/cv181x/cif.c
++++ b/interdrv/cif/chip/cv181x/cif.c
+@@ -1861,6 +1861,67 @@
+ 	return _cif_set_mac_clk(dev, devno, mac_clk);
+ }
+ 
++/* CV181x camera MCLK: clk_cam0/clk_cam1 are muxed from clk_cam0pll through the
++ * CAMx_SRC_DIV registers (0x030028C0/0x030028C4; parent mux at bit 8, divider
++ * at bit 16).  The clk framework only knows one G2-PLL rate (1188MHz) and its
++ * cached parent rate goes stale once the PLL is programmed directly, so drive
++ * the PLL and both CAM dividers here.  1050MHz/42 = 25MHz, 1056MHz/44 = 24MHz,
++ * 1188MHz/44 = 27MHz, 1188MHz/32 = 37.125MHz. */
++static void _cif_program_cam_mclk(struct device *dev, u32 freq)
++{
++	static const struct {
++		u32		csr;
++		u32		sync_set;
++		u32		clk_div;
++	} cam_mclk_tbl[CAMPLL_FREQ_NUM] = {
++		[CAMPLL_FREQ_37P125M] = { 0x00308201U, 610080582U, 32 },
++		[CAMPLL_FREQ_27M]     = { 0x00308201U, 610080582U, 44 },
++		[CAMPLL_FREQ_25M]     = { 0x00168101U, 421827145U, 42 },
++		[CAMPLL_FREQ_24M]     = { 0x00208100U, 412977625U, 44 },
++	};
++	void __iomem *base;
++	u32 v;
++	int i;
++
++	if (freq <= CAMPLL_FREQ_NONE || freq >= CAMPLL_FREQ_NUM)
++		return;
++	if (!cam_mclk_tbl[freq].clk_div)
++		return;
++
++	base = ioremap(0x03002000, 0x1000);
++	if (!base)
++		return;
++
++	/* clk_cam0pll: SSC_SYN_SET, toggle SSC_SYN_CTRL, CSR, then wait for
++	 * the update handshake (status bit 3 at 0x03002804). */
++	writel(cam_mclk_tbl[freq].sync_set, base + 0x874);
++	v = readl(base + 0x870) ^ 0x01;
++	writel(v, base + 0x870);
++	writel(cam_mclk_tbl[freq].csr, base + 0x814);
++	for (i = 0; i < 2000; ++i) {
++		if (!(readl(base + 0x804) & BIT(3)))
++			break;
++		udelay(100);
++	}
++
++	/* CAM0/CAM1 SRC_DIV: mux -> clk_cam0pll (0), divider -> clk_div.
++	 * Read-modify-write keeps bit 0 (divider output enable) intact. */
++	v = readl(base + 0x8C0);
++	v &= ~((0x3F << 16) | (0x3 << 8));
++	v |= cam_mclk_tbl[freq].clk_div << 16;
++	writel(v, base + 0x8C0);
++	v = readl(base + 0x8C4);
++	v &= ~((0x3F << 16) | (0x3 << 8));
++	v |= cam_mclk_tbl[freq].clk_div << 16;
++	writel(v, base + 0x8C4);
++
++	iounmap(base);
++
++	dev_info(dev, "cam mclk %u: cam0pll csr 0x%08x ssc 0x%08x div %u\n",
++		 freq, cam_mclk_tbl[freq].csr, cam_mclk_tbl[freq].sync_set,
++		 cam_mclk_tbl[freq].clk_div);
++}
++
+ static int cif_set_dev_attr(struct cvi_cif_dev *dev,
+ 			    struct combo_dev_attr_s *attr)
+ {
+@@ -1908,6 +1969,17 @@
+ 		mclk0 = attr->mclk.freq;
+ 	else if (attr->mclk.cam == 1)
+ 		mclk1 = attr->mclk.freq;
++	{
++		/* Program the exact MCLK (clk_cam0pll + both CAM SRC_DIVs).  The
++		 * framework path in _cif_enable_snsr_clk() cannot express these
++		 * rates (its G2-PLL LUT only knows 1188MHz), so the helper drives
++		 * the registers directly; _cif_enable_snsr_clk() re-applies it
++		 * after its own clk_set_rate() so the final state stays exact.
++		 * MaixCAM routes the sensor XCLK pad (PAD_MIPIRX0N) to CAM_MCLK1,
++		 * so the CAM1 divider is what the sensor sees. */
++		if (attr->mclk.freq > CAMPLL_FREQ_NONE && attr->mclk.freq < CAMPLL_FREQ_NUM)
++			_cif_program_cam_mclk(_dev, attr->mclk.freq);
++	}
+ 
+ 	switch (input_mode) {
+ #ifdef MIPI_IF
+@@ -2356,6 +2428,18 @@
+ 		iowrite32((ioread32(ioremap(0x0a0c8018, 0x4)) & ~0x02),
+ 				    ioremap(0x0a0c8018, 0x4));
+ #endif
++	/* The framework's clk_set_rate() above divides by its cached parent rate
++	 * (1188MHz, the only G2-PLL LUT entry), which no longer matches the
++	 * directly programmed clk_cam0pll and can even reparent the mux to
++	 * cam0pll_d3/div33 (12MHz).  Re-apply the exact MCLK last so the sensor
++	 * sees the requested rate.  This still runs before the sensor register
++	 * init, so the sensor locks its internal PLL against the correct MCLK. */
++	if (on) {
++		if (mclk1 > CAMPLL_FREQ_NONE && mclk1 < CAMPLL_FREQ_NUM)
++			_cif_program_cam_mclk(dev, mclk1);
++		else if (mclk0 > CAMPLL_FREQ_NONE && mclk0 < CAMPLL_FREQ_NUM)
++			_cif_program_cam_mclk(dev, mclk0);
++	}
+ 	return 0;
+ }
+ 
