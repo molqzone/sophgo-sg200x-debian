@@ -35,7 +35,7 @@ MAIXCAM_SIGPIPE_PATCH = (
     CONFIG_ROOT
     / "maixcam/patches/middleware/0014-sample-ignore-sigpipe-in-rtsp-server.patch"
 )
-HGS_H26X_BLOCK_COUNT = 4
+HGS_H26X_BLOCK_COUNT = 8
 H26X_POOL_SIZE = re.compile(
     r"astCommPool\[priv\.vb_enc_h26x_id\]\.u32BlkSize\s*=\s*(?P<value>[^;]+);"
 )
