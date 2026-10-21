@@ -1,7 +1,7 @@
 [Unit]
 Description=ACM USB Gadget Support
 Before=usb-gadget.service
-Conflicts=usb-gadget-rndis.service
+Conflicts=usb-gadget-ncm.service
 Conflicts=usb-switch.service
 StartLimitIntervalSec=0
 
