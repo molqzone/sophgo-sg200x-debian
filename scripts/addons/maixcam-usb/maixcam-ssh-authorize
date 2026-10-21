@@ -12,10 +12,21 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+# Deliberately inert.
+#
+# This used to arm usb-mode-autorevert.timer, which 180 s later ran
+# `usb-mode-switch acm`, pulling the management gadget from NCM to ACM and
+# taking the network away.  On this board password login is the norm and no
+# boot key is provisioned, so the fallback fired on essentially every boot and
+# looked like the board disconnecting itself.
+#
+# The fallback exists to stop a locked-out board from being unreachable.  We
+# accept that tradeoff here: the recovery path is the serial console, which is
+# the same USB port, and an unreachable board is worse than one that has to be
+# reflashed.  If you want the guarantee back, drop the timer and service files
+# back in and re-add the systemctl calls here.
 arm_acm_recovery() {
-  echo "No valid boot SSH key; ACM recovery will be enabled in 180 seconds" >&2
-  systemctl enable usb-mode-autorevert.timer >/dev/null 2>&1 || true
-  systemctl start usb-mode-autorevert.timer >/dev/null 2>&1 || true
+  echo "No valid boot SSH key; management USB stays on NCM (ACM fallback disabled)" >&2
 }
 
 if [ ! -s "$source_file" ]; then
@@ -57,4 +68,3 @@ chmod 0600 "$target_file"
 while IFS= read -r line; do
   grep -Fqx -- "$line" "$target_file" || printf '%s\n' "$line" >>"$target_file"
 done <"$validated_file"
-systemctl disable --now usb-mode-autorevert.timer >/dev/null 2>&1 || true

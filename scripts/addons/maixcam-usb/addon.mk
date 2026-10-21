@@ -9,9 +9,9 @@ $(BUILDDIR)/maixcam-usb-stamp:
 	@cp -a addons/maixcam-usb/usb-shell-wrapper $(ROOTFS)/usr/local/bin/
 	@chmod +x $(ROOTFS)/usr/local/bin/usb-shell-wrapper
 	@cp -a addons/maixcam-usb/usb-gadget*.service addons/maixcam-usb/usb-shell.service $(ROOTFS)/etc/systemd/system/
-	@cp -a addons/maixcam-usb/usb-mode-autorevert.service addons/maixcam-usb/usb-mode-autorevert.timer addons/maixcam-usb/maixcam-ssh-authorize.service $(ROOTFS)/etc/systemd/system/
+	@cp -a addons/maixcam-usb/maixcam-ssh-authorize.service $(ROOTFS)/etc/systemd/system/
 	@chmod 0644 $(ROOTFS)/etc/systemd/system/usb-gadget*.service $(ROOTFS)/etc/systemd/system/usb-shell.service
-	@chmod 0644 $(ROOTFS)/etc/systemd/system/usb-mode-autorevert.service $(ROOTFS)/etc/systemd/system/usb-mode-autorevert.timer $(ROOTFS)/etc/systemd/system/maixcam-ssh-authorize.service
+	@chmod 0644 $(ROOTFS)/etc/systemd/system/maixcam-ssh-authorize.service
 	@cp -a addons/maixcam-usb/usb0 $(ROOTFS)/etc/network/interfaces.d/
 	@mkdir -p $(ROOTFS)/tmp/install
 	@echo " usb-gadget-ncm.service usb-gadget-ncm-usb0.service maixcam-ssh-authorize.service" >> $(ROOTFS)/tmp/install/systemd-enable
