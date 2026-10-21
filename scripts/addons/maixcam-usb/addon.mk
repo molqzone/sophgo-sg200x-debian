@@ -14,5 +14,5 @@ $(BUILDDIR)/maixcam-usb-stamp:
 	@chmod 0644 $(ROOTFS)/etc/systemd/system/usb-mode-autorevert.service $(ROOTFS)/etc/systemd/system/usb-mode-autorevert.timer $(ROOTFS)/etc/systemd/system/maixcam-ssh-authorize.service
 	@cp -a addons/maixcam-usb/usb0 $(ROOTFS)/etc/network/interfaces.d/
 	@mkdir -p $(ROOTFS)/tmp/install
-	@echo " usb-gadget-rndis.service usb-gadget-rndis-usb0.service maixcam-ssh-authorize.service" >> $(ROOTFS)/tmp/install/systemd-enable
+	@echo " usb-gadget-ncm.service usb-gadget-ncm-usb0.service maixcam-ssh-authorize.service" >> $(ROOTFS)/tmp/install/systemd-enable
 	@touch $@
