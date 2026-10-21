@@ -2,9 +2,9 @@ CLASS=acm
 VID=0x3346
 PID=0x1003
 MSC_PID=0x1008
-RNDIS_PID=0x1009
-RNDIS_DEV_ADDR="02:00:00:00:20:02"
-RNDIS_HOST_ADDR="02:00:00:00:20:01"
+NCM_PID=0x100C
+NCM_DEV_ADDR="02:00:00:00:20:02"
+NCM_HOST_ADDR="02:00:00:00:20:01"
 UVC_PID=0x100A
 UAC_PID=0x100B
 ADB_VID=0x18D1
@@ -13,7 +13,7 @@ ADB_PID_M1=0x4EE2
 ADB_PID_M2=0x4EE4
 MANUFACTURER="Cvitek"
 PRODUCT="USB Com Port"
-PRODUCT_RNDIS="RNDIS"
+PRODUCT_NCM="NCM"
 PRODUCT_UVC="UVC"
 PRODUCT_UAC="UAC"
 PRODUCT_ADB="ADB"
@@ -30,12 +30,12 @@ INTF_NUM=0
 EP_IN=0
 EP_OUT=0
 
-set_rndis_addresses() {
+set_ncm_addresses() {
 	machine_hex=$(tr -cd '[:xdigit:]' </etc/machine-id 2>/dev/null | cut -c1-10)
 	if [ "${#machine_hex}" -eq 10 ]; then
 		mac_tail=$(printf '%s' "$machine_hex" | sed 's/^\(..\)\(..\)\(..\)\(..\)\(..\)$/\1:\2:\3:\4:\5/')
-		RNDIS_DEV_ADDR="02:$mac_tail"
-		RNDIS_HOST_ADDR="06:$mac_tail"
+		NCM_DEV_ADDR="02:$mac_tail"
+		NCM_HOST_ADDR="06:$mac_tail"
 	fi
 }
 
@@ -50,11 +50,11 @@ case "$2" in
   cvg)
 	CLASS=cvg
 	;;
-  rndis)
-	CLASS=rndis
-	PID=$RNDIS_PID
-	PRODUCT=$PRODUCT_RNDIS
-	set_rndis_addresses
+  ncm)
+	CLASS=ncm
+	PID=$NCM_PID
+	PRODUCT=$PRODUCT_NCM
+	set_ncm_addresses
 	;;
   uvc)
 	CLASS=uvc
@@ -74,7 +74,7 @@ case "$2" in
 	;;
   *)
 	if [ "$1" = "probe" ] ; then
-	  echo "Usage: $0 probe {acm|msc|cvg|rndis|uvc|uac1|adb}"
+	  echo "Usage: $0 probe {acm|msc|cvg|ncm|uvc|uac1|adb}"
 	  exit 1
 	fi
 esac
@@ -98,7 +98,7 @@ res_check() {
   EP_IN=$(($EP_IN+$TMP_NUM))
   EP_OUT=$(($EP_OUT+$TMP_NUM))
   INTF_NUM=$(($INTF_NUM+$TMP_NUM))
-  TMP_NUM=$(find $CVI_GADGET/functions/ -name "rndis*" | wc -l)
+  TMP_NUM=$(find $CVI_GADGET/functions/ -name "ncm*" | wc -l)
   EP_OUT=$(($EP_OUT+$TMP_NUM))
   TMP_NUM=$(($TMP_NUM * 2))
   EP_IN=$(($EP_IN+$TMP_NUM))
@@ -129,7 +129,7 @@ res_check() {
     EP_IN=$(($EP_IN+1))
     EP_OUT=$(($EP_OUT+1))
   fi
-  if [ "$CLASS" = "rndis" ] ; then
+  if [ "$CLASS" = "ncm" ] ; then
     EP_IN=$(($EP_IN+2))
     EP_OUT=$(($EP_OUT+1))
   fi
@@ -208,25 +208,17 @@ probe() {
   if [ "$CLASS" = "mass_storage" ] ; then
     echo $MSC_FILE >$CVI_GADGET/functions/$CLASS.usb$FUNC_NUM/lun.0/file
   fi
-  if [ "$CLASS" = "rndis" ] ; then
-    echo "$RNDIS_DEV_ADDR" >$CVI_FUNC/rndis.usb$FUNC_NUM/dev_addr
-    echo "$RNDIS_HOST_ADDR" >$CVI_FUNC/rndis.usb$FUNC_NUM/host_addr
+  if [ "$CLASS" = "ncm" ] ; then
+    echo "$NCM_DEV_ADDR" >$CVI_FUNC/ncm.usb$FUNC_NUM/dev_addr
+    echo "$NCM_HOST_ADDR" >$CVI_FUNC/ncm.usb$FUNC_NUM/host_addr
     #OS STRING
     echo 1 >$CVI_GADGET/os_desc/use
     echo 0xcd >$CVI_GADGET/os_desc/b_vendor_code
     echo MSFT100 >$CVI_GADGET/os_desc/qw_sign
-    #COMPATIBLE ID
-    echo RNDIS >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/compatible_id
+    #COMPATIBLE ID: WINNCM makes Windows 10+ bind its inbox usbncm driver
+    echo WINNCM >$CVI_FUNC/ncm.usb$FUNC_NUM/os_desc/interface.ncm/compatible_id
     #MAKE c.1 THE ONE ASSOCIATED WITH OS DESCRIPTORS
     ln -s $CVI_GADGET/configs/c.1 $CVI_GADGET/os_desc
-    #MAKE "Icons" EXTENDED PROPERTY
-    mkdir $CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Icons
-    echo 2 >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Icons/type
-    echo "%SystemRoot%\\system32\\shell32.dll,-233" >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Icons/data
-    #MAKE "Label" EXTENDED PROPERTY
-    mkdir $CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Label
-    echo 1 >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Label/type
-    echo "XYZ Device" >$CVI_FUNC/rndis.usb$FUNC_NUM/os_desc/interface.rndis/Label/data
   fi
 
 }
@@ -268,13 +260,13 @@ stop() {
   fi
   find $CVI_GADGET/configs/ -name "*.usb*" | xargs rm -f
   rmdir $CVI_GADGET/configs/c.*/strings/0x409/
-  tmp_dirs=$(find $CVI_GADGET/os_desc/c.* -type d 2>/dev/null || true)
-  if [ -n "$tmp_dirs" ]; then
-    echo "remove os_desc!"
-    rm -rf $CVI_GADGET/os_desc/c.*/
-    find $CVI_GADGET/functions/ -name Icons | xargs rmdir
-    find $CVI_GADGET/functions/ -name Label | xargs rmdir
-  fi
+  # os_desc/c.1 is a symlink, so find -type d does not select it.  Unlink
+  # the reference before removing its configuration; otherwise NCM
+  # teardown leaves an unbound gadget that prevents the next mode starting.
+  for config_link in "$CVI_GADGET"/os_desc/c.*; do
+    [ -L "$config_link" ] || continue
+    rm -- "$config_link"
+  done
   rmdir $CVI_GADGET/configs/c.*/
   rmdir $CVI_GADGET/functions/*
   rmdir $CVI_GADGET/strings/0x409/
