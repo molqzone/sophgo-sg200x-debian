@@ -2,7 +2,8 @@
 # Switch SG2002 management USB between NCM/SSH and ACM recovery.
 set -eu
 
-run_usb=/usr/sbin/run_usb.sh
+run_usb=${MAIXCAM_RUN_USB:-/usr/sbin/run_usb.sh}
+systemd_dir=${MAIXCAM_SYSTEMD_DIR:-/etc/systemd/system}
 
 # Switching away from ACM stops usb-shell.service.  When this script is
 # launched from ttyGS0 it therefore has to leave that service's cgroup before
@@ -22,12 +23,24 @@ else
   fi
 fi
 
+# Remove the 180 s ACM fallback that older images armed whenever no boot SSH
+# key was present.  It switched the gadget to ACM behind the user's back and
+# persisted that choice, which is why a replug could enumerate as "USB Com
+# Port" instead of NCM.  Retire both the timer and its enable link so a card
+# written with an old image self-heals on the next switch/boot.
+retire_legacy_autorevert() {
+  systemctl disable --now usb-mode-autorevert.timer 2>/dev/null || true
+  rm -f "$systemd_dir/usb-mode-autorevert.timer" \
+        "$systemd_dir/usb-mode-autorevert.service" \
+        "$systemd_dir/timers.target.wants/usb-mode-autorevert.timer"
+}
+
 stop_gadget() {
-  systemctl stop usb-gadget-ncm-usb0.service 2>/dev/null || true
+  systemctl stop usb-gadget-ncm-usb0.service usb-gadget-rndis-usb0.service 2>/dev/null || true
   ifdown usb0 2>/dev/null || true
   systemctl stop --no-block usb-shell.service 2>/dev/null || true
   systemctl kill --kill-whom=all --signal=KILL usb-shell.service 2>/dev/null || true
-  systemctl stop usb-gadget-ncm.service usb-gadget-acm.service 2>/dev/null || true
+  systemctl stop usb-gadget-ncm.service usb-gadget-acm.service usb-gadget-rndis.service 2>/dev/null || true
   if [ -d /sys/kernel/config/usb_gadget/cvitek ]; then
     sh "$run_usb" stop
   fi
@@ -45,6 +58,8 @@ wait_for_usb0() {
   done
 }
 
+retire_legacy_autorevert
+
 case "$mode" in
   ncm|rndis)
     systemctl disable usb-shell.service usb-gadget-acm.service >/dev/null 2>&1 || true
@@ -59,8 +74,12 @@ case "$mode" in
     systemctl start usb-gadget-ncm-usb0.service
     ;;
   acm)
-    systemctl disable usb-gadget-ncm.service usb-gadget-ncm-usb0.service >/dev/null 2>&1 || true
-    systemctl enable usb-gadget-acm.service usb-shell.service >/dev/null
+    # Recovery is deliberately one-shot.  Keep NCM as the persistent boot
+    # mode and start the ACM gadget for this boot only; a reboot or replug
+    # must return the board to the network gadget instead of leaving it
+    # enumerating as a COM port.
+    systemctl disable usb-shell.service usb-gadget-acm.service >/dev/null 2>&1 || true
+    systemctl enable usb-gadget-ncm.service usb-gadget-ncm-usb0.service >/dev/null
     stop_gadget
     systemctl start usb-gadget-acm.service
     systemctl start usb-shell.service
