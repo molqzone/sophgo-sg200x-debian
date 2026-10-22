@@ -109,9 +109,9 @@ cp ${lib_dir}/cvitek/*.dtb /boot/fdt/${kernel_image}/
 cat /boot/extlinux/extlinux.conf
 
 if [ "$STORAGETYPE" = "sd" ]; then
-sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS1,115200 earlycon=uart8250,mmio32,0x04150000,115200 root=/dev/mmcblk0p2 rootwait rw"|' /etc/default/u-boot
+sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS2,115200 earlycon=uart8250,mmio32,0x04160000,115200 root=/dev/mmcblk0p2 rootwait rw"|' /etc/default/u-boot
 else
-sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS1,115200 earlycon=uart8250,mmio32,0x04150000,115200 root=/dev/mmcblk0p1 rootwait rw"|' /etc/default/u-boot
+sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS2,115200 earlycon=uart8250,mmio32,0x04160000,115200 root=/dev/mmcblk0p1 rootwait rw"|' /etc/default/u-boot
 fi
 
 sed -i -e 's|#U_BOOT_SYNC_DTBS=".*"|U_BOOT_SYNC_DTBS="true"|' /etc/default/u-boot

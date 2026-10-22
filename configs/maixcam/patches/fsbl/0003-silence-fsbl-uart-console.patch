@@ -1,0 +1,20 @@
+diff --git a/plat/cv181x/uart/uart_dw.c b/plat/cv181x/uart/uart_dw.c
+--- a/plat/cv181x/uart/uart_dw.c
++++ b/plat/cv181x/uart/uart_dw.c
+@@ -71,13 +71,11 @@
+ 	uart->lcr = 3;
+ }
+ 
+ void _uart_putc(uint8_t ch)
+ {
+-	do {
+-		asm (""::: "memory");
+-	} while (!(uart->lsr & UART_LSR_THRE))
+-		;
+-	uart->rbr = ch;
++	/* UART0 is repurposed for a PWM servo on MaixCAM; keep the FSBL
++	 * console from driving the UART0 TX pin. */
++	(void)ch;
+ }
+ 
+ void console_putc(uint8_t ch)
