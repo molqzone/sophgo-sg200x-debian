@@ -5,6 +5,7 @@ set -eu
 source_file=${MAIXCAM_AUTHORIZED_KEYS_FILE:-/boot/maixcam_authorized_keys}
 target_dir=${MAIXCAM_SSH_TARGET_DIR:-/root/.ssh}
 target_file=$target_dir/authorized_keys
+systemd_dir=${MAIXCAM_SYSTEMD_DIR:-/etc/systemd/system}
 validated_file=$(mktemp)
 
 cleanup() {
@@ -12,25 +13,55 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-# Deliberately inert.
-#
-# This used to arm usb-mode-autorevert.timer, which 180 s later ran
-# `usb-mode-switch acm`, pulling the management gadget from NCM to ACM and
-# taking the network away.  On this board password login is the norm and no
-# boot key is provisioned, so the fallback fired on essentially every boot and
-# looked like the board disconnecting itself.
-#
-# The fallback exists to stop a locked-out board from being unreachable.  We
-# accept that tradeoff here: the recovery path is the serial console, which is
-# the same USB port, and an unreachable board is worse than one that has to be
-# reflashed.  If you want the guarantee back, drop the timer and service files
-# back in and re-add the systemctl calls here.
-arm_acm_recovery() {
-  echo "No valid boot SSH key; management USB stays on NCM (ACM fallback disabled)" >&2
+# Old images armed usb-mode-autorevert.timer whenever the boot key was
+# missing.  The timer ran `usb-mode-switch acm` after 180 s, pulled the
+# management gadget away from NCM, and made the switch persistent, so a replug
+# showed "USB Com Port" instead of the network interface.  New images no
+# longer ship the timer, but a card written with an old image still carries
+# its unit and enable link.  Retire both here, and put a board that was
+# already flipped back on its network gadget.
+retire_legacy_acm_fallback() {
+  systemctl disable --now usb-mode-autorevert.timer 2>/dev/null || true
+  rm -f "$systemd_dir/usb-mode-autorevert.timer" \
+        "$systemd_dir/usb-mode-autorevert.service" \
+        "$systemd_dir/timers.target.wants/usb-mode-autorevert.timer"
+
+  # Pick the network gadget this image actually ships.  Images before the NCM
+  # switch only have the RNDIS pair, and dropping the timer is enough to make
+  # those boot back into RNDIS.  Prefer NCM when both are present.
+  if [ -e "$systemd_dir/usb-gadget-ncm.service" ]; then
+    network_unit=usb-gadget-ncm.service
+    network_aux_unit=usb-gadget-ncm-usb0.service
+    legacy_network_units="usb-gadget-rndis.service usb-gadget-rndis-usb0.service"
+  elif [ -e "$systemd_dir/usb-gadget-rndis.service" ]; then
+    network_unit=usb-gadget-rndis.service
+    network_aux_unit=usb-gadget-rndis-usb0.service
+    legacy_network_units=""
+  else
+    return 0
+  fi
+
+  legacy_acm=0
+  if systemctl is-enabled --quiet usb-gadget-acm.service 2>/dev/null; then
+    legacy_acm=1
+  fi
+
+  systemctl disable usb-shell.service usb-gadget-acm.service $legacy_network_units 2>/dev/null || true
+  systemctl enable "$network_unit" "$network_aux_unit" >/dev/null 2>&1 || true
+
+  if [ "$legacy_acm" = 1 ]; then
+    # The current boot may already have started the ACM shell.  Stop it and
+    # bring the network gadget up now; the next boot would otherwise be fine,
+    # but the board would stay unreachable until then.
+    systemctl stop usb-shell.service usb-gadget-acm.service 2>/dev/null || true
+    systemctl start "$network_unit" 2>/dev/null || true
+  fi
 }
 
+retire_legacy_acm_fallback
+
 if [ ! -s "$source_file" ]; then
-  arm_acm_recovery
+  echo "No boot SSH key; management USB stays on its network default" >&2
   exit 0
 fi
 
@@ -45,20 +76,18 @@ while IFS= read -r line || [ -n "$line" ]; do
       ;;
     *)
       echo "Invalid public key line in $source_file" >&2
-      arm_acm_recovery
       exit 0
       ;;
   esac
 done <"$source_file"
 
 if [ "$valid_count" -eq 0 ]; then
-  arm_acm_recovery
+  echo "No usable public key line in $source_file" >&2
   exit 0
 fi
 
 if ! ssh-keygen -l -f "$validated_file" >/dev/null 2>&1; then
   echo "Public key validation failed for $source_file" >&2
-  arm_acm_recovery
   exit 0
 fi
 
