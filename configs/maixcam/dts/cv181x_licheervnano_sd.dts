@@ -37,6 +37,20 @@
         status = "okay";
 };
 
+&uart2 {
+        status = "okay";
+};
+
+/* Route the boot console to UART2: UART0 is repurposed for a PWM servo, so
+ * the console must never drive the UART0 TX pin.  The inherited cv181x base
+ * sets stdout-path = "serial0"; override to serial2 to match the kernel
+ * cmdline console=ttyS2 in scripts/setup_rootfs.sh. */
+/ {
+	chosen {
+		stdout-path = "serial2";
+	};
+};
+
 &mipi_tx {
 	status = "disabled";
 };
