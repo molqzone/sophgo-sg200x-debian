@@ -31,6 +31,10 @@ HGS_NOISE_CONTROL_PATCH = (
     CONFIG_ROOT
     / "maixcam-sc035hgs/patches/middleware/0005-add-runtime-noise-control.patch"
 )
+HGS_COLOR_FORMAT_PATCH = (
+    CONFIG_ROOT
+    / "maixcam-sc035hgs/patches/middleware/0006-use-nv21-for-color-sc035hgs.patch"
+)
 MAIXCAM_SIGPIPE_PATCH = (
     CONFIG_ROOT
     / "maixcam/patches/middleware/0014-sample-ignore-sigpipe-in-rtsp-server.patch"
@@ -140,7 +144,7 @@ class MiddlewarePatchTests(unittest.TestCase):
         self.assertRegex(
             patch_text,
             r"(?m)^\+\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:\n"
-            r"^\+\t\tpstPubAttr->f32FrameRate = 120;\n",
+            r"^\+\t\tpstPubAttr->f32FrameRate = 30;\n",
         )
         self.assertIn(
             "-\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:", patch_text
@@ -161,6 +165,22 @@ class MiddlewarePatchTests(unittest.TestCase):
         self.assertIn(
             "format_out, src_fps, fps, depth, mirror, flip, fit", source
         )
+
+    def test_hgs_color_format_uses_nv21_not_mono(self) -> None:
+        self.assertIn(
+            HGS_COLOR_FORMAT_PATCH,
+            plan.patch_files(CONFIG_ROOT, "maixcam-sc035hgs", "middleware"),
+        )
+        with tempfile.TemporaryDirectory() as tempdir:
+            source = materialize_source("maixcam-sc035hgs", MMF_SOURCE, Path(tempdir))
+        self.assertIn(
+            '\t} else if (!strcmp(sensor_name, "sms_sc035hgs")) {\n'
+            "\t\tvi_format = PIXEL_FORMAT_NV21;\n"
+            "\t\tvi_vpss_format = PIXEL_FORMAT_NV21;",
+            source,
+        )
+        self.assertIn('!strcmp(sensor_name, "sms_sc035gs")', source)
+        self.assertIn("vi_vpss_format = PIXEL_FORMAT_YUV_400;", source)
 
     def test_maixcam_rtsp_ignores_sigpipe_for_all_descendants(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
