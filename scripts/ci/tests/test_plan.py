@@ -439,10 +439,18 @@ class RepositoryConfigurationTests(unittest.TestCase):
             self.assertIn(expected, profile)
 
         sensor_patches = plan.patch_files(config_root, board, "sensorsupportlist")
+        sensor_names = [patch.name for patch in sensor_patches]
+        # The adapter configuration has to come first: the mode-specific
+        # patches carry its lane_id/pn_swap edits in their hunk context, so
+        # they only apply on top of it.  More than one patch is expected once
+        # the board runs a non-default sensor mode (120 fps, 180 fps, ...).
         self.assertEqual(
-            sensor_patches[-1].name,
-            "0008-configure-sc035hgs-for-maixcam-adapter.patch",
+            sensor_names,
+            sorted(sensor_names),
         )
+        self.assertIn(
+            "0008-configure-sc035hgs-for-maixcam-adapter.patch", sensor_names
+ )
         middleware_patches = plan.patch_files(config_root, board, "middleware")
         middleware_by_name = {patch.name: patch for patch in middleware_patches}
         route_name = "0001-route-sc035hgs-in-maix-mmf.patch"
