@@ -1,7 +1,8 @@
 diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
+index 138fe20..906008b 100644
 --- a/interdrv/cif/chip/cv181x/cif.c
 +++ b/interdrv/cif/chip/cv181x/cif.c
-@@ -1861,6 +1861,67 @@
+@@ -1861,6 +1861,75 @@ static inline int cif_set_mac_clk(struct cvi_cif_dev *dev, uint32_t devno,
  	return _cif_set_mac_clk(dev, devno, mac_clk);
  }
  
@@ -9,8 +10,16 @@ diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
 + * CAMx_SRC_DIV registers (0x030028C0/0x030028C4; parent mux at bit 8, divider
 + * at bit 16).  The clk framework only knows one G2-PLL rate (1188MHz) and its
 + * cached parent rate goes stale once the PLL is programmed directly, so drive
-+ * the PLL and both CAM dividers here.  1050MHz/42 = 25MHz, 1056MHz/44 = 24MHz,
-+ * 1188MHz/44 = 27MHz, 1188MHz/32 = 37.125MHz. */
++ * the PLL and both CAM dividers here.  1188MHz/44 = 27MHz, 1188MHz/32 =
++ * 37.125MHz, 792MHz/33 = 24MHz.
++ *
++ * clk_cam0pll = clk_ref * div_sel / (pre_div_sel * post_div_sel), where clk_ref
++ * is the SSC synthesizer output.  The FSBL programs clk_mipimpll to 900MHz and
++ * REG_PLL_G2_SSC_SYN_CTRL[0] = 1, so ssc_set = 610080582 yields
++ * 900e6 * 2^26 / 610080582 = 99MHz.  That is the same clk_ref the single live
++ * g2_pll_rate_lut[] entry (1188MHz, csr 0x00308201) implies.  pre_div_sel must
++ * never be 0: cv181x_pll_rate_calc() would divide by zero and the framework
++ * would compute garbage for clk_cam0/clk_cam1. */
 +static void _cif_program_cam_mclk(struct device *dev, u32 freq)
 +{
 +	static const struct {
@@ -21,7 +30,7 @@ diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
 +		[CAMPLL_FREQ_37P125M] = { 0x00308201U, 610080582U, 32 },
 +		[CAMPLL_FREQ_27M]     = { 0x00308201U, 610080582U, 44 },
 +		[CAMPLL_FREQ_25M]     = { 0x00168101U, 421827145U, 42 },
-+		[CAMPLL_FREQ_24M]     = { 0x00208100U, 412977625U, 44 },
++		[CAMPLL_FREQ_24M]     = { 0x00108101U, 610080582U, 33 },
 +	};
 +	void __iomem *base;
 +	u32 v;
@@ -69,7 +78,7 @@ diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
  static int cif_set_dev_attr(struct cvi_cif_dev *dev,
  			    struct combo_dev_attr_s *attr)
  {
-@@ -1908,6 +1969,17 @@
+@@ -1908,6 +1977,17 @@ static int cif_set_dev_attr(struct cvi_cif_dev *dev,
  		mclk0 = attr->mclk.freq;
  	else if (attr->mclk.cam == 1)
  		mclk1 = attr->mclk.freq;
@@ -87,7 +96,7 @@ diff --git a/interdrv/cif/chip/cv181x/cif.c b/interdrv/cif/chip/cv181x/cif.c
  
  	switch (input_mode) {
  #ifdef MIPI_IF
-@@ -2356,6 +2428,18 @@
+@@ -2356,6 +2436,18 @@ static int _cif_enable_snsr_clk(struct device *dev,
  		iowrite32((ioread32(ioremap(0x0a0c8018, 0x4)) & ~0x02),
  				    ioremap(0x0a0c8018, 0x4));
  #endif
