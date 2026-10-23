@@ -15,6 +15,7 @@ MODE_SCRIPT = USB_ADDON / "usb-mode-switch"
 AUTHORIZE_SCRIPT = USB_ADDON / "maixcam-ssh-authorize"
 ADDON_MK = USB_ADDON / "addon.mk"
 NCM_UNIT = USB_ADDON / "usb-gadget-ncm.service"
+USB0_IP_SCRIPT = USB_ADDON / "usb0-ip.sh"
 
 
 class UsbGadgetTests(unittest.TestCase):
@@ -207,6 +208,16 @@ class UsbGadgetTests(unittest.TestCase):
         self.assertIn("usb-gadget-ncm.service", enable_line)
         self.assertNotIn("usb-gadget-acm.service", enable_line)
         self.assertNotIn("usb-gadget-rndis.service", enable_line)
+
+    def test_ncm_boot_assigns_usb0_address(self) -> None:
+        script = USB0_IP_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("ip addr replace 10.42.0.1/24 dev usb0", script)
+        self.assertIn("sleep 0.1", script)
+        self.assertIn("usb0 never appeared", script)
+        unit = NCM_UNIT.read_text(encoding="utf-8")
+        self.assertIn("ExecStartPost=/usr/local/sbin/usb0-ip.sh", unit)
+        addon = ADDON_MK.read_text(encoding="utf-8")
+        self.assertIn("addons/maixcam-usb/usb0-ip.sh", addon)
 
     def test_ncm_unit_wins_over_legacy_acm_and_rndis(self) -> None:
         source = NCM_UNIT.read_text(encoding="utf-8")

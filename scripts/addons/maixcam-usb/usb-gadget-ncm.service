@@ -16,6 +16,9 @@ RemainAfterExit=yes
 ExecStart=/bin/bash -c "/bin/echo device > /proc/cviusb/otg_role"
 ExecStart=sh /usr/sbin/run_usb.sh probe ncm
 ExecStart=sh /usr/sbin/run_usb.sh start
+# The image disables ifupdown's hotplug handling, so assign usb0's management
+# address here; otherwise dnsmasq cannot bind and SSH never comes up.
+ExecStartPost=/usr/local/sbin/usb0-ip.sh
 ExecStop=sh /usr/sbin/run_usb.sh stop
 
 [Install]
