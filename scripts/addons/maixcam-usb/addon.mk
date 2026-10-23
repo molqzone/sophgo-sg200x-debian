@@ -6,6 +6,8 @@ $(BUILDDIR)/maixcam-usb-stamp:
 	@chmod +x $(ROOTFS)/usr/sbin/run_usb.sh
 	@cp -a addons/maixcam-usb/usb-mode-switch addons/maixcam-usb/maixcam-ssh-authorize addons/maixcam-usb/maixcam-usb-update $(ROOTFS)/usr/local/sbin/
 	@chmod +x $(ROOTFS)/usr/local/sbin/usb-mode-switch $(ROOTFS)/usr/local/sbin/maixcam-ssh-authorize $(ROOTFS)/usr/local/sbin/maixcam-usb-update
+	@cp -a addons/maixcam-usb/usb0-ip.sh $(ROOTFS)/usr/local/sbin/
+	@chmod +x $(ROOTFS)/usr/local/sbin/usb0-ip.sh
 	@cp -a addons/maixcam-usb/usb-shell-wrapper $(ROOTFS)/usr/local/bin/
 	@chmod +x $(ROOTFS)/usr/local/bin/usb-shell-wrapper
 	@cp -a addons/maixcam-usb/usb-gadget*.service addons/maixcam-usb/usb-shell.service $(ROOTFS)/etc/systemd/system/
