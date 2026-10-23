@@ -1,0 +1,37 @@
+diff --git a/sensor/cv182x/sms_sc035hgs/sc035hgs_cmos.c b/sensor/cv182x/sms_sc035hgs/sc035hgs_cmos.c
+index 75fadb3..e9b7b5f 100644
+--- a/sensor/cv182x/sms_sc035hgs/sc035hgs_cmos.c
++++ b/sensor/cv182x/sms_sc035hgs/sc035hgs_cmos.c
+@@ -86,6 +86,7 @@ static CVI_S32 cmos_get_wdr_size(VI_PIPE ViPipe, ISP_SNS_ISP_INFO_S *pstIspCfg);
+ static CVI_S32 cmos_get_ae_default(VI_PIPE ViPipe, AE_SENSOR_DEFAULT_S *pstAeSnsDft)
+ {
+ 	const SC035HGS_MODE_S *pstMode;
++	CVI_U32 FpsMax;
+ 	ISP_SNS_STATE_S *pstSnsState = CVI_NULL;
+ 
+ 	CMOS_CHECK_POINTER(pstAeSnsDft);
+@@ -93,13 +94,14 @@ static CVI_S32 cmos_get_ae_default(VI_PIPE ViPipe, AE_SENSOR_DEFAULT_S *pstAeSns
+ 	CMOS_CHECK_POINTER(pstSnsState);
+ 
+ 	pstMode = &g_astSC035HGS_mode[pstSnsState->u8ImgMode];
++	FpsMax = g_astSC035HGS_mode[pstSnsState->u8ImgMode].f32MaxFps;
+ #if 0
+ 	memset(&pstAeSnsDft->stAERouteAttr, 0, sizeof(ISP_AE_ROUTE_S));
+ #endif
+ 	pstAeSnsDft->u32FullLinesStd = pstSnsState->u32FLStd;
+ 	pstAeSnsDft->u32FlickerFreq = 50 * 256;
+ 	pstAeSnsDft->u32FullLinesMax = SC035HGS_FULL_LINES_MAX;
+-	pstAeSnsDft->u32HmaxTimes = (1000000) / (pstSnsState->u32FLStd * 120);
++	pstAeSnsDft->u32HmaxTimes = (1000000) / (pstSnsState->u32FLStd * FpsMax);
+ 
+ 	pstAeSnsDft->stIntTimeAccu.enAccuType = AE_ACCURACY_LINEAR;
+ 	pstAeSnsDft->stIntTimeAccu.f32Accuracy = 0.0625; /* unit = 1/16 line */
+@@ -116,7 +118,7 @@ static CVI_S32 cmos_get_ae_default(VI_PIPE ViPipe, AE_SENSOR_DEFAULT_S *pstAeSns
+ 	pstAeSnsDft->u32MaxISPDgainTarget = 2 << pstAeSnsDft->u32ISPDgainShift;
+ 
+ 	if (g_au32LinesPer500ms[ViPipe] == 0)
+-		pstAeSnsDft->u32LinesPer500ms = pstSnsState->u32FLStd * 120 / 2;
++		pstAeSnsDft->u32LinesPer500ms = pstSnsState->u32FLStd * FpsMax / 2;
+ 	else
+ 		pstAeSnsDft->u32LinesPer500ms = g_au32LinesPer500ms[ViPipe];
+ 	pstAeSnsDft->u32SnsStableFrame = 0;
