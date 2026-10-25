@@ -428,7 +428,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
             / settings["MAIXCAM_SENSOR_CONFIG"]
         ).read_text(encoding="utf-8")
         for expected in (
-            "name = SMS_SC035HGS_MIPI_480P_120FPS_12BIT",
+            "name = SMS_SC035HGS_MIPI_480P_180FPS_10BIT",
             "bus_id = 4",
             "sns_i2c_addr = 48",
             "lane_id = 2, 4, 3, -1, -1",
@@ -440,17 +440,23 @@ class RepositoryConfigurationTests(unittest.TestCase):
 
         sensor_patches = plan.patch_files(config_root, board, "sensorsupportlist")
         sensor_names = [patch.name for patch in sensor_patches]
-        # The adapter configuration has to come first: the mode-specific
-        # patches carry its lane_id/pn_swap edits in their hunk context, so
-        # they only apply on top of it.  More than one patch is expected once
-        # the board runs a non-default sensor mode (120 fps, 180 fps, ...).
-        self.assertEqual(
-            sensor_names,
-            sorted(sensor_names),
-        )
-        self.assertIn(
-            "0008-configure-sc035hgs-for-maixcam-adapter.patch", sensor_names
- )
+        # Both sensor modes live in one patch: the 120 fps profile keeps the
+        # stock 1364x515/12-bit/27 MHz setup and the 180 fps profile adds the
+        # 852x528/10-bit/24 MHz setup next to it.  The parent boards still
+        # contribute their own sensor support patches.
+        self.assertEqual(sensor_names, sorted(sensor_names))
+        split_name = "0008-split-sc035hgs-120fps-and-180fps-modes.patch"
+        self.assertIn(split_name, sensor_names)
+        self.assertNotIn("0009-run-sc035hgs-at-180fps.patch", sensor_names)
+        sensor_patch_text = next(
+            patch for patch in sensor_patches if patch.name == split_name
+        ).read_text(encoding="utf-8")
+        self.assertIn("SC035HGS_MODE_640X480P120", sensor_patch_text)
+        self.assertIn("SC035HGS_MODE_640X480P180", sensor_patch_text)
+        self.assertIn("RAW_DATA_12BIT", sensor_patch_text)
+        self.assertIn("RAW_DATA_10BIT", sensor_patch_text)
+        self.assertIn("CAMPLL_FREQ_27M", sensor_patch_text)
+        self.assertIn("CAMPLL_FREQ_24M", sensor_patch_text)
         middleware_patches = plan.patch_files(config_root, board, "middleware")
         middleware_by_name = {patch.name: patch for patch in middleware_patches}
         route_name = "0001-route-sc035hgs-in-maix-mmf.patch"

@@ -23,6 +23,10 @@ HGS_FPS_PATCH = (
     CONFIG_ROOT
     / "maixcam-sc035hgs/patches/middleware/0003-run-sc035hgs-at-30fps.patch"
 )
+HGS_SENSOR_TYPE_PATCH = (
+    CONFIG_ROOT
+    / "maixcam-sc035hgs/patches/middleware/0007-add-sc035hgs-180fps-sensor-type.patch"
+)
 HGS_ISP_CONTROL_PATCH = (
     CONFIG_ROOT
     / "maixcam-sc035hgs/patches/middleware/0004-add-runtime-isp-control.patch"
@@ -136,14 +140,23 @@ class MiddlewarePatchTests(unittest.TestCase):
             )
 
     def test_hgs_fps_contract_uses_effective_input_rate(self) -> None:
-        patch_text = HGS_FPS_PATCH.read_text(encoding="utf-8")
+        # The 120 fps and 180 fps profiles are separate sensor types.  The
+        # 180 fps type is added on top of the historical 180 fps hunks and
+        # turns the hardcoded override into a per-profile rate.
+        type_patch = HGS_SENSOR_TYPE_PATCH.read_text(encoding="utf-8")
         self.assertRegex(
-            patch_text,
-            r"(?m)^\+\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:\n"
-            r"^\+\t\tpstPubAttr->f32FrameRate = 180;\n",
+            type_patch,
+            r"(?m)^ \tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:\n"
+            r"^\+\t\tpstPubAttr->f32FrameRate = 120;\n"
+            r"^\+\t\tbreak;\n"
+            r"^\+\tcase SMS_SC035HGS_MIPI_480P_180FPS_10BIT:\n"
+            r"^ \t\tpstPubAttr->f32FrameRate = 180;\n",
         )
         self.assertIn(
-            "-\tcase SMS_SC035HGS_MIPI_480P_120FPS_12BIT:", patch_text
+            "+	SMS_SC035HGS_MIPI_480P_180FPS_10BIT,", type_patch
+        )
+        self.assertIn(
+            '+	"SMS_SC035HGS_MIPI_480P_180FPS_10BIT",', type_patch
         )
 
         with tempfile.TemporaryDirectory() as tempdir:
@@ -152,6 +165,8 @@ class MiddlewarePatchTests(unittest.TestCase):
             source.count("static int _mmf_get_sensor_fps(bool *is_live)"), 1
         )
         self.assertIn("CVI_ISP_GetPubAttr(0, &pub_attr)", source)
+        self.assertNotIn("force_pub_attr.f32FrameRate = 180;", source)
+        self.assertIn("force_pub_attr.f32FrameRate = configured_fps;", source)
         self.assertEqual(
             source.count("stFrameRate.s32SrcFrameRate = src_fps;"), 4
         )
@@ -161,6 +176,18 @@ class MiddlewarePatchTests(unittest.TestCase):
         self.assertIn(
             "format_out, src_fps, fps, depth, mirror, flip, fit", source
         )
+
+    def test_hgs_sensor_type_patch_is_isolated_to_hgs_matrix_entry(self) -> None:
+        for entry in plan.load_matrix(CONFIG_ROOT):
+            board = str(entry["board"])
+            selected = HGS_SENSOR_TYPE_PATCH in plan.patch_files(
+                CONFIG_ROOT, board, "middleware"
+            )
+            self.assertEqual(
+                selected,
+                "maixcam-sc035hgs" in plan.board_chain(CONFIG_ROOT, board),
+                f"unexpected HGS sensor type patch selection for {board}",
+            )
 
     def test_maixcam_rtsp_ignores_sigpipe_for_all_descendants(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
