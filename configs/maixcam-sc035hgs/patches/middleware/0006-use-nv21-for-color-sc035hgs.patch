@@ -1,0 +1,16 @@
+diff --git a/sample/test_mmf/maix_mmf/sophgo_middleware.c b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -1191,8 +1191,10 @@ int mmf_vi_format_init(void)
+ 	// config vi param
+ 	char *sensor_name = mmf_get_sensor_name();
+ 
+-	if (!strcmp(sensor_name, "sms_sc035gs") ||
+-	    !strcmp(sensor_name, "sms_sc035hgs")) {
++	if (!strcmp(sensor_name, "sms_sc035gs")) {
+ 		vi_format = PIXEL_FORMAT_NV21;
+ 		vi_vpss_format = PIXEL_FORMAT_YUV_400;
++	} else if (!strcmp(sensor_name, "sms_sc035hgs")) {
++		vi_format = PIXEL_FORMAT_NV21;
++		vi_vpss_format = PIXEL_FORMAT_NV21;
+ 	} else if (!strcmp(sensor_name, "ov_ov2685")) {
