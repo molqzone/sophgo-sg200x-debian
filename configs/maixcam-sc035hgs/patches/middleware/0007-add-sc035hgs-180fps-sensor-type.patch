@@ -1,0 +1,78 @@
+--- a/component/isp/common/sensor_list.h
++++ b/component/isp/common/sensor_list.h
+@@ -77,6 +77,7 @@
+ 	SMS_SC035GS_MIPI_480P_120FPS_12BIT,
+ 	SMS_SC035GS_1L_MIPI_480P_120FPS_10BIT,
+ 	SMS_SC035HGS_MIPI_480P_120FPS_12BIT,
++	SMS_SC035HGS_MIPI_480P_180FPS_10BIT,
+ 	SMS_SC035HGS_1L_MIPI_480P_120FPS_10BIT,
+ 	SMS_SC132GS_MIPI_1080P_60FPS_10BIT,
+ 	SMS_SC132GS_SLAVE_MIPI_1080P_60FPS_10BIT,
+--- a/component/isp/common/sensor_list.c
++++ b/component/isp/common/sensor_list.c
+@@ -68,6 +68,7 @@
+ 	"SMS_SC035GS_MIPI_480P_120FPS_12BIT",
+ 	"SMS_SC035GS_1L_MIPI_480P_120FPS_10BIT",
+ 	"SMS_SC035HGS_MIPI_480P_120FPS_12BIT",
++	"SMS_SC035HGS_MIPI_480P_180FPS_10BIT",
+ 	"SMS_SC035HGS_1L_MIPI_480P_120FPS_10BIT",
+ 	"SMS_SC132GS_MIPI_1080P_60FPS_10BIT",
+ 	"SMS_SC132GS_SLAVE_MIPI_1080P_60FPS_10BIT",
+--- a/sample/common/sample_common_sensor.c
++++ b/sample/common/sample_common_sensor.c
+@@ -349,6 +349,7 @@
+ 	case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
+ 	case SMS_SC035GS_1L_MIPI_480P_120FPS_10BIT:
+ 	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++	case SMS_SC035HGS_MIPI_480P_180FPS_10BIT:
+ 	case SMS_SC035HGS_1L_MIPI_480P_120FPS_10BIT:
+ 	case GCORE_GC0312_MIPI_480P_20FPS_8BIT:
+ 	case GCORE_GC0329_MIPI_480P_10FPS_8BIT:
+@@ -872,6 +873,9 @@
+ 		pstPubAttr->f32FrameRate = 15;
+ 		break;
+ 	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++		pstPubAttr->f32FrameRate = 120;
++		break;
++	case SMS_SC035HGS_MIPI_480P_180FPS_10BIT:
+ 		pstPubAttr->f32FrameRate = 180;
+ 		break;
+ 	case SMS_SC035GS_MIPI_480P_120FPS_12BIT:
+@@ -1328,6 +1332,7 @@
+ #endif
+ #if defined(SENSOR_SMS_SC035HGS)
+ 	case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++	case SMS_SC035HGS_MIPI_480P_180FPS_10BIT:
+ 		pSnsObj = &stSnsSC035HGS_Obj;
+ 		break;
+ #endif
+--- a/sample/test_mmf/maix_mmf/sophgo_middleware.c
++++ b/sample/test_mmf/maix_mmf/sophgo_middleware.c
+@@ -1159,6 +1159,7 @@
+ 		snprintf(name, sizeof(name), "sms_sc035gs");
+ 		return name;
+ 	    case SMS_SC035HGS_MIPI_480P_120FPS_12BIT:
++	    case SMS_SC035HGS_MIPI_480P_180FPS_10BIT:
+ 		snprintf(name, sizeof(name), "sms_sc035hgs");
+ 		return name;
+ 	    case LONTIUM_LT6911_2M_60FPS_8BIT:
+@@ -1659,10 +1660,17 @@
+ 
+ 	bool is_live_fps;
+ 	{
++		ISP_PUB_ATTR_S cfg_attr;
+ 		ISP_PUB_ATTR_S force_pub_attr;
++		int configured_fps = -1;
++
++		memset(&cfg_attr, 0, sizeof(cfg_attr));
++		if (SAMPLE_COMM_SNS_GetIspAttrBySns(priv.sensor_type, &cfg_attr) == CVI_SUCCESS)
++			configured_fps = (int)(cfg_attr.f32FrameRate + 0.5f);
++
+ 		memset(&force_pub_attr, 0, sizeof(force_pub_attr));
+-		if (CVI_ISP_GetPubAttr(0, &force_pub_attr) == CVI_SUCCESS) {
+-			force_pub_attr.f32FrameRate = 180;
++		if (configured_fps > 0 && CVI_ISP_GetPubAttr(0, &force_pub_attr) == CVI_SUCCESS) {
++			force_pub_attr.f32FrameRate = configured_fps;
+ 			CVI_ISP_SetPubAttr(0, &force_pub_attr);
+ 		}
+ 	}
