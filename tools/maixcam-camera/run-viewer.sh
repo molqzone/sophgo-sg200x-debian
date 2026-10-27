@@ -32,4 +32,9 @@ if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$current" ]; then
 	printf '%s\n' "$current" > "$stamp"
 fi
 
+# OpenCV ships Qt plugins for xcb only; on a Wayland session Qt otherwise picks
+# the wayland platform and aborts with "Could not find the Qt platform plugin".
+# XWayland then serves the window.  Set QT_QPA_PLATFORM yourself to override.
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}"
+
 exec "$venv/bin/python" "$here/viewer.py" "$@"
