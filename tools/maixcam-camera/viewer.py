@@ -1,20 +1,26 @@
 """View MaixCAM over USB RTSP or the Razver ESP32-C5 RTP bridge.
 
-The stream is recorded as it arrives, by default, into `recordings/` next to this
-script: video packets are remuxed into Matroska without re-encoding, so the file
-is the camera's own H.264 bitstream and recording costs nothing beyond the disk
-write.  Press `r` to start a new file or stop, `q` or Escape to quit.
+The window is PyQt6, not OpenCV's imshow: OpenCV ships Qt plugins for xcb only,
+so on a Wayland session imshow aborts before it can draw anything, and PyQt6
+brings its own Qt with both platforms.
+
+The stream is recorded by default into `recordings/` next to this script: the
+RTSP packets are already Annex-B, so they are copied byte for byte into a .h264
+file with no re-encoding.  Press `r` to start a new file or stop, `q` or Escape
+to quit.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 import av
-import cv2
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 
 WINDOW_TITLE = "MaixCAM"
@@ -36,16 +42,14 @@ def configure_decoder(stream: av.VideoStream) -> None:
 class Recorder:
     """Appends the camera's NAL units to a raw Annex-B file.
 
-    The packets RTSP delivers are already Annex-B (start-code prefixed), so
-    concatenating them is a lossless copy of what the board sent.  A container
-    was tried first and rejected: `add_stream(template=...)` raises on this PyAV,
-    and a Matroska/MP4 mux would need out-of-band extradata the RTSP path does
-    not provide.  A raw .h264 opens directly in mpv, VLC and ffmpeg.
+    A container was tried first and dropped: `add_stream(template=...)` raises on
+    PyAV 18/19, and a Matroska or MP4 mux would need out-of-band extradata
+    (`avcC`) that the RTSP path does not provide.  A raw .h264 opens directly in
+    mpv, VLC and ffmpeg.
     """
 
-    def __init__(self, directory: Path, template: av.VideoStream, prefix: str) -> None:
+    def __init__(self, directory: Path, prefix: str) -> None:
         self._directory = directory
-        self._template = template
         self._prefix = prefix
         self._file = None
         self._path: Path | None = None
@@ -60,10 +64,6 @@ class Recorder:
     @property
     def path(self) -> Path | None:
         return self._path
-
-    @property
-    def packets(self) -> int:
-        return self._packets
 
     @property
     def megabytes(self) -> float:
@@ -115,6 +115,165 @@ class Recorder:
         self._path = None
 
 
+class StreamWorker(QtCore.QThread):
+    """Demuxes the stream, keeps only the newest frame, and records packets."""
+
+    frame_ready = QtCore.pyqtSignal()
+    failed = QtCore.pyqtSignal(str)
+    opened = QtCore.pyqtSignal(int, int)
+
+    def __init__(self, source: str, options: dict, timeout: tuple, recorder: Recorder) -> None:
+        super().__init__()
+        self._source = source
+        self._options = options
+        self._timeout = timeout
+        self._recorder = recorder
+        self._lock = threading.Lock()
+        self._image: QtGui.QImage | None = None
+        self._fps = 0.0
+
+    def latest(self) -> QtGui.QImage | None:
+        with self._lock:
+            return self._image
+
+    def fps(self) -> float:
+        with self._lock:
+            return self._fps
+
+    def run(self) -> None:  # noqa: C901 - one flat loop reads better here
+        try:
+            container = av.open(
+                self._source,
+                mode="r",
+                options=self._options,
+                timeout=self._timeout,
+            )
+        except Exception as error:  # noqa: BLE001
+            self.failed.emit(str(error))
+            return
+
+        with container:
+            stream = container.streams.video[0]
+            configure_decoder(stream)
+            self.opened.emit(stream.codec_context.width, stream.codec_context.height)
+            previous = time.perf_counter()
+            try:
+                for packet in container.demux(stream):
+                    if self.isInterruptionRequested():
+                        break
+                    if self._recorder.active:
+                        self._recorder.write(packet)
+                    for frame in packet.decode():
+                        now = time.perf_counter()
+                        fps = 1.0 / max(now - previous, 1e-6)
+                        previous = now
+                        # Convert once, here: the GUI only copies the newest
+                        # image, so a slow repaint cannot make a queue grow.
+                        array = frame.to_ndarray(format="bgr24")
+                        image = QtGui.QImage(
+                            array.data,
+                            array.shape[1],
+                            array.shape[0],
+                            array.strides[0],
+                            QtGui.QImage.Format.Format_BGR888,
+                        ).copy()
+                        with self._lock:
+                            self._image = image
+                            self._fps = fps
+                        self.frame_ready.emit()
+            except Exception as error:  # noqa: BLE001
+                self.failed.emit(str(error))
+
+
+class Viewer(QtWidgets.QWidget):
+    def __init__(self, worker: StreamWorker, recorder: Recorder, title: str,
+                 show_fps: bool) -> None:
+        super().__init__()
+        self._worker = worker
+        self._recorder = recorder
+        self._show_fps = show_fps
+        self._image: QtGui.QImage | None = None
+        self.setWindowTitle(title)
+        self.resize(1280, 720)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+        worker.frame_ready.connect(self._on_frame)
+        worker.opened.connect(self._on_opened)
+        worker.failed.connect(self._on_failed)
+
+    @QtCore.pyqtSlot()
+    def _on_frame(self) -> None:
+        self._image = self._worker.latest()
+        self.update()
+
+    @QtCore.pyqtSlot(int, int)
+    def _on_opened(self, width: int, height: int) -> None:
+        print(f"connected: {width}x{height}", flush=True)
+
+    @QtCore.pyqtSlot(str)
+    def _on_failed(self, message: str) -> None:
+        print(f"stream error: {message}", flush=True)
+        QtWidgets.QMessageBox.critical(self, "MaixCAM", message)
+        self.close()
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 - Qt API
+        del event
+        painter = QtGui.QPainter(self)
+        painter.fillRect(self.rect(), QtCore.Qt.GlobalColor.black)
+        if self._image is None:
+            painter.setPen(QtCore.Qt.GlobalColor.lightGray)
+            painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter,
+                             "connecting...")
+            return
+
+        image = self._image
+        scaled = image.size().scaled(self.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        target = QtCore.QRect(QtCore.QPoint(0, 0), scaled)
+        target.moveCenter(self.rect().center())
+        painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(target, image)
+
+        font = painter.font()
+        font.setPointSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+        if self._show_fps:
+            painter.setPen(QtGui.QColor(0, 255, 0))
+            painter.drawText(target.adjusted(12, 8, 0, 0),
+                             QtCore.Qt.AlignmentFlag.AlignLeft,
+                             f"{self._worker.fps():5.1f} FPS")
+        if self._recorder.active:
+            painter.setPen(QtGui.QColor(255, 0, 0))
+            text = f"REC {self._recorder.megabytes:5.1f}M"
+        elif self._recorder.error:
+            painter.setPen(QtGui.QColor(255, 165, 0))
+            text = "REC FAILED"
+        else:
+            painter.setPen(QtGui.QColor(128, 128, 128))
+            text = "NO REC"
+        painter.drawText(target.adjusted(0, 8, -12, 0),
+                         QtCore.Qt.AlignmentFlag.AlignRight, text)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:  # noqa: N802 - Qt API
+        key = event.key()
+        if key in (QtCore.Qt.Key.Key_Q, QtCore.Qt.Key.Key_Escape):
+            self.close()
+            return
+        if key == QtCore.Qt.Key.Key_R:
+            if self._recorder.active:
+                self._recorder.stop()
+            else:
+                self._recorder.start()
+            self.update()
+            return
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802 - Qt API
+        self._worker.requestInterruption()
+        self._worker.wait(2000)
+        self._recorder.stop()
+        event.accept()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=("usb", "razver"), default="usb")
@@ -152,79 +311,17 @@ def main() -> int:
 
     print(f"Opening {window_title}: {source}", flush=True)
     print(f"recordings go to {args.record_dir}", flush=True)
-    cv2.namedWindow(window_title, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_title, args.width, args.height)
 
-    recorder: Recorder | None = None
-    try:
-        with av.open(
-            source,
-            mode="r",
-            options=options,
-            timeout=stream_timeout,
-        ) as container:
-            stream = container.streams.video[0]
-            configure_decoder(stream)
-            recorder = Recorder(args.record_dir, stream, prefix)
-            if not args.no_record:
-                recorder.start()
-            previous_arrival = time.perf_counter()
-
-            # Demux, so the same packets can be both displayed and recorded.
-            for packet in container.demux(stream):
-                if recorder.active:
-                    recorder.write(packet)
-                for frame in packet.decode():
-                    now = time.perf_counter()
-                    image = frame.to_ndarray(format="bgr24")
-                    if not args.hide_fps:
-                        fps = 1.0 / max(now - previous_arrival, 1e-6)
-                        cv2.putText(
-                            image,
-                            f"{fps:4.1f} FPS",
-                            (16, 32),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7,
-                            (0, 255, 0),
-                            2,
-                            cv2.LINE_AA,
-                        )
-                    previous_arrival = now
-                    if recorder.active and recorder.path is not None:
-                        label = f"REC {recorder.megabytes:5.1f}M"
-                        colour = (0, 0, 255)
-                    elif recorder.error:
-                        label = "REC FAILED"
-                        colour = (0, 165, 255)
-                    else:
-                        label = "NO REC"
-                        colour = (128, 128, 128)
-                    cv2.putText(
-                        image,
-                        label,
-                        (image.shape[1] - 150, 32),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        colour,
-                        2,
-                        cv2.LINE_AA,
-                    )
-                    cv2.imshow(window_title, image)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key in (27, ord("q")):
-                        return 0
-                    if key == ord("r"):
-                        if recorder.active:
-                            recorder.stop()
-                        else:
-                            recorder.start()
-                    if cv2.getWindowProperty(window_title, cv2.WND_PROP_VISIBLE) < 1:
-                        return 0
-    finally:
-        if recorder is not None:
-            recorder.stop()
-        cv2.destroyAllWindows()
-    return 0
+    application = QtWidgets.QApplication(sys.argv)
+    recorder = Recorder(args.record_dir, prefix)
+    if not args.no_record:
+        recorder.start()
+    worker = StreamWorker(source, options, stream_timeout, recorder)
+    viewer = Viewer(worker, recorder, window_title, not args.hide_fps)
+    viewer.resize(args.width, args.height)
+    viewer.show()
+    worker.start()
+    return application.exec()
 
 
 if __name__ == "__main__":
