@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from fractions import Fraction
 from pathlib import Path
 
 import av
@@ -48,9 +49,20 @@ class Recorder:
     mpv, VLC and ffmpeg.
     """
 
-    def __init__(self, directory: Path, prefix: str) -> None:
+    def set_frame_size(self, width: int, height: int) -> None:
+        self._width = width
+        self._height = height
+
+    def __init__(self, directory: Path, prefix: str, fmt: str = "mp4",
+                 fps: int = 65) -> None:
         self._directory = directory
         self._prefix = prefix
+        self._format = fmt
+        self._fps = fps
+        self._width = 640
+        self._height = 312
+        self._stream = None
+        self._pts = 0
         self._file = None
         self._path: Path | None = None
         self._packets = 0
@@ -75,8 +87,20 @@ class Recorder:
         try:
             self._directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            path = self._directory / f"{self._prefix}-{stamp}.h264"
-            self._file = open(path, "wb")  # noqa: SIM115 - closed in stop()
+            if self._format == "mp4":
+                path = self._directory / f"{self._prefix}-{stamp}.mp4"
+                container = av.open(str(path), mode="w", format="mp4")
+                stream = container.add_stream("libx264", rate=self._fps)
+                stream.width = self._width
+                stream.height = self._height
+                stream.pix_fmt = "yuv420p"
+                stream.options = {"preset": "ultrafast", "crf": "23"}
+                self._container = container
+                self._stream = stream
+                self._pts = 0
+            else:
+                path = self._directory / f"{self._prefix}-{stamp}.h264"
+                self._file = open(path, "wb")  # noqa: SIM115 - closed in stop()
         except Exception as error:  # noqa: BLE001 - the preview must keep running
             self.error = str(error)
             print(f"recording disabled: {error}", flush=True)
@@ -86,6 +110,21 @@ class Recorder:
         self._bytes = 0
         print(f"recording {path}", flush=True)
         return path
+
+    def write_frame(self, frame: av.VideoFrame) -> None:
+        """Encode one decoded frame; used by the mp4 mode."""
+        if self._container is None or self._stream is None:
+            return
+        try:
+            frame.pts = self._pts
+            frame.time_base = Fraction(1, self._fps)
+            self._pts += 1
+            self._bytes += frame.width * frame.height * 3 // 2
+            for packet in self._stream.encode(frame):
+                self._container.mux(packet)
+        except Exception as error:  # noqa: BLE001
+            print(f"recording stopped at frame {self._pts}: {error}", flush=True)
+            self.stop()
 
     def write(self, packet: av.Packet) -> None:
         if self._file is None:
@@ -100,6 +139,21 @@ class Recorder:
             self.stop()
 
     def stop(self) -> None:
+        if self._container is not None and self._stream is not None:
+            try:
+                for packet in self._stream.encode(None):
+                    self._container.mux(packet)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self._container.close()
+            except Exception:  # noqa: BLE001
+                pass
+            if self._path is not None:
+                print(f"saved {self._path} ({self._pts} frames)", flush=True)
+            self._container = None
+            self._stream = None
+            self._path = None
         if self._file is not None:
             try:
                 self._file.close()
@@ -162,8 +216,11 @@ class StreamWorker(QtCore.QThread):
                     if self.isInterruptionRequested():
                         break
                     if self._recorder.active:
-                        self._recorder.write(packet)
+                        if self._recorder.mode == "h264":
+                            self._recorder.write(packet)
                     for frame in packet.decode():
+                        if self._recorder.active and self._recorder.mode == "mp4":
+                            self._recorder.write_frame(frame)
                         now = time.perf_counter()
                         fps = 1.0 / max(now - previous, 1e-6)
                         previous = now
@@ -288,6 +345,13 @@ def main() -> int:
         help="where the recordings go",
     )
     parser.add_argument(
+        "--record-format",
+        choices=("mp4", "h264"),
+        default="mp4",
+        help="mp4 re-encodes to a playable file; h264 keeps the exact bitstream",
+    )
+    parser.add_argument("--fps", type=int, default=65, help="timestamps for the mp4")
+    parser.add_argument(
         "--no-record",
         action="store_true",
         help="open the viewer without recording",
@@ -313,7 +377,7 @@ def main() -> int:
     print(f"recordings go to {args.record_dir}", flush=True)
 
     application = QtWidgets.QApplication(sys.argv)
-    recorder = Recorder(args.record_dir, prefix)
+    recorder = Recorder(args.record_dir, prefix, args.record_format, args.fps)
     if not args.no_record:
         recorder.start()
     worker = StreamWorker(source, options, stream_timeout, recorder)
