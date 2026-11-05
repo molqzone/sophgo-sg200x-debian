@@ -27,7 +27,15 @@ Before=
 # step here -- it used to be required because the firmware only validated a page it did
 # not build; ownership now sits with whoever writes the bytes.
 ExecStart=
-ExecStart=/usr/bin/rtos-mode @GUIDANCE_FW_RPROC_MODE@
+# 参数由构建期的 LOADER 推导（remoteproc → `remoteproc`，fsbl → `attach`），不是独立的
+# 配置项：它曾经是独立变量，于是有过一种构建把它填成 `rtos-mode load`——rtos-mode 没有
+# 这个子命令，单元以 usage 退出 2，`ExecStopPost` 只在 /run 里留一条 degraded，而核从
+# 头到尾没有被放行。安装步骤现在会对着 rtos-mode 的 case 分支核一遍。
+# The argument follows from the build-time LOADER (remoteproc -> `remoteproc`, fsbl ->
+# `attach`) instead of being a knob of its own: it used to be one, and a build filled it
+# with `rtos-mode load` -- not a subcommand rtos-mode has, so the unit exited 2 with the
+# usage text, left only a degraded note in /run, and never released the core at all.
+ExecStart=/usr/bin/rtos-mode @GUIDANCE_FW_RPROC_COMMAND@
 
 # 失败要**可见**：把退出码落到 /run，而不是让“服务没起来”变成“板子像砖”。
 # A failure must be **visible**: record the exit status under /run instead of letting

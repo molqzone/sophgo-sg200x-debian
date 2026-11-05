@@ -48,12 +48,13 @@ GUIDANCE_CONTRACT_FILES = (
 )
 GUIDANCE_FW_ADDON = "guidance-fw"
 GUIDANCE_LOADERS = ("remoteproc", "fsbl")
-GUIDANCE_RPROC_MODES = ("load", "attach")
+GUIDANCE_RTOS_MODE_ARGS = ("remoteproc", "attach")
 GUIDANCE_DOORBELL_OWNERS = ("rtos_cmdqu", "uio")
 GUIDANCE_DROPIN_TEMPLATE = (
     "components/guidance-fw/linux/systemd/load-systemko.service.d/"
     "20-guidance-fw.conf.in"
 )
+GUIDANCE_RTOS_MODE_TOOL = "components/guidance-fw/tools/rtos-mode"
 RESERVED_MEM_OWNED_NAME = re.compile(
     r"^\+\s*char\s+name\[(?P<size>\d+)\];", re.MULTILINE
 )
@@ -414,14 +415,18 @@ def validate_component() -> None:
 def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
     """The C906L startup facts are build-time decisions; check them against the DTS.
 
-    Three knobs decide who releases the core, whether remoteproc loads firmware or
-    attaches to a running one, and who owns the doorbell IRQ.  They used to be
-    implicit in two places -- the FSBL input flipped when the guidance-fw addon was
-    added, and the drop-in hardcoded the rtos-mode argument -- so nothing compared
+    Two knobs decide who releases the core and who owns the doorbell IRQ.  They used
+    to be implicit in two places -- the FSBL input flipped when the guidance-fw addon
+    was added, and the drop-in hardcoded the rtos-mode argument -- so nothing compared
     them with the hardware description at all.
+
+    The rtos-mode argument is *not* a third knob: it follows from the loader (remoteproc
+    releases the core from Linux, so Linux writes the firmware and starts it; fsbl has
+    already released it, so Linux only attaches).  As its own variable it could be set
+    to a subcommand the tool does not have -- `load` was, and that unit exited 2 with
+    the usage text while the core stayed halted.
     """
     loader = settings.get("GUIDANCE_FW_LOADER", "").strip().strip('"') or "remoteproc"
-    mode = settings.get("GUIDANCE_FW_RPROC_MODE", "").strip().strip('"') or "load"
     owner = (
         settings.get("GUIDANCE_FW_DOORBELL_OWNER", "").strip().strip('"')
         or "rtos_cmdqu"
@@ -429,8 +434,12 @@ def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
 
     if loader not in GUIDANCE_LOADERS:
         fail(f"GUIDANCE_FW_LOADER={loader!r} must be one of {GUIDANCE_LOADERS}")
-    if mode not in GUIDANCE_RPROC_MODES:
-        fail(f"GUIDANCE_FW_RPROC_MODE={mode!r} must be one of {GUIDANCE_RPROC_MODES}")
+    if "GUIDANCE_FW_RPROC_MODE" in settings:
+        fail(
+            "GUIDANCE_FW_RPROC_MODE is gone: the rtos-mode argument follows from "
+            "GUIDANCE_FW_LOADER, and a separate variable is how the drop-in came to ask "
+            "for a subcommand rtos-mode does not have"
+        )
     if owner not in GUIDANCE_DOORBELL_OWNERS:
         fail(
             "GUIDANCE_FW_DOORBELL_OWNER=%r must be one of %s"
@@ -442,18 +451,21 @@ def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
             "driver owns IRQ 101 with an exclusive request_irq and uio_pdrv_genirq "
             "cannot share it, so the firmware notification rides RTOS_CMDQU_WAIT_EVENT"
         )
-    if loader == "fsbl" and mode == "load":
-        fail(
-            "GUIDANCE_FW_LOADER=fsbl with GUIDANCE_FW_RPROC_MODE=load is the DMA-race "
-            "hang recorded in the README: the FSBL releases the C906L while U-Boot and "
-            "the early kernel still own the shared AXI DMA controller; FSBL boot must "
-            "use attach"
+    rtos_mode = REPO_ROOT / GUIDANCE_RTOS_MODE_TOOL
+    if rtos_mode.is_file():
+        arms = set(
+            re.findall(
+                r"^\t([a-z][a-z0-9-]*)\)$",
+                rtos_mode.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
         )
-    if loader == "remoteproc" and mode == "attach":
-        fail(
-            "GUIDANCE_FW_RPROC_MODE=attach needs GUIDANCE_FW_LOADER=fsbl: with "
-            "loader=remoteproc nothing has released the core before Linux starts"
-        )
+        for argument in GUIDANCE_RTOS_MODE_ARGS:
+            if argument not in arms:
+                fail(
+                    "rtos-mode does not implement %r, which the drop-in can ask for; "
+                    "its case arms are %s" % (argument, sorted(arms))
+                )
 
     regions = remoteproc_memory_regions(dts_text)
     if "fast_image" not in regions:
@@ -479,10 +491,17 @@ def validate_guidance_boot_policy(
     template = REPO_ROOT / GUIDANCE_DROPIN_TEMPLATE
     if not template.is_file():
         fail(f"guidance drop-in template is missing: {template}")
-    if "@GUIDANCE_FW_RPROC_MODE@" not in template.read_text(encoding="utf-8"):
+    text = template.read_text(encoding="utf-8")
+    if "@GUIDANCE_FW_RPROC_COMMAND@" not in text:
         fail(
             "the guidance drop-in template must leave the rtos-mode argument to the "
-            "board's boot policy"
+            "loader-derived command (@GUIDANCE_FW_RPROC_COMMAND@)"
+        )
+    if "@GUIDANCE_FW_RPROC_MODE@" in text:
+        fail(
+            "the drop-in template still asks for @GUIDANCE_FW_RPROC_MODE@; the argument "
+            "must follow from the loader, not from a variable that can name a subcommand "
+            "rtos-mode does not have"
         )
     for entry in entries:
         board = str(entry["board"])

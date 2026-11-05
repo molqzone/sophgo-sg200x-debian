@@ -16,16 +16,17 @@ ENABLE_MEDIA_STACK=1
 ENABLE_GUIDANCE_FW=1
 ENABLE_LOCAL_PINMUX=1
 
-# C906L 启动策略（构建期定死，不在运行时选）：谁放核、remoteproc 是 load 还是 attach、
-# 门铃归谁。scripts/Makefile 据此选 FSBL 输入并生成 systemd drop-in，validate.py 再按
-# 设备树核对一遍。fsbl + attach 只作 debug 变体（README 记着它会挂），生产用默认值。
-# C906L boot policy, fixed at build time: who releases the core, whether remoteproc
-# loads or attaches, and who owns the doorbell IRQ.  scripts/Makefile turns this into
-# the FSBL input and the systemd drop-in; validate.py re-checks it against the device
-# tree.  fsbl + attach is the debug variant only (the README records that it hangs);
-# production uses the defaults.
+# C906L 启动策略（构建期定死，不在运行时选）：谁放核、门铃归谁。scripts/Makefile 据此
+# 选 FSBL 输入，addons/guidance-fw/addon.mk 据此生成 systemd drop-in（rtos-mode 的参数
+# 由 LOADER 推导，不是第三个变量），validate.py 再按设备树核对一遍。fsbl 只作 debug
+# 变体（README 记着它会挂），生产用默认值。
+# C906L boot policy, fixed at build time: who releases the core and who owns the
+# doorbell IRQ.  scripts/Makefile turns this into the FSBL input,
+# addons/guidance-fw/addon.mk into the systemd drop-in (the rtos-mode argument follows
+# from the loader rather than being a third variable), and validate.py re-checks it
+# against the device tree.  fsbl is the debug variant only (the README records that it
+# hangs); production uses the defaults.
 GUIDANCE_FW_LOADER=remoteproc
-GUIDANCE_FW_RPROC_MODE=load
 GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu
 USE_VENDOR_APT=0
 MAIXCAM_SENSOR_CONFIG=

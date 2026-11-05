@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -21,7 +22,6 @@ ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
 DTS = next((CONFIGS / "maixcam/dts").glob("*.dts")).read_text(encoding="utf-8")
 PRODUCTION = {
     "GUIDANCE_FW_LOADER": "remoteproc",
-    "GUIDANCE_FW_RPROC_MODE": "load",
     "GUIDANCE_FW_DOORBELL_OWNER": "rtos_cmdqu",
 }
 
@@ -32,7 +32,7 @@ def policy(**overrides: str) -> dict[str, str]:
     return settings
 
 
-def generate_dropin(mode: str) -> str:
+def generate_dropin(loader: str = "remoteproc") -> str:
     """Run the real addon into a temp rootfs and return the installed drop-in."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -45,7 +45,7 @@ def generate_dropin(mode: str) -> str:
             f"ROOTFS := {rootfs}\n"
             f"COMPONENTS_ROOT := {REPO_ROOT / 'components'}\n"
             "BOARD := maixcam\n"
-            f"GUIDANCE_FW_RPROC_MODE := {mode}\n"
+            f"GUIDANCE_FW_LOADER := {loader}\n"
             f"include {ADDON}\n",
             encoding="utf-8",
         )
@@ -58,29 +58,33 @@ def generate_dropin(mode: str) -> str:
                 "20-guidance-fw.conf").read_text(encoding="utf-8")
 
 
+def rtos_mode_arguments() -> set[str]:
+    """The case arms rtos-mode actually implements, straight from the tool source."""
+    tool = (COMPONENT / "tools/rtos-mode").read_text(encoding="utf-8")
+    arms = set(re.findall(r"^\t([a-z][a-z0-9-]*)\)$", tool, re.MULTILINE))
+    if "remoteproc" not in arms:
+        raise AssertionError(f"cannot read rtos-mode case arms out of the tool: {arms}")
+    return arms
+
+
 class BootPolicyTests(unittest.TestCase):
     def test_production_policy_is_the_shipped_one(self) -> None:
         settings = effective_assignments(CONFIGS, "maixcam")
         self.assertEqual(settings.get("GUIDANCE_FW_LOADER"), "remoteproc")
-        self.assertEqual(settings.get("GUIDANCE_FW_RPROC_MODE"), "load")
         self.assertEqual(settings.get("GUIDANCE_FW_DOORBELL_OWNER"), "rtos_cmdqu")
         validate.check_guidance_boot_policy(settings, DTS)
 
-    def test_fsbl_attach_is_accepted(self) -> None:
-        validate.check_guidance_boot_policy(
-            policy(GUIDANCE_FW_LOADER="fsbl", GUIDANCE_FW_RPROC_MODE="attach"), DTS)
+    def test_fsbl_is_accepted_and_only_ever_attaches(self) -> None:
+        validate.check_guidance_boot_policy(policy(GUIDANCE_FW_LOADER="fsbl"), DTS)
 
-    def test_fsbl_load_is_the_dma_race_hang(self) -> None:
+    def test_the_rtos_mode_argument_is_not_a_knob_of_its_own(self) -> None:
+        # 它曾经是第三个变量，于是能配出 `rtos-mode load`——rtos-mode 没有这个子命令，
+        # 单元以 usage 退出 2，核从未被放行。独立变量在结构上就允许这种取值，所以现在
+        # 由 LOADER 推导：remoteproc 写固件并起核，fsbl 只 attach。
         with self.assertRaises(PlanError) as caught:
             validate.check_guidance_boot_policy(
-                policy(GUIDANCE_FW_LOADER="fsbl", GUIDANCE_FW_RPROC_MODE="load"), DTS)
-        self.assertIn("DMA-race", str(caught.exception))
-
-    def test_attach_without_fsbl_is_refused(self) -> None:
-        with self.assertRaises(PlanError) as caught:
-            validate.check_guidance_boot_policy(
-                policy(GUIDANCE_FW_RPROC_MODE="attach"), DTS)
-        self.assertIn("fsbl", str(caught.exception))
+                policy(GUIDANCE_FW_RPROC_MODE="load"), DTS)
+        self.assertIn("GUIDANCE_FW_RPROC_MODE is gone", str(caught.exception))
 
     def test_uio_doorbell_is_refused_because_it_is_not_implemented(self) -> None:
         with self.assertRaises(PlanError) as caught:
@@ -91,7 +95,6 @@ class BootPolicyTests(unittest.TestCase):
     def test_unknown_values_are_refused(self) -> None:
         for key, value in (
             ("GUIDANCE_FW_LOADER", "uboot"),
-            ("GUIDANCE_FW_RPROC_MODE", "start"),
             ("GUIDANCE_FW_DOORBELL_OWNER", "rpmsg"),
         ):
             with self.subTest(key=key):
@@ -132,11 +135,21 @@ class DropinGenerationTests(unittest.TestCase):
     def test_remoteproc_policy_generates_remoteproc(self) -> None:
         dropin = generate_dropin("remoteproc")
         self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", dropin)
-        self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", dropin)
+        self.assertNotIn("@GUIDANCE_FW_RPROC_COMMAND@", dropin)
 
-    def test_attach_policy_generates_attach(self) -> None:
-        dropin = generate_dropin("attach")
+    def test_fsbl_loader_generates_attach(self) -> None:
+        dropin = generate_dropin("fsbl")
         self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", dropin)
+
+    def test_every_argument_the_policy_can_pick_exists_in_rtos_mode(self) -> None:
+        # 生成的参数必须是 rtos-mode 真有的子命令。`rtos-mode load` 正是从这个缝里漏
+        # 出去的：策略、模板、安装步骤三处都“一致”，只有工具不认识那个词。
+        arms = rtos_mode_arguments()
+        self.assertNotIn("load", arms)
+        for loader in validate.GUIDANCE_LOADERS:
+            arg = re.search(r"^ExecStart=/usr/bin/rtos-mode (\S+)$",
+                            generate_dropin(loader), re.MULTILINE).group(1)
+            self.assertIn(arg, arms)
 
     def test_the_firmware_owns_the_page_format(self) -> None:
         # 页由固件在 bring-up 里建立（`Format()` 以 clean+invalidate 收尾）。Linux 不再
@@ -177,7 +190,9 @@ class DropinGenerationTests(unittest.TestCase):
     def test_template_is_the_committed_artifact(self) -> None:
         template = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
         self.assertTrue(template.is_file())
-        self.assertIn("@GUIDANCE_FW_RPROC_MODE@", template.read_text(encoding="utf-8"))
+        text = template.read_text(encoding="utf-8")
+        self.assertIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
+        self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", text)
         self.assertFalse(template.with_suffix("").exists(),
                          "the baked-in drop-in must not come back")
 
