@@ -108,6 +108,15 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		/workspace/scripts/ci/local-build.sh "$target" --inside --board "$board" --storage "$storage" --output /output "${source_output_args[@]}"
 fi
 
+# Docker masks binfmt_misc inside /proc, which makes debootstrap refuse to
+# chroot into the riscv64 rootfs even when the host has a qemu-riscv64 handler.
+# Mount it here (the build container is privileged) so the handler is visible.
+if [[ ${IN_CONTAINER:-0} == 1 ]]; then
+	mkdir -p /proc/sys/fs/binfmt_misc
+	mountpoint -q /proc/sys/fs/binfmt_misc || \
+		mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
+fi
+
 case "$board" in
 	*[!A-Za-z0-9_.-]*|'') echo "invalid board: $board" >&2; exit 2 ;;
 esac
@@ -124,6 +133,29 @@ fi
 # The offline mirrors are staged by the host user while the build runs as root,
 # so git's ownership check must not reject them.
 git config --global --add safe.directory '*'
+
+# github.com TLS handshakes are intermittently dropped in this environment
+# ("non-properly terminated"); the build does not retry its upstream clones,
+# so wrap git clone with retries to keep the build reliable.
+export REAL_GIT="$(command -v git)"
+git_wrap=$(mktemp -d)
+cat > "$git_wrap/git" <<'WRAP'
+#!/bin/bash
+if [ "${1:-}" = "clone" ]; then
+    args=("$@")
+    target="${args[$(( ${#args[@]} - 1 ))]}"
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if [ -n "$target" ] && [ -e "$target" ]; then rm -rf "$target"; fi
+        if "$REAL_GIT" "$@"; then exit 0; fi
+        echo "git clone failed (attempt $attempt); retrying" >&2
+        sleep 3
+    done
+    exit 1
+fi
+exec "$REAL_GIT" "$@"
+WRAP
+chmod +x "$git_wrap/git"
+export PATH="$git_wrap:$PATH"
 expected_artifact=$(python3 /workspace/scripts/ci/plan.py artifact --board "$board" --storage "$storage")
 build_root="/build-cache/boards/$board-$storage"
 rootfs="$build_root/rootfs"

@@ -3,13 +3,6 @@
 if [ "$1" = "start" ]
 then
 	KERNELRELEASE=$(uname -r)
-	if { [ -n "${RTOS_SHM_START:-}" ] && [ -z "${RTOS_SHM_SIZE:-}" ]; } ||
-	   { [ -z "${RTOS_SHM_START:-}" ] && [ -n "${RTOS_SHM_SIZE:-}" ]; }
-	then
-		echo "RTOS_SHM_START and RTOS_SHM_SIZE must be supplied together" >&2
-		exit 1
-	fi
-
 	rmmod hynitron_touch 2>/dev/null || true
 	rmmod spi_gpio 2>/dev/null || true
 	rmmod spi_bitbang 2>/dev/null || true
@@ -25,16 +18,9 @@ then
 	cd /mnt/system/ko/${KERNELRELEASE}/
 	grep -q '^cv181x_sys ' /proc/modules || insmod cv181x_sys.ko
 	grep -q '^cv181x_base ' /proc/modules || insmod cv181x_base.ko
-	if ! grep -q '^cv181x_rtos_cmdqu ' /proc/modules
-	then
-		if [ -n "${RTOS_SHM_START:-}" ] || [ -n "${RTOS_SHM_SIZE:-}" ]
-		then
-			insmod cv181x_rtos_cmdqu.ko \
-				shm_start="$RTOS_SHM_START" shm_size="$RTOS_SHM_SIZE"
-		else
-			insmod cv181x_rtos_cmdqu.ko
-		fi
-	fi
+	# The vendor module has no shm_start/shm_size parameters any more: the
+	# 132 KiB IPC ring they windowed was removed with the camera bridge.
+	grep -q '^cv181x_rtos_cmdqu ' /proc/modules || insmod cv181x_rtos_cmdqu.ko
 	insmod cv181x_fast_image.ko
 	insmod cvi_mipi_rx.ko
 	insmod snsr_i2c.ko

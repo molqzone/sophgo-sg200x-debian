@@ -20,22 +20,30 @@ class MemoryMap:
     FREERTOS_ADDR = DRAM_BASE + DRAM_SIZE - FREERTOS_SIZE
     FSBL_C906L_START_ADDR = FREERTOS_ADDR
 
-    # The final page remains the boot trace. The two fixed-slot queues live
-    # immediately below it and are excluded from the FreeRTOS linker region.
+    # The final page remains the boot trace; everything below it is the
+    # firmware image region.  The 132 KiB vendor IPC ring that used to sit
+    # between them was removed with the retired camera bridge, so the region is
+    # now one gap-free band -- the console and shared pages live in its tail.
     RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
-    RTOS_SHM_SIZE = 132 * SIZE_1K
-    RTOS_SHM_ADDR = (
-        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - RTOS_SHM_SIZE
-    )
-    RTOS_FIRMWARE_SIZE = RTOS_SHM_ADDR - FREERTOS_ADDR
-    RTOS_BOOT_TRACE_ADDR = RTOS_SHM_ADDR + RTOS_SHM_SIZE
-    assert RTOS_SHM_ADDR >= FREERTOS_ADDR
-    assert RTOS_SHM_ADDR + RTOS_SHM_SIZE == (
-        FREERTOS_ADDR + FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
-    )
+    RTOS_FIRMWARE_SIZE = FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
+    RTOS_BOOT_TRACE_ADDR = FREERTOS_ADDR + RTOS_FIRMWARE_SIZE
     assert RTOS_BOOT_TRACE_ADDR + RTOS_BOOT_TRACE_SIZE == (
         FREERTOS_ADDR + FREERTOS_SIZE
     )
+
+    # 两个页的物理地址是与固件握手的那一个事实：镜像侧在这里声明一次，固件构建用
+    # SG200X_GUIDANCE_PAGE_BASE 把它拿走（同一个值生成链接脚本、C++ 编译定义与发布的
+    # guidance_contract.json），固件自己不推导。scripts/ci/validate.py 强制三处相等：
+    # 这两个数、DTS `guidance-pages` 的 reg、以及 guidance-fw 发布的契约 JSON。
+    # The two page addresses are the single fact shared with the firmware.  The image
+    # declares them here; the firmware build is handed the value
+    # (SG200X_GUIDANCE_PAGE_BASE) and derives nothing itself, and validate.py fails the
+    # build unless these numbers, the DTS `guidance-pages` reg and the published
+    # guidance_contract.json all agree.
+    GUIDANCE_PAGE_SIZE = 4 * SIZE_1K
+    GUIDANCE_SHARED_PAGE_ADDR = 0x8FFDC000
+    GUIDANCE_CONSOLE_PAGE_ADDR = GUIDANCE_SHARED_PAGE_ADDR - GUIDANCE_PAGE_SIZE
+    assert GUIDANCE_CONSOLE_PAGE_ADDR + GUIDANCE_PAGE_SIZE == GUIDANCE_SHARED_PAGE_ADDR
 
     # ==============================
     # OpenSBI | arm-trusted-firmware

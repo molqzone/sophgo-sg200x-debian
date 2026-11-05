@@ -83,7 +83,7 @@ class CameraToolTests(unittest.TestCase):
         )
         self.assertEqual(
             requirements.splitlines(),
-            ["av==18.0.0", "opencv-python==4.13.0.92"],
+            ["av==18.0.0", "opencv-python==4.13.0.92", "PyQt6==6.11.0"],
         )
 
 
