@@ -52,9 +52,11 @@ or press `q` to exit.
 
 ## Razver ESP32-C5 Wi-Fi
 
-The data path is SC035HGS -> SG2002 Linux H.264 encoder -> shared memory ->
-C906L SPI2 -> ESP32-C5 -> Wi-Fi RTP -> this viewer. USB/SSH can be used for
-management without carrying the video to the host.
+The data path is SC035HGS -> SG2002 Linux H.264 encoder -> ESP32-C5 over
+**SDIO1** -> Wi-Fi RTP -> this viewer. The C906L is not in this path: its SPI bus
+carries the IMU only, and the sg2002-ipc shared memory that used to relay frames
+was removed with the camera bridge. USB/SSH can be used for management without
+carrying the video to the host.
 
 Connect the host to the C5 access point (default `RZ-C5-FPV`) and configure its
 Wi-Fi interface as `192.168.4.2/24`. The reference C5 firmware disables DHCP.

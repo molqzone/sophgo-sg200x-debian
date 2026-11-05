@@ -15,6 +15,18 @@ MIDDLEWAREVERSION=2024.10.14
 ENABLE_MEDIA_STACK=1
 ENABLE_GUIDANCE_FW=1
 ENABLE_LOCAL_PINMUX=1
+
+# C906L 启动策略（构建期定死，不在运行时选）：谁放核、remoteproc 是 load 还是 attach、
+# 门铃归谁。scripts/Makefile 据此选 FSBL 输入并生成 systemd drop-in，validate.py 再按
+# 设备树核对一遍。fsbl + attach 只作 debug 变体（README 记着它会挂），生产用默认值。
+# C906L boot policy, fixed at build time: who releases the core, whether remoteproc
+# loads or attaches, and who owns the doorbell IRQ.  scripts/Makefile turns this into
+# the FSBL input and the systemd drop-in; validate.py re-checks it against the device
+# tree.  fsbl + attach is the debug variant only (the README records that it hangs);
+# production uses the defaults.
+GUIDANCE_FW_LOADER=remoteproc
+GUIDANCE_FW_RPROC_MODE=load
+GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu
 USE_VENDOR_APT=0
 MAIXCAM_SENSOR_CONFIG=
 MAIXCAM_SENSOR_FIXED=0

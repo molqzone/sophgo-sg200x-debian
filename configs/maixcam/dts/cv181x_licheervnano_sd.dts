@@ -24,8 +24,23 @@
 };
 
 &dmac {
-	/* Linux allocates channels 0-3; C906L owns channels 4-7. */
-	dma-channels = /bits/ 8 <4>;
+	/*
+	 * The C906L owns this DesignWare AXI DMAC (SPI/IMU and the remote core's only
+	 * DMA). Linux must not probe it: writing the controller's global registers from
+	 * two cores races the AXI fabric and has hung the SoC on a remoteproc restart.
+	 * Its Linux clients on this board (spinand, i2s0..3) are not populated.
+	 */
+	status = "disabled";
+};
+
+/*
+ * SPI2 is the IMU bus on the C906L side.  It has no Linux client on this board, so
+ * leaving it enabled only lets dw-apb-ssi probe the controller and take its reset and
+ * clock away from the remote core.  Declaring it disabled gives each controller one
+ * owner; the C906L firmware configures it unconditionally at bring-up.
+ */
+&spi2 {
+	status = "disabled";
 };
 
 /delete-node/ &vdev0vring0;
@@ -85,11 +100,12 @@
         model = "Sipeed MaixCAM";
 
 	reserved-memory {
-		rtos_shm: shared-memory@8ffde000 {
-			reg = <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
-			no-map;
-		};
-
+		/* The 132 KiB sg2002-ipc shared memory that used to sit at
+		 * 0x8FFDE000 is gone with the retired camera bridge: its band is
+		 * folded into fast_image, so the firmware region stays one
+		 * gap-free reserved range ending at the boot-trace page.
+		 * 原 sg2002-ipc 共享内存随相机桥退役；这段带宽并入 fast_image，
+		 * 固件区因此仍是“到 boot-trace 页为止”的一整块保留区。 */
 		rtos_boot_trace: boot-trace@8ffff000 {
 			reg = <0x0 CVIMMAP_RTOS_BOOT_TRACE_ADDR 0x0 CVIMMAP_RTOS_BOOT_TRACE_SIZE>;
 			no-map;
@@ -163,10 +179,30 @@
 	        };
         };
 #ifndef __UBOOT__        
+	/*
+	 * The two 4 KiB pages the C906L firmware shares with Linux: console (index 0)
+	 * and shared page (index 1).  They sit inside fast_image, which already
+	 * reserves the range, so this node reserves nothing -- it gives userspace a
+	 * mapping through UIO and a stable name.
+	 * No interrupts: mailbox IRQ 101 belongs to cv181x_rtos_cmdqu alone, and the
+	 * firmware notification rides its RTOS_CMDQU_WAIT_EVENT ioctl.
+	 * 两个 4 KiB 页（console = map 0，共享页 = map 1）：它们落在 fast_image 里，
+	 * 这里只提供 UIO 映射和一个稳定的名字。不带中断：mailbox 的 IRQ 101 归
+	 * cv181x_rtos_cmdqu 独占，固件通知走它的 RTOS_CMDQU_WAIT_EVENT。
+	 */
+	guidance_pages: guidance-pages@8ffdb000 {
+		compatible = "generic-uio";
+		reg = <0x0 0x8FFDB000 0x0 0x1000>,
+		      <0x0 0x8FFDC000 0x0 0x1000>;
+		reg-names = "console", "shared";
+		linux,uio-name = "guidance-pages";
+	};
+
 	rtos_cmdqu {
-		reg = <0x0 0x01900000 0x0 0x1000>,
-		      <0x0 CVIMMAP_RTOS_SHM_ADDR 0x0 CVIMMAP_RTOS_SHM_SIZE>;
-		reg-names = "mailbox", "shared-memory";
+		/* Only the mailbox page: the driver reads resource 0, and the old
+		 * "shared-memory" resource was the retired camera ring's window. */
+		reg = <0x0 0x01900000 0x0 0x1000>;
+		reg-names = "mailbox";
 	};
 
         mbox: mbox@0x01900000 {
