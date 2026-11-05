@@ -1,0 +1,202 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Xiao <2592509183@qq.com>
+Date: Mon, 2 Nov 2026 20:10:00 +0100
+Subject: [PATCH] rtos cmdqu: deliver the firmware's notification doorbell to
+ userspace
+
+The shared page carries the data and the mailbox only rings, but the vendor
+doorbell is strictly request/response: the interrupt handler wakes a SEND_WAIT
+only when (ip_id, cmd_id) match, so a notification answering no pending request
+is acknowledged and dropped, and userspace has no blocking wait to sit in.
+
+Reserve mailbox slot 7 as that notification.  It carries no context -- the data
+is in the page -- so the handler counts it and wakes a dedicated wait queue, and
+RTOS_CMDQU_WAIT_EVENT blocks until the counter moves past the value the caller
+last saw.  A counter, not a flag, is what makes "read the page, then arm" free
+of lost wakeups.  Linux never allocates the reserved slot for a command, so a
+notification cannot zero a command parked in the same context word.
+
+Coalescing is deliberate: the page is keep-latest, so one wakeup may cover
+several publishes and the sequence is not a sample count.  The slot scan is
+widened to unsigned char for the same reason the bit exists: it tests bit 7, and
+the handler must not depend on char being unsigned (true on RISC-V, not on every
+architecture this driver could be ported to).  The driver still
+keeps one interrupt owner (the vendor module), which is why the notification is
+a slot rather than a second driver: request_irq() there is exclusive and
+uio_pdrv_genirq does not share interrupts.
+---
+ interdrv/rtos_cmdqu/rtos_cmdqu.c | 74 ++++++++++++++++++++++++++++++++
+ interdrv/rtos_cmdqu/rtos_cmdqu.h | 32 +++++++++++++
+ 2 files changed, 106 insertions(+)
+
+diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.c b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+index 61371bb..53fb846 100644
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.c
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c
+@@ -16,6 +16,8 @@
+ #include <linux/interrupt.h>
+ #include <linux/slab.h>
+ #include <linux/delay.h>
++#include <linux/wait.h>
++#include <linux/jiffies.h>
+ 
+ #include "rtos_cmdqu.h"
+ #include "cvi_mailbox.h"
+@@ -41,6 +43,20 @@ static __u32  reg_base;
+ #endif
+ static int mailbox_irq;
+ 
++/* Firmware notifications: RTOS_CMDQU_EVENT_SLOT carries no context -- the data is
++ * in the shared page -- so the doorbell is a monotonic sequence counter plus a
++ * wait queue.  The counter, rather than a flag, is what makes the wakeup
++ * impossible to lose: a caller passes the sequence it last saw and is released
++ * immediately when an event already moved it.
++ */
++static atomic_t rtos_cmdqu_event_seq = ATOMIC_INIT(0);
++static DECLARE_WAIT_QUEUE_HEAD(rtos_cmdqu_event_wq);
++
++static inline bool rtos_cmdqu_event_moved(unsigned int seq)
++{
++	return (unsigned int)atomic_read(&rtos_cmdqu_event_seq) != seq;
++}
++
+ static int cvi_rtos_cmdqu_open(struct inode *inode, struct file *file)
+ {
+ 	return 0;
+@@ -122,7 +138,7 @@ DEFINE_CVI_SPINLOCK(mailbox_lock, SPIN_MBOX);
+ 
+ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ {
+-	char set_val, done_val;
++	unsigned char set_val, done_val;
+ 	int i;
+ 	int flags;
+ 	unsigned long queue_flags;
+@@ -159,6 +175,14 @@ irqreturn_t rtos_irq_handler(int irq, void *dev_id)
+ 			mbox_reg->cpu_mbox_set[RECEIVE_CPU].cpu_mbox_int_clr.mbox_int_clr = valid_val;
+ 			// need to disable enable bit
+ 			mbox_reg->cpu_mbox_en[RECEIVE_CPU].mbox_info &= ~valid_val;
++			if (i == RTOS_CMDQU_EVENT_SLOT) {
++				/* Notification: nothing to copy or match, only to count and
++				 * wake.  Coalescing is deliberate -- one wakeup may cover
++				 * several published samples and the page is keep-latest. */
++				atomic_inc(&rtos_cmdqu_event_seq);
++				wake_up_interruptible_all(&rtos_cmdqu_event_wq);
++				continue;
++			}
+ 			// copy cmdq context (8 bytes) to buffer ASAP ??
+ 			*((unsigned long long *) &linux_cmdq) = *((unsigned long long *)cmdq);
+ 			/* need to clear mailbox interrupt before clear mailbox buffer ??*/
+@@ -291,6 +315,13 @@ int rtos_cmdqu_send(cmdqu_t *cmdq)
+ 	}
+ 
+ 	for (valid = 0; valid < MAILBOX_MAX_NUM; valid++) {
++		if (valid == RTOS_CMDQU_EVENT_SLOT) {
++			/* Reserved for the firmware's notification: a command parked in
++			 * this context word would be zeroed by the notification handler
++			 * and lost. */
++			linux_cmdqu_t++;
++			continue;
++		}
+ 		if (linux_cmdqu_t->resv.valid.linux_valid == 0 && linux_cmdqu_t->resv.valid.rtos_valid == 0) {
+ 			// mailbox buffer context is int (4 bytes) access
+ 			int *ptr = (int *)linux_cmdqu_t;
+@@ -414,6 +445,42 @@ int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id)
+ }
+ EXPORT_SYMBOL(rtos_cmdqu_send_wait);
+ 
++/* Block until the firmware's notification counter moves past req.seq.
++ *
++ * Returns 0 with the new sequence written back, -ETIMEDOUT when the deadline
++ * passed without an event, or the wait's error.  timeout_ms == 0 does not wait
++ * (it still reports an event that is already pending); 0xFFFFFFFF waits forever.
++ */
++static long rtos_cmdqu_wait_event(unsigned long arg)
++{
++	struct rtos_cmdqu_event_wait_t req;
++	unsigned int seq;
++	long ret;
++
++	if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
++		return -EFAULT;
++
++	seq = (unsigned int)atomic_read(&rtos_cmdqu_event_seq);
++	if (req.seq == seq && req.timeout_ms != 0) {
++		if (req.timeout_ms == 0xFFFFFFFFu)
++			ret = wait_event_interruptible(rtos_cmdqu_event_wq,
++						       rtos_cmdqu_event_moved(seq));
++		else
++			ret = wait_event_interruptible_timeout(
++				rtos_cmdqu_event_wq, rtos_cmdqu_event_moved(seq),
++				msecs_to_jiffies(req.timeout_ms));
++		if (ret == 0)
++			return -ETIMEDOUT;
++		if (ret < 0)
++			return ret;
++	}
++
++	req.seq = (unsigned int)atomic_read(&rtos_cmdqu_event_seq);
++	if (copy_to_user((void __user *)arg, &req, sizeof(req)))
++		return -EFAULT;
++	return 0;
++}
++
+ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned long  arg)
+ {
+ 	struct cvi_rtos_cmdqu_device *dev = filp->private_data;
+@@ -482,6 +549,9 @@ static long cvi_rtos_cmdqu_ioctl(struct file *filp, unsigned int cmd, unsigned l
+ 			if (ret)
+ 				return -EFAULT;
+ 			break;
++		case RTOS_CMDQU_WAIT_EVENT:
++			ret = rtos_cmdqu_wait_event(arg);
++			break;
+ 		case RTOS_CMDQU_REQUEST:
+ 			ret = copy_from_user(&cmdq,
+ 				(struct cmdqu_t __user *)arg,
+diff --git a/interdrv/rtos_cmdqu/rtos_cmdqu.h b/interdrv/rtos_cmdqu/rtos_cmdqu.h
+index 5936968..37984ee 100644
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.h
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.h
+@@ -69,6 +69,7 @@ enum SYSTEM_CMD_TYPE {
+ 	CMDQU_REQUEST_FREE,
+ 	CMDQU_SEND_WAIT,
+ 	CMDQU_SEND_WAKEUP,
++	CMDQU_WAIT_EVENT,
+ 	CMDQU_SYSTEM_LIMIT = NR_SYSTEM_CMD,
+ };
+ 
+@@ -79,6 +80,33 @@ enum SYSTEM_CMD_TYPE {
+ #define RTOS_CMDQU_SEND_WAIT                    _IOW('r', CMDQU_SEND_WAIT, unsigned long)
+ #define RTOS_CMDQU_SEND_WAKEUP                  _IOW('r', CMDQU_SEND_WAKEUP, unsigned long)
+ 
++/* Mailbox slot reserved for the firmware's fire-and-forget notification.
++ *
++ * The notification carries no payload: the data lives in the shared page and the
++ * slot only raises the doorbell.  It is reserved in both directions -- Linux
++ * never allocates it for a command and the firmware never answers into it --
++ * because a command parked in the same context word would be zeroed by the
++ * notification's interrupt handler and silently lost.
++ */
++#define RTOS_CMDQU_EVENT_SLOT                   7
++
++/* Argument of RTOS_CMDQU_WAIT_EVENT.
++ *
++ * The sequence counter is monotonic and belongs to the driver, not to the page:
++ * a caller passes the value it last saw and the ioctl returns as soon as the
++ * counter moved, so an event that arrived between "read the page" and "arm the
++ * wait" cannot be lost by design (a flag would lose it).  Coalescing is
++ * deliberate: one return value may cover several published samples, and the
++ * page is keep-latest.
++ */
++struct rtos_cmdqu_event_wait_t {
++	unsigned int seq;        /* in: last sequence seen; out: new sequence */
++	unsigned int timeout_ms; /* 0: do not wait; 0xFFFFFFFF: wait forever */
++} __attribute__((packed));
++
++#define RTOS_CMDQU_WAIT_EVENT \
++	_IOWR('r', CMDQU_WAIT_EVENT, struct rtos_cmdqu_event_wait_t)
++
+ int rtos_cmdqu_send(cmdqu_t *cmdq);
+ int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id);
+ int request_rtos_irq(unsigned char ip_id, void *handler, const char *devname, void *dev_id);

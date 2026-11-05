@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "source": "User/guidance_contract.hpp",
+  "page": {
+    "phys": 2415771648,
+    "bytes": 4096,
+    "magic": 827352161,
+    "header_bytes": 32,
+    "abi_version": 1,
+    "wire_tag": 6
+  },
+  "telemetry": {
+    "offset": 64,
+    "slot_count": 58,
+    "slot_bytes": 64,
+    "head_offset": 3776,
+    "write_state_offset": 3780
+  },
+  "frame": {
+    "header_bytes": 16,
+    "payload_bytes": 48,
+    "len": 48,
+    "src": 1024,
+    "dst": 1
+  },
+  "channels": {
+    "offset": 3840,
+    "bytes": 184,
+    "magic": 825250638,
+    "entry_bytes": 42,
+    "name_bytes": 28,
+    "capacity": 4,
+    "entries": [
+      {
+        "name": "imu",
+        "endpoint": 1024,
+        "flags": 1,
+        "key": 3078899227
+      }
+    ]
+  },
+  "region": {
+    "offset": 4064,
+    "payload_bytes": 24,
+    "write_state_offset": 4088,
+    "seq_offset": 4092
+  },
+  "command": {
+    "magic": 826559815,
+    "ping": 1,
+    "led": 2,
+    "rejected": 4294967295
+  },
+  "console": {
+    "phys": 2415767552,
+    "bytes": 4096,
+    "index_offset": 0,
+    "ring_offset": 64,
+    "ring_bytes": 4032
+  }
+}

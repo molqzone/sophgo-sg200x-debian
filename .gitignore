@@ -7,3 +7,5 @@ offline-cache/
 # Local-only working state: agent scratch trees and host package caches.
 /.codex-build-lf/
 /.codex-htop-riscv64/
+tools/maixcam-camera/recordings/
+tools/maixcam-camera/.venv*/
