@@ -177,26 +177,33 @@ media chain without stopping the remote processor.
 
 ### Boot policy is a board setting, not a build accident
 
-Three settings in `configs/<board>/settings.mk` decide how the C906L starts; both
-`scripts/Makefile` and `scripts/ci/validate.py` check them, and the drop-in's last
-line is generated from them (the committed file is `20-guidance-fw.conf.in`):
+Two settings in `configs/<board>/settings.mk` decide how the C906L starts; both
+`scripts/Makefile` and `scripts/ci/validate.py` check them, and the drop-in's
+`ExecStart` is generated from them (the committed file is
+`20-guidance-fw.conf.in`):
 
 ```make
-GUIDANCE_FW_LOADER=remoteproc        # remoteproc | fsbl
-GUIDANCE_FW_RPROC_MODE=load          # load | attach
+GUIDANCE_FW_LOADER=remoteproc          # remoteproc | fsbl
 GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu  # rtos_cmdqu | uio
 ```
 
-* `remoteproc` + `load` + `rtos_cmdqu` is the production combination: Linux loads
-  the ELF and starts the core after it has booted.
-* `fsbl` + `attach` + `rtos_cmdqu` is the debug variant: the loader releases the
-  core and Linux only attaches the vendor stack (`rtos-mode attach`, which refuses
-  to load or start anything and fails if the core is not already running).
+The `rtos-mode` argument is not a third setting: it follows from the loader, and
+`scripts/addons/guidance-fw/addon.mk` derives it (`remoteproc` → `rtos-mode
+remoteproc`, `fsbl` → `rtos-mode attach`) before the install step checks that the
+arm exists in the tool. It used to be its own variable, and one build filled it
+with `rtos-mode load` -- not a subcommand the tool has, so the unit exited 2 with
+the usage text and the core was never released at all.
+
+* `remoteproc` + `rtos_cmdqu` is the production combination: Linux loads the ELF
+  and starts the core after it has booted.
+* `fsbl` + `rtos_cmdqu` is the debug variant: the loader releases the core and
+  Linux only attaches the vendor stack (`rtos-mode attach`, which refuses to load
+  or start anything and fails if the core is not already running).
 * `uio` as a doorbell owner is rejected outright until it exists: IRQ 101 belongs to
   the vendor `rtos_cmdqu` driver with an exclusive `request_irq`, and
   `uio_pdrv_genirq` cannot share it -- which is also why `fsbl` + `uio` is refused
-  (the core would be released before Linux could own the interrupt). `load` + `fsbl`
-  is refused as the DMA race described below.
+  (the core would be released before Linux could own the interrupt). The FSBL +
+  load pairing -- the DMA race described below -- is no longer expressible at all.
 
 The FSBL never releases the core in the production policy. `scripts/Makefile` hands
 fiptool an empty `BLCP_2ND` input, which leaves `BLCP_2ND_RUNADDR` at zero in the
