@@ -6,7 +6,7 @@ KO_DIR=/mnt/system/ko/${KERNELRELEASE}
 BLACKLIST=/etc/modprobe.d/maixcam-blacklist.conf
 
 usage() {
-	echo "Usage: rtos-mode <cmdqu|remoteproc|status>" >&2
+	echo "Usage: rtos-mode <cmdqu|remoteproc|attach|status>" >&2
 	exit 2
 }
 
@@ -97,6 +97,49 @@ start_remoteproc() {
 	}
 }
 
+start_attach() {
+	# 加载器（FSBL）已经放核：这里不写固件、也不 start，只把厂商栈接到一个正在跑的
+	# 核上。这是 debug 变体；生产镜像走 cvitek_remoteproc（rtos-mode remoteproc），
+	# 由 Linux 启动完成后自己放核。
+	# The loader (FSBL) already released the core: do not write firmware and do not
+	# start it, only bring the vendor stack up around a running core.  This is the
+	# debug variant; production boots through cvitek_remoteproc (rtos-mode remoteproc),
+	# where Linux releases the core itself once it has finished booting.
+	stop_media_chain
+	set_cmdqu_blacklist
+	insmod "$KO_DIR/cvitek-mailbox.ko"
+	insmod "$KO_DIR/cvitek-remoteproc.ko"
+	found=0
+	for rproc in /sys/class/remoteproc/remoteproc*; do
+		[ -e "$rproc/state" ] || continue
+		name=$(cat "$rproc/name" 2>/dev/null || true)
+		case "$name" in
+			cv181x-c906_1)
+				: ;;
+			*)
+				continue
+				;;
+		esac
+		state=$(cat "$rproc/state" 2>/dev/null || true)
+		[ "$state" = "running" ] || {
+			echo "attach needs the loader to have released the C906L, but $rproc is '$state'; use rtos-mode remoteproc" >&2
+			exit 1
+		}
+		found=1
+	done
+	[ "$found" -eq 1 ] || {
+		echo "C906L remoteproc device was not found" >&2
+		exit 1
+	}
+	rmmod cvitek_mailbox 2>/dev/null || true
+	KEEP_REMOTEPROC=1 sh /etc/init.d/load-systemko.sh start
+	set_cmdqu_blacklist
+	[ -c /dev/cvi-rtos-cmdqu ] || {
+		echo "Vendor RTOS cmdqu device was not restored" >&2
+		exit 1
+	}
+}
+
 show_status() {
 	lsmod | grep -E 'rtos_cmdqu|remoteproc|mailbox|rpmsg' || true
 	for rproc in /sys/class/remoteproc/remoteproc*; do
@@ -116,6 +159,9 @@ case "$1" in
 		;;
 	remoteproc)
 		start_remoteproc
+		;;
+	attach)
+		start_attach
 		;;
 	status)
 		show_status

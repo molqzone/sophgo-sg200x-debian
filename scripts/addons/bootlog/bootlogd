@@ -52,29 +52,48 @@ snapshot() {
 	head -2 /proc/meminfo 2>/dev/null
 	echo "--- media:"
 	lsmod 2>/dev/null | grep -E "cif|mipi|vi|vpss|snsr" | head -10
-	echo "--- c906 shared page (ring index / telemetry head):"
-	# The C906L console ring and its telemetry head live in the maintained
-	# shared page at 0x8FFDC000: ring bytes at +2604, write index at +2600,
-	# telemetry head at +2592.  Reading them from /dev/mem is the only way to
-	# see the coprocessor once it has frozen -- its own console IS that ring,
-	# and the freeze signature is exactly these counters stopping.  The ring
-	# also carries the PLIC enable/pending dump, which identifies the source
-	# holding the claim.
+	echo "--- c906 console ring:"
+	# The C906L console is its own page, exposed by the `guidance-pages` uio device
+	# as map 0: an index word, then the ring.  Offsets and capacity come from the
+	# firmware-published contract (`/lib/firmware/guidance_contract.json`), not
+	# from a copy kept here -- reading it is the only way to see the coprocessor
+	# once it has frozen, because the freeze signature is exactly this counter
+	# stopping.  bootlogd must never take the boot down, so a failure is one
+	# diagnostic line rather than an abort; it still says which one.
 	python3 -c '
-import os, mmap, struct
-fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
-m = mmap.mmap(fd, 4096, offset=0x8FFDC000)
-def u32(o):
-    return struct.unpack_from("<I", m, o)[0]
-idx, head = u32(2600), u32(2592)
-print("ring_index=%d telemetry_head=%d" % (idx, head))
-start = idx % 1460
-txt = bytes(m[2604 + start:2604 + start + 1460]).decode("utf-8", "replace")
-for line in txt.split("\r"):
-    line = line.strip()
-    if line:
-        print(line[:200])
-' 2>/dev/null || echo "c906 ring: unreadable"
+import glob, json, mmap, os, struct
+path = None
+try:
+    with open("/lib/firmware/guidance_contract.json") as handle:
+        contract = json.load(handle)
+    console = contract["console"]
+    ring = console["ring_bytes"]
+    for entry in sorted(glob.glob("/sys/class/uio/uio*")):
+        try:
+            with open(os.path.join(entry, "name")) as handle:
+                if handle.read().strip() == "guidance-pages":
+                    path = "/dev/" + os.path.basename(entry)
+                    break
+        except OSError:
+            continue
+    if path is None:
+        raise SystemExit("guidance-pages uio device not found")
+    fd = os.open(path, os.O_RDWR)
+    m = mmap.mmap(fd, console["bytes"], offset=0)      # map 0 = console page
+    idx = struct.unpack_from("<I", m, console["index_offset"])[0]
+    start = idx % ring
+    data = bytes(m[console["ring_offset"]:console["ring_offset"] + ring])
+    txt = (data[start:] + data[:start]).decode("utf-8", "replace")
+    print("console_index=%d" % idx)
+    for line in txt.split("\r"):
+        line = line.strip()
+        if line:
+            print(line[:200])
+except SystemExit as error:
+    print("c906 console ring: %s" % error)
+except Exception as error:
+    print("c906 console ring: unreadable (%s: %s)" % (type(error).__name__, error))
+' 2>/dev/null || echo "c906 console ring: unreadable"
 }
 
 while true; do

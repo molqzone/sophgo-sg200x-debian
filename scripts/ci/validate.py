@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -31,6 +34,26 @@ REMOTEPROC_NODE = re.compile(r"\bcv181x-c906_1\s*\{(?P<body>.*?)\};", re.DOTALL)
 MEMORY_REGION = re.compile(r"\bmemory-region\s*=\s*<(?P<value>.*?)>;", re.DOTALL)
 PHANDLE = re.compile(r"&([A-Za-z_][A-Za-z0-9_]*)")
 LEGACY_RPMSG_REGIONS = ("vdev0vring0", "vdev0vring1", "vdev0buffer")
+GUIDANCE_PAGES_NODE = re.compile(
+    r"\bguidance-pages@[0-9a-fA-F]+\s*\{(?P<body>.*?)\};", re.DOTALL
+)
+GUIDANCE_PAGES_REG = re.compile(r"\breg\s*=\s*(?P<value>.*?);", re.DOTALL)
+GUIDANCE_PAGES_REG_NAMES = re.compile(
+    r"\breg-names\s*=\s*(?P<value>.*?);", re.DOTALL
+)
+GUIDANCE_CONTRACT_FILES = (
+    "c906-mcu.elf",
+    "c906-mcu.bin",
+    "guidance_contract.json",
+)
+GUIDANCE_FW_ADDON = "guidance-fw"
+GUIDANCE_LOADERS = ("remoteproc", "fsbl")
+GUIDANCE_RPROC_MODES = ("load", "attach")
+GUIDANCE_DOORBELL_OWNERS = ("rtos_cmdqu", "uio")
+GUIDANCE_DROPIN_TEMPLATE = (
+    "components/guidance-fw/linux/systemd/load-systemko.service.d/"
+    "20-guidance-fw.conf.in"
+)
 RESERVED_MEM_OWNED_NAME = re.compile(
     r"^\+\s*char\s+name\[(?P<size>\d+)\];", re.MULTILINE
 )
@@ -122,7 +145,14 @@ def maintained_files(excluded_paths: tuple[Path, ...] = ()) -> list[Path]:
             file=sys.stderr,
         )
         return fallback_files(excluded_roots)
-    return [REPO_ROOT / relative for relative in result.stdout.split("\0") if relative]
+    # A file deleted in the working tree but not yet staged is still listed by
+    # `git ls-files`; scanning it would fail on a normal in-progress deletion.  Skip
+    # what is not on disk: the build sees the same set.
+    return [
+        REPO_ROOT / relative
+        for relative in result.stdout.split("\0")
+        if relative and (REPO_ROOT / relative).is_file()
+    ]
 
 
 def file_occurrences(path: Path, needles: dict[str, bytes]) -> set[str]:
@@ -363,21 +393,208 @@ def validate_component() -> None:
     required = (
         "firmware/c906-mcu.elf",
         "firmware/c906-mcu.bin",
+        "firmware/guidance_contract.json",
         "firmware/sha256sums.txt",
         "ports/osdrv/patches/0001-cmdqu-allow-user-commands.patch",
         "tools/rtos-mode",
-        "tools/guidance-cmd.py",
-        "linux/systemd/load-systemko.service.d/20-guidance-fw.conf",
+        "tools/cop",
+        "linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in",
         "README.md",
     )
     for name in required:
         if not (component / name).is_file():
             fail(f"component path is missing: {component / name}")
-    for name in ("tools/rtos-mode", "tools/guidance-cmd.py"):
+    for name in ("tools/rtos-mode", "tools/cop"):
         if not (component / name).stat().st_mode & 0o111:
             fail(f"component tool is not executable: {component / name}")
     if (REPO_ROOT / "scripts/addons/rtos-firmware").exists():
         fail("legacy scripts/addons/rtos-firmware still exists")
+
+
+def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
+    """The C906L startup facts are build-time decisions; check them against the DTS.
+
+    Three knobs decide who releases the core, whether remoteproc loads firmware or
+    attaches to a running one, and who owns the doorbell IRQ.  They used to be
+    implicit in two places -- the FSBL input flipped when the guidance-fw addon was
+    added, and the drop-in hardcoded the rtos-mode argument -- so nothing compared
+    them with the hardware description at all.
+    """
+    loader = settings.get("GUIDANCE_FW_LOADER", "").strip().strip('"') or "remoteproc"
+    mode = settings.get("GUIDANCE_FW_RPROC_MODE", "").strip().strip('"') or "load"
+    owner = (
+        settings.get("GUIDANCE_FW_DOORBELL_OWNER", "").strip().strip('"')
+        or "rtos_cmdqu"
+    )
+
+    if loader not in GUIDANCE_LOADERS:
+        fail(f"GUIDANCE_FW_LOADER={loader!r} must be one of {GUIDANCE_LOADERS}")
+    if mode not in GUIDANCE_RPROC_MODES:
+        fail(f"GUIDANCE_FW_RPROC_MODE={mode!r} must be one of {GUIDANCE_RPROC_MODES}")
+    if owner not in GUIDANCE_DOORBELL_OWNERS:
+        fail(
+            "GUIDANCE_FW_DOORBELL_OWNER=%r must be one of %s"
+            % (owner, GUIDANCE_DOORBELL_OWNERS)
+        )
+    if owner == "uio":
+        fail(
+            "GUIDANCE_FW_DOORBELL_OWNER=uio is not implemented: the vendor rtos_cmdqu "
+            "driver owns IRQ 101 with an exclusive request_irq and uio_pdrv_genirq "
+            "cannot share it, so the firmware notification rides RTOS_CMDQU_WAIT_EVENT"
+        )
+    if loader == "fsbl" and mode == "load":
+        fail(
+            "GUIDANCE_FW_LOADER=fsbl with GUIDANCE_FW_RPROC_MODE=load is the DMA-race "
+            "hang recorded in the README: the FSBL releases the C906L while U-Boot and "
+            "the early kernel still own the shared AXI DMA controller; FSBL boot must "
+            "use attach"
+        )
+    if loader == "remoteproc" and mode == "attach":
+        fail(
+            "GUIDANCE_FW_RPROC_MODE=attach needs GUIDANCE_FW_LOADER=fsbl: with "
+            "loader=remoteproc nothing has released the core before Linux starts"
+        )
+
+    regions = remoteproc_memory_regions(dts_text)
+    if "fast_image" not in regions:
+        fail(
+            "the C906L firmware band (fast_image) must stay in the rproc memory-region; "
+            "got %s" % regions
+        )
+    if owner == "rtos_cmdqu":
+        if not re.search(r"\brtos_cmdqu\s*\{", dts_text):
+            fail(
+                "GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu but the DTS has no rtos_cmdqu node"
+            )
+        if not re.search(r"\binterrupts\s*=\s*<101\b", dts_text):
+            fail(
+                "GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu but the DTS mailbox has no "
+                "IRQ 101"
+            )
+
+
+def validate_guidance_boot_policy(
+    config_root: Path, entries: list[dict[str, object]]
+) -> None:
+    template = REPO_ROOT / GUIDANCE_DROPIN_TEMPLATE
+    if not template.is_file():
+        fail(f"guidance drop-in template is missing: {template}")
+    if "@GUIDANCE_FW_RPROC_MODE@" not in template.read_text(encoding="utf-8"):
+        fail(
+            "the guidance drop-in template must leave the rtos-mode argument to the "
+            "board's boot policy"
+        )
+    for entry in entries:
+        board = str(entry["board"])
+        settings = effective_assignments(config_root, board)
+        if GUIDANCE_FW_ADDON not in assignment_words(settings.get("IMAGE_ADDITIONS", "")):
+            continue
+        dts_directory = resolve_directory(config_root, board, "dts")
+        candidates = sorted(dts_directory.glob("*.dts"))
+        if len(candidates) != 1:
+            fail(f"{board}: expected one DTS source, got {candidates}")
+        check_guidance_boot_policy(
+            settings, candidates[0].read_text(encoding="utf-8")
+        )
+
+
+def dts_cells(value: str) -> list[int]:
+    return [int(cell, 0) for cell in re.findall(r"0x[0-9a-fA-F]+|\b\d+\b", value)]
+
+
+def load_memmap(path: Path):
+    spec = importlib.util.spec_from_file_location("maixcam_memmap", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.MemoryMap
+
+
+def validate_guidance_contract(config_root: Path) -> None:
+    """The page layout has one owner: enforce that everything else agrees with it.
+
+    The firmware publishes `guidance_contract.json` with the ELF and pins both; the
+    DTS and `memmap.py` describe the same two pages on the image side.  Three silent
+    copies is how a layout drift first shows up as a misaligned page on a board, so
+    the build compares them instead: any disagreement is a red build.
+    """
+    component = REPO_ROOT / "components/guidance-fw"
+    contract_path = component / "firmware/guidance_contract.json"
+    if not contract_path.is_file():
+        fail(f"firmware contract is missing: {contract_path}")
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        fail(f"{contract_path} is not valid JSON: {error}")
+    if contract.get("schema") != 1:
+        fail(f"unsupported firmware contract schema: {contract.get('schema')}")
+    page = contract["page"]
+    console = contract["console"]
+
+    dts_directory = resolve_directory(config_root, "maixcam", "dts")
+    candidates = sorted(dts_directory.glob("*.dts"))
+    if len(candidates) != 1:
+        fail(f"maixcam: expected one DTS source, got {candidates}")
+    node = GUIDANCE_PAGES_NODE.search(candidates[0].read_text(encoding="utf-8"))
+    if not node:
+        fail("maixcam: the DTS has no guidance-pages node")
+    body = node.group("body")
+    reg = GUIDANCE_PAGES_REG.search(body)
+    names = GUIDANCE_PAGES_REG_NAMES.search(body)
+    if not reg or not names:
+        fail("maixcam: guidance-pages needs reg and reg-names")
+    cells = dts_cells(reg.group("value"))
+    if len(cells) != 8:
+        fail(f"maixcam: guidance-pages needs two <addr size> pairs, got {cells}")
+    regions = [
+        ((cells[0] << 32) | cells[1], (cells[2] << 32) | cells[3]),
+        ((cells[4] << 32) | cells[5], (cells[6] << 32) | cells[7]),
+    ]
+    names_value = GUIDANCE_PAGES_REG_NAMES.search(body).group("value")
+    reg_names = re.findall(r'"([^"]+)"', names_value)
+    if reg_names != ["console", "shared"]:
+        fail(f"maixcam: guidance-pages reg-names must be console/shared, got {reg_names}")
+    if regions[0] != (console["phys"], console["bytes"]):
+        fail(
+            "maixcam: guidance-pages console map (%#x+%#x) disagrees with the "
+            "firmware contract (%#x+%#x)"
+            % (regions[0][0], regions[0][1], console["phys"], console["bytes"])
+        )
+    if regions[1] != (page["phys"], page["bytes"]):
+        fail(
+            "maixcam: guidance-pages shared map (%#x+%#x) disagrees with the "
+            "firmware contract (%#x+%#x)"
+            % (regions[1][0], regions[1][1], page["phys"], page["bytes"])
+        )
+
+    memory_map = load_memmap(resolve_file(config_root, "maixcam", "memmap.py"))
+    if memory_map.GUIDANCE_SHARED_PAGE_ADDR != page["phys"]:
+        fail(
+            "maixcam: memmap.py GUIDANCE_SHARED_PAGE_ADDR %#x disagrees with the "
+            "firmware contract %#x"
+            % (memory_map.GUIDANCE_SHARED_PAGE_ADDR, page["phys"])
+        )
+    if memory_map.GUIDANCE_CONSOLE_PAGE_ADDR != console["phys"]:
+        fail(
+            "maixcam: memmap.py GUIDANCE_CONSOLE_PAGE_ADDR %#x disagrees with the "
+            "firmware contract %#x"
+            % (memory_map.GUIDANCE_CONSOLE_PAGE_ADDR, console["phys"])
+        )
+
+    pins = {}
+    for line in (component / "firmware/sha256sums.txt").read_text(
+        encoding="utf-8"
+    ).splitlines():
+        digest, name = line.split()
+        pins[name] = digest
+    if set(pins) != set(GUIDANCE_CONTRACT_FILES):
+        fail(
+            "firmware/sha256sums.txt must pin %s, got %s"
+            % (sorted(GUIDANCE_CONTRACT_FILES), sorted(pins))
+        )
+    for name, digest in pins.items():
+        actual = hashlib.sha256((component / "firmware" / name).read_bytes()).hexdigest()
+        if actual != digest:
+            fail(f"firmware pin mismatch for {name}: {actual} != {digest}")
 
 
 def one_package(output: Path, pattern: str, label: str) -> Path:
@@ -491,6 +708,7 @@ def main() -> int:
         entries = validate(config_root)
         validate_boards(config_root, entries)
         validate_addons(config_root, entries)
+        validate_guidance_boot_policy(config_root, entries)
         validate_maixcam_sensor_settings(config_root, entries)
         validate_reserved_memory_name_patch(
             REPO_ROOT
@@ -498,6 +716,7 @@ def main() -> int:
         )
         validate_pins((args.output, *args.exclude_path))
         validate_component()
+        validate_guidance_contract(config_root)
         validate_workflows()
         validate_output(
             entries,
