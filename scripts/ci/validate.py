@@ -260,12 +260,19 @@ def check_bootlog_ring(daemon: str, addon: str, service: str) -> None:
                 f"the ring is written with pwrite and read with 'rb'"
             )
 
-    for token in ("os.truncate", "os.ftruncate", "os.remove", "os.unlink",
-                  "os.rename", "os.mkdir", "shutil."):
+    for token in ("os.truncate", "os.ftruncate", "shutil."):
         if token in daemon:
             fail(
-                f"{BOOTLOG_DAEMON}: {token} allocates or frees on the boot "
-                f"partition; the ring is preallocated by the image"
+                f"{BOOTLOG_DAEMON}: {token} can change the ring's size; it is "
+                f"preallocated by the image and only ever overwritten in place"
+            )
+    # Unlinking is fine for /run (a one-off boot report is spent once), never for the
+    # ring: the whole point is that the boot partition's metadata does not change.
+    for call in re.findall(r"os\.(?:unlink|remove|rename|mkdir)\(([^)]*)\)", daemon):
+        if "RING_PATH" in call:
+            fail(
+                f"{BOOTLOG_DAEMON}: removing or replacing the ring is exactly what "
+                f"corrupts the boot partition; it must only be overwritten"
             )
 
     record = re.search(r"^RECORD = (\d+)$", daemon, re.MULTILINE)
@@ -287,6 +294,12 @@ def check_bootlog_ring(daemon: str, addon: str, service: str) -> None:
             f"{addon_record.group(1)} vs {record.group(1)}"
         )
 
+    for name in ("boot-time", "boot-time.service"):
+        if name not in addon:
+            fail(
+                f"{BOOTLOG_ADDON}: {name} must be installed and enabled: without it "
+                f"boot time is a feeling instead of a measurement"
+            )
     if "ExecStart=/usr/local/sbin/bootlogd" not in service:
         fail(f"{BOOTLOG_SERVICE}: must run /usr/local/sbin/bootlogd")
     if "Restart=always" not in service:

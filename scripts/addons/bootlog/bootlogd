@@ -48,6 +48,8 @@ import time
 import zlib
 
 RING_PATH = "/boot/bootlog.bin"
+# boot-time.service leaves this in /run; it belongs in exactly one record.
+BOOT_TIMELINE = "/run/boot-time.txt"
 RECORD = 8192
 MAGIC = b"BLOG"
 HEADER = struct.Struct("<4sIII")
@@ -151,6 +153,19 @@ def read_text(path: str, keep: int | None = None) -> str:
     return "\n".join(lines)
 
 
+def boot_timeline() -> str:
+    """The one-off boot report from boot-time.service, if this boot left one."""
+    return read_text(BOOT_TIMELINE)
+
+
+def consume_boot_timeline() -> None:
+    """One boot, one record: /run is the right place for a file that gets spent."""
+    try:
+        os.unlink(BOOT_TIMELINE)
+    except OSError:
+        pass
+
+
 def boot_id() -> str:
     return read_text("/proc/sys/kernel/random/boot_id", 1).strip()[:8] or "unknown"
 
@@ -207,44 +222,46 @@ def console_ring() -> str:
         return "unreadable (%s: %s)" % (type(error).__name__, error)
 
 
+def section(title: str, body: str) -> str:
+    """One titled block, or nothing at all when there is nothing to say."""
+    body = (body or "").strip("\n")
+    return "%s\n%s" % (title, body) if body else ""
+
+
 def snapshot() -> str:
     """One text block: what the board looked like at this instant.
 
     Order matters: a record holds PAYLOAD bytes, and a snapshot can outgrow it.  The
-    coprocessor's console ring and the card's error lines are why this exists, so they
-    come first; the bulky repeated parts (dmesg, ps, interrupts) come last, where a cut
-    costs the least.  A truncation says so instead of ending silently.
-    顺序是有意的：一条记录装得下 PAYLOAD 字节，快照可能超。先写小核 console 环和卡的
-    错误行，再把冗长的 dmesg/ps/interrupts 放后面；被截断时明确写出来。
+    boot timeline (one per boot), the coprocessor's console ring and the card's error
+    lines are why this exists, so they come first; the bulky repeated parts (dmesg, ps,
+    interrupts) come last, where a cut costs the least.  A truncation says so instead of
+    ending silently.
+    顺序是有意的：一条记录装得下 PAYLOAD 字节，快照可能超。先写开机时间线、小核 console
+    环和卡的错误行，再把冗长的 dmesg/ps/interrupts 放后面；被截断时明确写出来。
     """
     dmesg = run(["dmesg"])
-    sections = [
+    blocks = [
         "===== %s =====" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "up %s | boot_id=%s kernel=%s"
         % (run(["uptime"]).strip(), boot_id(), os.uname().release),
-        "--- c906 console ring:",
-        console_ring(),
-        "--- mmc:",
-        mmc_errors(dmesg),
-        "--- net:",
-        run(["ip", "-br", "addr"]),
-        "--- temp:",
-        read_text("/sys/class/thermal/thermal_zone0/temp", keep=1),
-        "--- mem:",
-        read_text("/proc/meminfo", keep=2),
-        "--- media:",
-        "\n".join(
-            line for line in run(["lsmod"]).splitlines()
-            if any(word in line for word in ("cif", "mipi", "vi", "vpss", "snsr"))
+        section("--- boot:", boot_timeline()),
+        section("--- c906 console ring:", console_ring()),
+        section("--- mmc:", mmc_errors(dmesg)),
+        section("--- net:", run(["ip", "-br", "addr"])),
+        section("--- temp:", read_text("/sys/class/thermal/thermal_zone0/temp", keep=1)),
+        section("--- mem:", read_text("/proc/meminfo", keep=2)),
+        section(
+            "--- media:",
+            "\n".join(
+                line for line in run(["lsmod"]).splitlines()
+                if any(word in line for word in ("cif", "mipi", "vi", "vpss", "snsr"))
+            ),
         ),
-        "--- interrupts:",
-        read_text("/proc/interrupts", keep=18),
-        "--- ps:",
-        run(["ps", "aux", "--sort=-%cpu"], keep=12),
-        "--- dmesg tail:",
-        "\n".join(dmesg.splitlines()[-DMESG_DEPTH:]),
+        section("--- interrupts:", read_text("/proc/interrupts", keep=18)),
+        section("--- ps:", run(["ps", "aux", "--sort=-%cpu"], keep=12)),
+        section("--- dmesg tail:", "\n".join(dmesg.splitlines()[-DMESG_DEPTH:])),
     ]
-    return "\n".join(section for section in sections if section != "") + "\n"
+    return "\n".join(block for block in blocks if block) + "\n"
 
 
 def fit(payload: bytes) -> bytes:
@@ -299,7 +316,10 @@ def main(argv: list[str]) -> int:
     take_lock("/run/bootlogd.lock")
     while True:
         try:
-            index = append(RING_PATH, fit(snapshot().encode("utf-8")), index, slots)
+            payload = fit(snapshot().encode("utf-8"))
+            index = append(RING_PATH, payload, index, slots)
+            if boot_timeline():
+                consume_boot_timeline()
         except Exception as error:  # noqa: BLE001 - never take the boot down
             print("bootlogd: %s: %s" % (type(error).__name__, error), file=sys.stderr)
         time.sleep(INTERVAL)
