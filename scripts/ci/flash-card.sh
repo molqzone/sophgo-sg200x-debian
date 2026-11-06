@@ -26,7 +26,9 @@ fi
 
 [ -b "$device" ] || { echo "not a block device: $device" >&2; exit 1; }
 [ -s "$image" ] || { echo "image is missing or empty: $image" >&2; exit 1; }
-if [ "$(id -u)" -ne 0 ]; then
+# Write access is what matters, not uid 0: a user in the disk group can write the
+# device, and demanding sudo would push people back to by-hand dd.
+if [ ! -w "$device" ]; then
 	echo "flash-card.sh needs write access to $device (run it with sudo)" >&2
 	exit 1
 fi
