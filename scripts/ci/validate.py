@@ -409,6 +409,35 @@ def validate_maixcam_remoteproc_dts(dts_directory: Path) -> None:
             fail(f"maixcam: mailbox-only DTS must delete legacy RPMsg pool {name}")
 
 
+def check_maixcam_reserved_map(dts_text: str, memmap_text: str) -> None:
+    """The three touching reservations must stay three, with the sizes memmap states.
+
+    实测：把命令队列窗口并进 fast_image（相机桥退役时干过）会让这块板子再也不进系统，
+    而所有静态检查都通过——DTB 只是"另一个描述"，没有人核对它和开机的关系。所以这里
+    把那次改动会碰到的三处钉住：窗口必须还在、必须还是独立 no-map 节点、cmdqu 必须还
+    声明它的 shared-memory 资源。
+    """
+    if "shared-memory@8ffde000" not in dts_text:
+        fail(
+            "the maixcam DTS must keep the command-queue window as its own reserved "
+            "node: folding it into fast_image is how this board stopped booting"
+        )
+    if 'reg-names = "mailbox", "shared-memory";' not in dts_text:
+        fail(
+            "rtos_cmdqu must declare its shared-memory resource; the second reg is "
+            "the command queue's data window, not the retired camera ring"
+        )
+    if "no-map;" not in dts_text.split("shared-memory@8ffde000", 1)[1][:200]:
+        fail("the command-queue window must stay no-map")
+    if "IPC_SHARED_SIZE" not in memmap_text:
+        fail("memmap.py must account for the 132 KiB command-queue window")
+    if "RTOS_FIRMWARE_SIZE = FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE\n" in memmap_text:
+        fail(
+            "RTOS_FIRMWARE_SIZE must leave the command-queue window out; without it "
+            "the firmware band overlaps the cmdqu data area"
+        )
+
+
 def validate_compiled_maixcam_dts(text: str) -> None:
     node = REMOTEPROC_NODE.search(text)
     if not node:
@@ -465,6 +494,11 @@ def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None
         dts_directory = resolve_directory(config_root, board, "dts")
         if is_board_or_descendant(config_root, board, "maixcam"):
             validate_maixcam_remoteproc_dts(dts_directory)
+            check_maixcam_reserved_map(
+                "\n".join(path.read_text(encoding="utf-8")
+                           for path in sorted(dts_directory.glob("*.dts"))),
+                (REPO_ROOT / "configs/maixcam/memmap.py").read_text(encoding="utf-8"),
+            )
         resolved = {relative: resolve_file(config_root, board, relative) for relative in REQUIRED_BOARD_FILES}
         validate_uboot_defconfig(board, resolved["u-boot/defconfig"])
         partition = settings.get("PARTITION_FILE", "").replace("$(STORAGE_TYPE)", storage).strip('"')

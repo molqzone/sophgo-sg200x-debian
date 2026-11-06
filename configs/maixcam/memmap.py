@@ -20,13 +20,23 @@ class MemoryMap:
     FREERTOS_ADDR = DRAM_BASE + DRAM_SIZE - FREERTOS_SIZE
     FSBL_C906L_START_ADDR = FREERTOS_ADDR
 
-    # The final page remains the boot trace; everything below it is the
-    # firmware image region.  The 132 KiB vendor IPC ring that used to sit
-    # between them was removed with the retired camera bridge, so the region is
-    # now one gap-free band -- the console and shared pages live in its tail.
+    # Layout of the 2 MiB band, bottom to top: firmware image, the 132 KiB vendor
+    # window, then the boot-trace page.
+    #
+    # 这 132 KiB **不是**“相机环”。它是 `rtos_cmdqu` 节点的 `shared-memory` 资源
+    # （`reg-names = "mailbox","shared-memory"`），也就是 Linux 与 C906L 之间命令队列的
+    # 窗口。相机桥（sg2002-ipc）退役时曾把它当成相机环并入 fast_image，结果板子再也进不
+    # 了系统（实测：基线 + 只改这一组内存映射 → 起不来；基线 + uio 节点 → 正常启动）。
+    # 退役相机桥不等于这块保留区可以消失，它必须保持独立、no-map、并且带自己的 reg。
+    #
+    # This 132 KiB is not the camera ring: it is the `rtos_cmdqu` node's `shared-memory`
+    # resource, the command-queue window between Linux and the C906L.  Folding it into
+    # fast_image when the camera bridge was retired stopped the board from booting.
     RTOS_BOOT_TRACE_SIZE = 4 * SIZE_1K
-    RTOS_FIRMWARE_SIZE = FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE
-    RTOS_BOOT_TRACE_ADDR = FREERTOS_ADDR + RTOS_FIRMWARE_SIZE
+    IPC_SHARED_SIZE = 132 * SIZE_1K
+    RTOS_FIRMWARE_SIZE = FREERTOS_SIZE - RTOS_BOOT_TRACE_SIZE - IPC_SHARED_SIZE
+    IPC_SHARED_ADDR = FREERTOS_ADDR + RTOS_FIRMWARE_SIZE
+    RTOS_BOOT_TRACE_ADDR = IPC_SHARED_ADDR + IPC_SHARED_SIZE
     assert RTOS_BOOT_TRACE_ADDR + RTOS_BOOT_TRACE_SIZE == (
         FREERTOS_ADDR + FREERTOS_SIZE
     )
