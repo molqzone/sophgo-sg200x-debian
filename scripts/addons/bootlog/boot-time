@@ -11,9 +11,22 @@
 set -u
 
 out=/run/boot-time.txt
+# `systemd-analyze` refuses to answer while any unit is still in flight ("Bootup is not
+# yet finished"), and this unit runs the moment multi-user is reached.  重试几次再放弃：
+# 否则每次启动要么没有时间线，要么只拿到一行 "unavailable"。
+timeline() {
+	attempt=0
+	while [ "$attempt" -lt 15 ]; do
+		if systemd-analyze 2>/dev/null; then return 0; fi
+		attempt=$((attempt + 1))
+		sleep 1
+	done
+	echo "systemd-analyze: unavailable after ${attempt}s"
+}
+
 {
 	echo "=== boot timeline ==="
-	systemd-analyze 2>/dev/null || echo "systemd-analyze: unavailable"
+	timeline
 	echo "--- kernel:"
 	dmesg 2>/dev/null | grep -E 'Freeing unused kernel|Run /sbin/init|random: crng init|mmc0: new|dw_mmc|usb0' | head -10
 	echo "--- critical chain:"

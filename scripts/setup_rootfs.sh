@@ -146,6 +146,17 @@ if [ -f /tmp/install/systemd-enable ]; then
 fi
 
 #
+# 5.10 的 riscv 没有 arch RNG（CONFIG_ARCH_RANDOM 不存在），冷启动要等 crng init——实测
+# 10.9 秒，而 basic.target 就堵在它后面（systemd-random-seed 需要熵）。镜像里预置一份
+# 随机种子，systemd-random-seed 会在启动早期把它塞进内核熵池，crng 立即就绪。每个镜像
+# 种子不同（构建时从 /dev/urandom 取），不是写死的常量。
+# 5.10 on riscv has no arch RNG, so a cold boot waits ~11 s for crng init with
+# basic.target stuck behind it.  Seed the pool from the image instead: the build writes
+# per-image bytes and systemd-random-seed credits them early.
+dd if=/dev/urandom of=/var/lib/systemd/random-seed bs=256 count=1 status=none 2>/dev/null \
+	|| true
+chmod 0600 /var/lib/systemd/random-seed 2>/dev/null || true
+
 # 板上没有人读文档/手册，也不需要几十种语言；这些都是镜像体积和冷插拔时间的纯开销。
 # A board nobody reads man pages on does not need them; this is pure image size and
 # coldplug work.  zh* and C stay so the console and our tools keep working.
