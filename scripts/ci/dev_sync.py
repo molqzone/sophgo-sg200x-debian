@@ -50,6 +50,7 @@ class Target:
     restart: str = ""
     render: bool = False
     note: str = ""
+    enable: bool = False
 
 
 TARGETS = (
@@ -57,6 +58,9 @@ TARGETS = (
            restart="bootlog-snap.service"),
     Target("scripts/addons/bootlog/bootlog-snap.service",
            "/etc/systemd/system/bootlog-snap.service", 0o644),
+    Target("scripts/addons/bootlog/boot-time", "/usr/local/sbin/boot-time", 0o755),
+    Target("scripts/addons/bootlog/boot-time.service",
+           "/etc/systemd/system/boot-time.service", 0o644, enable=True),
     Target("components/guidance-fw/tools/rtos-mode", "/usr/bin/rtos-mode", 0o755),
     Target("components/guidance-fw/tools/cop", "/usr/bin/cop", 0o755),
     Target("components/guidance-fw/linux/systemd/load-systemko.service.d/"
@@ -128,6 +132,13 @@ def install_local(target: Target, data: bytes, root: Path, dry_run: bool) -> boo
     destination.write_bytes(data)
     destination.chmod(target.mode)
     print("  wrote %s" % destination)
+    if target.enable:
+        wants = root / "etc/systemd/system/multi-user.target.wants"
+        wants.mkdir(parents=True, exist_ok=True)
+        link = wants / Path(target.destination).name
+        if not link.is_symlink():
+            link.symlink_to(Path(target.destination))
+            print("  enabled %s" % link.name)
     return True
 
 
@@ -169,6 +180,9 @@ def install_remote(board: str, password: str, changes: list[tuple[Target, bytes]
                           % (target.mode, REMOTE_STAGE, index, target.destination))
             print("  wrote %s:%s" % (board, target.destination))
         script.append("rm -rf %s" % REMOTE_STAGE)
+        for unit in sorted({t.destination for t, _ in changes if t.enable}):
+            script.append("systemctl enable %s" % unit)
+            print("  enabled %s" % unit)
         script.append("systemctl daemon-reload")
         restarts = sorted({t.restart for t, _ in changes if t.restart})
         for unit in restarts:
