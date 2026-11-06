@@ -47,8 +47,17 @@ part() {
 boot_part=$(part 1)
 root_part=$(part 2)
 
-if findmnt -S "$device" -o TARGET -n >/dev/null 2>&1; then
-	bad "$device has mounted partitions; unmount before verifying"
+mounted_targets() {
+	# 不能只查 $device 本身：分区被挂载时 findmnt -S /dev/mmcblk0 什么都不报，而整盘 dd
+	# 会和一个正在使用该分区的内核文件系统打架——写完读回来是旧数据，看起来像“写没落盘”。
+	# Checking the disk alone is not enough: when a partition is mounted, findmnt -S
+	# /dev/mmcblk0 reports nothing while a whole-disk dd fights an in-use kernel
+	# filesystem, and the read-back shows stale data that looks like a failed write.
+	lsblk -ln -o MOUNTPOINT "$device" | sed '/^$/d'
+}
+
+if [ -n "$(mounted_targets)" ]; then
+	bad "$device has mounted partitions ($(mounted_targets | tr '\n' ' ')); unmount before verifying"
 	exit 1
 fi
 
