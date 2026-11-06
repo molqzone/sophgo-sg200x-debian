@@ -187,6 +187,19 @@ class DropinGenerationTests(unittest.TestCase):
         self.assertEqual(sorted(contract["command"]), ["led", "magic", "ping", "rejected"])
         self.assertFalse((COMPONENT / "tools/guidance-cmd.py").exists())
 
+    def test_the_shipped_firmware_builds_the_page_itself(self) -> None:
+        # 镜像 pin 的是固件仓构建产物的**副本**，所以“固件源码有 Format()”和“镜像发的是
+        # 带 Format() 的固件”是两件事，这个仓库以前没有任何东西比较它们。漂过一次：发出去
+        # 的 ELF 早于那次提交，板子正常启动、正常放核，然后报 UNFORMATTED，遥测永远起不来。
+        elf = COMPONENT / "firmware/c906-mcu.elf"
+        validate.check_pinned_firmware_builds_the_page(elf)
+        with tempfile.NamedTemporaryFile(suffix=".elf") as stale:
+            stale.write(b"\x7fELF" + b"\x00" * 64)
+            stale.flush()
+            with self.assertRaises(PlanError) as caught:
+                validate.check_pinned_firmware_builds_the_page(Path(stale.name))
+        self.assertIn("predates", str(caught.exception))
+
     def test_template_is_the_committed_artifact(self) -> None:
         template = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
         self.assertTrue(template.is_file())

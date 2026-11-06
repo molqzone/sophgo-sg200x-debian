@@ -410,6 +410,30 @@ def validate_component() -> None:
             fail(f"component tool is not executable: {component / name}")
     if (REPO_ROOT / "scripts/addons/rtos-firmware").exists():
         fail("legacy scripts/addons/rtos-firmware still exists")
+    check_pinned_firmware_builds_the_page(component / "firmware/c906-mcu.elf")
+
+
+def check_pinned_firmware_builds_the_page(elf: Path) -> None:
+    """The pinned ELF must be the firmware that formats the page itself.
+
+    The image repo pins a *copy* of the firmware repo's build output, so "the firmware
+    source has the fix" and "the image ships the fix" are two different statements and
+    nothing here compared them.  It drifted: the shipped ELF predated the commit that
+    made the core build the page at bring-up, so the board booted, released the core,
+    and then logged `Shared page unusable (UNFORMATTED)` -- telemetry could not start
+    no matter how the boot went, while the firmware checkout looked correct.
+
+    这段日志只在固件自己 `Format()` 之后才会被打印；旧固件走的是“校验别人建立的页”，
+    根本没有这句话。字符串比对很笨，但它是这个仓库能看到的唯一证据——pin 的是二进制。
+    """
+    marker = b"would not take a format"
+    if marker not in elf.read_bytes():
+        fail(
+            "the pinned firmware ELF does not contain %r, so it predates the commit "
+            "that has the C906L build the shared page at bring-up; rebuild the firmware "
+            "and re-pin firmware/c906-mcu.elf, c906-mcu.bin and sha256sums.txt"
+            % marker.decode()
+        )
 
 
 def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
