@@ -23,6 +23,8 @@ include $(VERSION_FILE)
 
 BUILDDIR := $(patsubst %/,%,$(BUILDDIR))
 ROOTFS := $(patsubst %/,%,$(ROOTFS))
+# 1 = reuse the cached debootstrap tarball when its key still matches.
+ROOTFS_CACHE ?= 1
 CROSS_COMPILE ?= /host-tools/gcc/riscv64-linux-musl-x86_64/bin/riscv64-unknown-linux-musl-
 RTOS_CROSS_COMPILE ?= /host-tools/gcc/riscv64-elf-x86_64/bin/riscv64-unknown-elf-
 HOST_TOOLS ?= /host-tools
@@ -586,18 +588,24 @@ $(BUILDDIR)/image-prepare-stamp:
 	@mkdir -p $(ROOTFS)
 	@if [ "$(OFFLINE)" = 1 ] && [ ! -e "$(ROOTFS)/etc" ]; then tar -xf "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" -C $(ROOTFS); fi
 
-ifeq ($(USE_VENDOR_APT),0)
+# debootstrap 是整条流水线里最慢的一步（780 个包，10–20 min），而且跟你刚改的东西毫无
+# 关系：它只取决于 board/storage/mirror/vendor-apt/包列表。成功之后把结果按这五个输入
+# 的哈希缓存成 tar，命中就只是解包（~40 s）。键必须包含包列表——否则改了包列表还从旧
+# rootfs 出发，比慢更糟。`make image ROOTFS_CACHE=0` 强制真正重新 bootstrap。
+# Bootstrap is the slowest step (780 packages, 10-20 min) and depends on exactly five
+# inputs; after a success the result is cached under a hash of them, so a "rebuild" is a
+# 40 s untar.  The key includes the package list on purpose: a cache that cannot tell the
+# list changed would quietly build from a stale rootfs.  ROOTFS_CACHE=0 forces a real
+# bootstrap.
 	@if [ "$(OFFLINE)" = 1 ]; then :; else \
-		env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
-		http_proxy="$(APT_HTTP_PROXY)" https_proxy="$(APT_HTTPS_PROXY)" \
-		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main"; fi
-else
-	@if [ "$(OFFLINE)" = 1 ]; then :; else curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o $(BUILDDIR)/public-key.asc; \
-		env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
-		http_proxy="$(APT_HTTP_PROXY)" https_proxy="$(APT_HTTPS_PROXY)" \
-		mmdebstrap -v --architectures=riscv64 --include="$(_PACKAGES)" sid "$(ROOTFS)" "deb $(DEBIAN_MIRROR) sid main" "deb [signed-by=$(BUILDDIR)/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo"; fi
-
-endif
+		bash /builder/ci/prepare-rootfs.sh \
+			--board "$(BOARD)" --storage "$(STORAGE_TYPE)" \
+			--rootfs "$(ROOTFS)" --cache-dir "$(BUILDDIR)/rootfs-cache" \
+			--packages "$(_PACKAGES)" --mirror "$(DEBIAN_MIRROR)" \
+			--vendor-apt "$(USE_VENDOR_APT)" \
+			--apt-http-proxy "$(APT_HTTP_PROXY)" \
+			--apt-https-proxy "$(APT_HTTPS_PROXY)" \
+			$(if $(filter 1,$(ROOTFS_CACHE)),,--no-cache); fi
 	@touch $@
 
 $(BUILDDIR)/image-addons-stamp: $(BUILDDIR)/image-prepare-stamp $(BUILDDIR)/fsbl-package-stamp $(BUILDDIR)/linux-compile-stamp $(MEDIA_IMAGE_TARGETS) $(LOCAL_PINMUX_TARGET) $(addon-targets)
