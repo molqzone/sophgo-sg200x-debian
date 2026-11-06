@@ -208,18 +208,24 @@ def console_ring() -> str:
 
 
 def snapshot() -> str:
-    """One text block: what the board looked like at this instant."""
+    """One text block: what the board looked like at this instant.
+
+    Order matters: a record holds PAYLOAD bytes, and a snapshot can outgrow it.  The
+    coprocessor's console ring and the card's error lines are why this exists, so they
+    come first; the bulky repeated parts (dmesg, ps, interrupts) come last, where a cut
+    costs the least.  A truncation says so instead of ending silently.
+    顺序是有意的：一条记录装得下 PAYLOAD 字节，快照可能超。先写小核 console 环和卡的
+    错误行，再把冗长的 dmesg/ps/interrupts 放后面；被截断时明确写出来。
+    """
     dmesg = run(["dmesg"])
     sections = [
         "===== %s =====" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "up %s | boot_id=%s kernel=%s"
         % (run(["uptime"]).strip(), boot_id(), os.uname().release),
-        "--- dmesg tail:",
-        "\n".join(dmesg.splitlines()[-DMESG_DEPTH:]),
-        "--- ps:",
-        run(["ps", "aux", "--sort=-%cpu"], keep=12),
-        "--- interrupts:",
-        read_text("/proc/interrupts", keep=18),
+        "--- c906 console ring:",
+        console_ring(),
+        "--- mmc:",
+        mmc_errors(dmesg),
         "--- net:",
         run(["ip", "-br", "addr"]),
         "--- temp:",
@@ -231,12 +237,22 @@ def snapshot() -> str:
             line for line in run(["lsmod"]).splitlines()
             if any(word in line for word in ("cif", "mipi", "vi", "vpss", "snsr"))
         ),
-        "--- mmc:",
-        mmc_errors(dmesg),
-        "--- c906 console ring:",
-        console_ring(),
+        "--- interrupts:",
+        read_text("/proc/interrupts", keep=18),
+        "--- ps:",
+        run(["ps", "aux", "--sort=-%cpu"], keep=12),
+        "--- dmesg tail:",
+        "\n".join(dmesg.splitlines()[-DMESG_DEPTH:]),
     ]
     return "\n".join(section for section in sections if section != "") + "\n"
+
+
+def fit(payload: bytes) -> bytes:
+    """Cut a snapshot that outgrew one record, and say so where it was cut."""
+    if len(payload) <= PAYLOAD:
+        return payload
+    marker = b"\n[snapshot truncated: one record holds %d bytes]\n" % PAYLOAD
+    return payload[:PAYLOAD - len(marker)] + marker
 
 
 def show(path: str) -> int:
@@ -283,7 +299,7 @@ def main(argv: list[str]) -> int:
     take_lock("/run/bootlogd.lock")
     while True:
         try:
-            index = append(RING_PATH, snapshot().encode("utf-8"), index, slots)
+            index = append(RING_PATH, fit(snapshot().encode("utf-8")), index, slots)
         except Exception as error:  # noqa: BLE001 - never take the boot down
             print("bootlogd: %s: %s" % (type(error).__name__, error), file=sys.stderr)
         time.sleep(INTERVAL)

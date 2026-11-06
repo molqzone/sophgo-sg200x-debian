@@ -164,6 +164,16 @@ class ShowTests(unittest.TestCase):
         self.assertIn("missing", done.stderr)
 
 
+class FitTests(unittest.TestCase):
+    def test_a_snapshot_that_fits_is_untouched(self) -> None:
+        self.assertEqual(bootlogd.fit(b"short"), b"short")
+
+    def test_a_snapshot_that_does_not_fit_says_so(self) -> None:
+        payload = bootlogd.fit(b"x" * (bootlogd.PAYLOAD + 100))
+        self.assertEqual(len(payload), bootlogd.PAYLOAD)
+        self.assertIn(b"[snapshot truncated", payload)
+
+
 class SnapshotTests(unittest.TestCase):
     def test_a_snapshot_names_the_sections_a_post_mortem_needs(self) -> None:
         # 冻结的核、消失的网络、坏掉的卡：这三类问题必须在快照里有名字，否则拔出卡来只能看到
@@ -173,6 +183,9 @@ class SnapshotTests(unittest.TestCase):
         for section in ("--- dmesg tail:", "--- net:", "--- mmc:",
                         "--- c906 console ring:", "boot_id="):
             self.assertIn(section, text)
+        # 装不下时被砍掉的是 dmesg，不是小核的 console 环：后者必须在 dmesg 之前。
+        self.assertLess(text.index("--- c906 console ring:"),
+                        text.index("--- dmesg tail:"))
 
 
 class ContractTests(unittest.TestCase):
