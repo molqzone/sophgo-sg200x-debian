@@ -26,6 +26,7 @@ make firmware
 make modules
 make middleware BOARD=maixcam-sc035hgs
 make image BOARD=maixcam
+make sync                     # push runtime files to a booted board, no image rebuild
 make verify
 ```
 
