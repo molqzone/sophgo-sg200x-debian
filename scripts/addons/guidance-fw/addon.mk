@@ -7,6 +7,10 @@ GUIDANCE_FW_DROPIN_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.se
 # 由 scripts/Makefile 的启动策略决定；单独使用本文件时退回默认值。
 # Set by scripts/Makefile's boot policy; a default keeps this file usable on its own.
 GUIDANCE_FW_RPROC_MODE ?= load
+# load 与 attach 是策略的取值，不是 rtos-mode 的子命令。映射放在这里，只有一个地方。
+# `load` and `attach` are policy values, not rtos-mode subcommands; the mapping lives here
+# and nowhere else.
+GUIDANCE_FW_RPROC_COMMAND ?= $(if $(filter $(GUIDANCE_FW_RPROC_MODE),attach),attach,remoteproc)
 
 $(BUILDDIR)/guidance-fw-build-stamp:
 	@echo "$(COLOUR_GREEN)Checking guidance-fw firmware for $(BOARD)$(END_COLOUR)"
@@ -28,10 +32,13 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 		"$(ROOTFS)/lib/firmware/guidance_contract.json"
 	@install -D -m 0644 "$(GUIDANCE_FW_DROPIN_IN)" \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
-	@sed -i 's/@GUIDANCE_FW_RPROC_MODE@/$(GUIDANCE_FW_RPROC_MODE)/' \
+	@sed -i 's/@GUIDANCE_FW_RPROC_COMMAND@/$(GUIDANCE_FW_RPROC_COMMAND)/' \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
-	@grep -q "^ExecStart=/usr/bin/rtos-mode $(GUIDANCE_FW_RPROC_MODE)$$" \
+	@grep -q "^ExecStart=/usr/bin/rtos-mode $(GUIDANCE_FW_RPROC_COMMAND)$$" \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
+	@awk -v c='$(GUIDANCE_FW_RPROC_COMMAND)' '$$0 == "\t" c ")" { found = 1 } \
+		END { exit !found }' "$(GUIDANCE_FW_COMPONENT)/tools/rtos-mode" || \
+		{ echo "rtos-mode has no '$(GUIDANCE_FW_RPROC_COMMAND)' subcommand" >&2; exit 1; }
 	@install -D -m 0644 \
 		"$(GUIDANCE_FW_COMPONENT)/linux/modprobe.d/guidance-uio.conf" \
 		"$(ROOTFS)/etc/modprobe.d/guidance-uio.conf"

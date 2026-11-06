@@ -175,9 +175,16 @@ class DropinGenerationTests(unittest.TestCase):
         self.assertFalse((COMPONENT / "tools/guidance-cmd.py").exists())
 
     def test_template_is_the_committed_artifact(self) -> None:
+        # 模板留的是**命令**占位符：策略里的 load/attach 不是 rtos-mode 的子命令，直接
+        # 填进去会生成 `rtos-mode load`（usage、exit 2），核永远不会被放行。
+        # The placeholder is the *command*: the policy's load/attach are not rtos-mode
+        # subcommands, and substituting one produced `rtos-mode load` -- usage, exit 2,
+        # core never released.
         template = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
         self.assertTrue(template.is_file())
-        self.assertIn("@GUIDANCE_FW_RPROC_MODE@", template.read_text(encoding="utf-8"))
+        text = template.read_text(encoding="utf-8")
+        self.assertIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
+        self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", text)
         self.assertFalse(template.with_suffix("").exists(),
                          "the baked-in drop-in must not come back")
 
