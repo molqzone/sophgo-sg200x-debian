@@ -4,7 +4,7 @@ OUTPUT_DIR ?= output
 
 .DEFAULT_GOAL := verify
 
-.PHONY: test firmware modules middleware image verify toolchain matrix clean-output
+.PHONY: test firmware modules middleware image verify toolchain matrix clean-output sync
 
 test:
 	@bash scripts/ci/local-build.sh test --board "$(BOARD)" --storage "$(STORAGE)" --output "$(OUTPUT_DIR)"
@@ -29,6 +29,12 @@ toolchain:
 
 matrix:
 	@python3 scripts/ci/plan.py matrix
+
+# 把运行时文件推到已经启动的板子上（或挂载好的卡里），不重建镜像。见 docs/dev-sync.md。
+# Push the runtime files onto an already-booted board (or a mounted card) instead of
+# rebuilding the image.  See docs/dev-sync.md.
+sync:
+	@python3 scripts/ci/dev_sync.py $(ARGS)
 
 clean-output:
 	@find "$(OUTPUT_DIR)" -mindepth 1 -maxdepth 1 -type f -delete
