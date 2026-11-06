@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""cop - the co-processor page manager (userspace half, business-free).
+"""cop - the userspace half of a coprocessor shared page.
+
+Linux-side CLI for a coprocessor shared page: uio discovery, self-describing
+header, named channels, mailbox doorbell.  It defines no format -- the core that
+writes the page does.
 
 `cop` owns the part of the co-processor link that is *transport*, not product:
 

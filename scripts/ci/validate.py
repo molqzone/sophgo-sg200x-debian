@@ -519,6 +519,34 @@ def validate_workflows() -> None:
             fail(f"board-specific workflow conditional in {path}")
 
 
+def check_vendored_cop() -> None:
+    """The shipped `cop` must be exactly the published revision it claims.
+
+    工具现在有自己的仓库（molqzone/cop），镜像只是**vendored 副本**：一份文件、一份 pin
+    （commit + sha256）。两者一旦不一致，板子上装的就是一个没有出处的东西，所以构建期就
+    比对，而不是靠谁记得同步。
+    """
+    tool = REPO_ROOT / "components/guidance-fw/tools/cop"
+    pin_path = REPO_ROOT / "components/guidance-fw/tools/cop.upstream"
+    if not tool.is_file() or not pin_path.is_file():
+        fail("the vendored cop tool or its provenance file is missing")
+    pin = {}
+    for line in pin_path.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            pin[key.strip()] = value.strip()
+    for key in ("repo", "commit", "sha256"):
+        if not pin.get(key):
+            fail(f"cop.upstream is missing {key}")
+    actual = hashlib.sha256(tool.read_bytes()).hexdigest()
+    if actual != pin["sha256"]:
+        fail(
+            "the shipped cop does not match its pin: %s is %s, cop.upstream says %s "
+            "(%s@%s); re-vendor it instead of editing the file in place"
+            % (tool.name, actual[:12], pin["sha256"][:12], pin["repo"], pin["commit"][:12])
+        )
+
+
 def validate_component() -> None:
     component = REPO_ROOT / "components/guidance-fw"
     required = (
@@ -540,6 +568,7 @@ def validate_component() -> None:
             fail(f"component tool is not executable: {component / name}")
     if (REPO_ROOT / "scripts/addons/rtos-firmware").exists():
         fail("legacy scripts/addons/rtos-firmware still exists")
+    check_vendored_cop()
 
 
 def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
