@@ -30,6 +30,10 @@ sys.path.insert(0, str(REPO_ROOT / "scripts/ci"))
 import dev_sync  # noqa: E402
 
 ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
+# 按目标路径找，别按下标：manifest 会增删条目，下标会让测试悄悄测错文件。
+# Look up by destination, never by index: the manifest grows, and an index would make
+# these tests quietly check the wrong file.
+DROPIN = next(target for target in dev_sync.TARGETS if target.render)
 SCRIPTS = REPO_ROOT / "scripts"
 
 
@@ -76,13 +80,13 @@ class ManifestTests(unittest.TestCase):
 
 class RenderTests(unittest.TestCase):
     def test_load_renders_remoteproc(self) -> None:
-        text = dev_sync.render(dev_sync.TARGETS[4].source,
+        text = dev_sync.render(DROPIN.source,
                                {"GUIDANCE_FW_RPROC_MODE": "load"}).decode()
         self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", text)
         self.assertNotIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
 
     def test_attach_renders_attach(self) -> None:
-        text = dev_sync.render(dev_sync.TARGETS[4].source,
+        text = dev_sync.render(DROPIN.source,
                                {"GUIDANCE_FW_RPROC_MODE": "attach"}).decode()
         self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", text)
 
@@ -111,7 +115,7 @@ class RenderTests(unittest.TestCase):
             )
             installed = (rootfs / "etc/systemd/system/load-systemko.service.d/"
                          "20-guidance-fw.conf").read_bytes()
-        rendered = dev_sync.render(dev_sync.TARGETS[4].source,
+        rendered = dev_sync.render(DROPIN.source,
                                    {"GUIDANCE_FW_RPROC_MODE": "load"})
         self.assertEqual(rendered, installed)
 
@@ -147,6 +151,16 @@ class CardRootTests(unittest.TestCase):
                   "20-guidance-fw.conf")
         self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n",
                       dropin.read_text(encoding="utf-8"))
+
+    def test_a_new_unit_is_enabled_not_just_copied(self) -> None:
+        # boot-time.service 只有被 enable 过才会在下次启动跑；把文件拷过去而不 enable，
+        # 是"装了但没生效"的经典形态。
+        self.run_sync()
+        link = (self.root / "etc/systemd/system/multi-user.target.wants/"
+                "boot-time.service")
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.readlink(), Path("/etc/systemd/system/boot-time.service"))
+        self.assertTrue((self.root / "usr/local/sbin/boot-time").stat().st_mode & 0o111)
 
     def test_a_second_run_changes_nothing(self) -> None:
         self.run_sync()
