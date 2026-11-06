@@ -145,6 +145,16 @@ if [ -f /tmp/install/systemd-enable ]; then
   systemctl enable `cat /tmp/install/systemd-enable`
 fi
 
+#
+# 板上没有人读文档/手册，也不需要几十种语言；这些都是镜像体积和冷插拔时间的纯开销。
+# A board nobody reads man pages on does not need them; this is pure image size and
+# coldplug work.  zh* and C stay so the console and our tools keep working.
+#
+rm -rf /usr/share/doc/* /usr/share/man/* /usr/share/info/* 2>/dev/null || true
+find /usr/share/locale -mindepth 1 -maxdepth 1 -type d ! -name 'zh*' ! -name 'C*' \
+	-exec rm -rf {} + 2>/dev/null || true
+rm -rf /var/lib/apt/lists/* /var/cache/apt/* 2>/dev/null || true
+
 # Update source list 
 
 rm -rf /etc/apt/sources.list.d/multistrap-debian.list
