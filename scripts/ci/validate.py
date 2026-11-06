@@ -48,6 +48,7 @@ GUIDANCE_CONTRACT_FILES = (
 )
 GUIDANCE_FW_ADDON = "guidance-fw"
 GUIDANCE_LOADERS = ("remoteproc", "fsbl")
+GUIDANCE_RETIRED_SETTINGS = ("GUIDANCE_FW_RPROC_MODE", "GUIDANCE_FW_DOORBELL_OWNER")
 GUIDANCE_RPROC_MODES = ("load", "attach")
 GUIDANCE_DOORBELL_OWNERS = ("rtos_cmdqu", "uio")
 BOOTLOG_DAEMON = "scripts/addons/bootlog/bootlogd"
@@ -598,46 +599,27 @@ def validate_component() -> None:
 def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
     """The C906L startup facts are build-time decisions; check them against the DTS.
 
-    Three knobs decide who releases the core, whether remoteproc loads firmware or
-    attaches to a running one, and who owns the doorbell IRQ.  They used to be
-    implicit in two places -- the FSBL input flipped when the guidance-fw addon was
-    added, and the drop-in hardcoded the rtos-mode argument -- so nothing compared
-    them with the hardware description at all.
+    There is one knob: who releases the core.  The rtos-mode argument follows from it
+    (remoteproc means Linux writes the firmware and starts the core; fsbl means the
+    loader already did), and the doorbell is not a choice at all -- IRQ 101 belongs to
+    the vendor cmdqu driver with an exclusive request_irq, so the firmware notification
+    rides RTOS_CMDQU_WAIT_EVENT and the uio maps carry no interrupt.
+
+    两个被删掉的旋钮在这里**拒绝**，而不是忽略：设置文件里还能写出它们，就说明"独立变量
+    可以配出工具不认识的东西"这个坑还在。The two removed knobs are refused, not ignored:
+    a settings file that still carries them means the hole they came through is open.
     """
     loader = settings.get("GUIDANCE_FW_LOADER", "").strip().strip('"') or "remoteproc"
-    mode = settings.get("GUIDANCE_FW_RPROC_MODE", "").strip().strip('"') or "load"
-    owner = (
-        settings.get("GUIDANCE_FW_DOORBELL_OWNER", "").strip().strip('"')
-        or "rtos_cmdqu"
-    )
 
     if loader not in GUIDANCE_LOADERS:
         fail(f"GUIDANCE_FW_LOADER={loader!r} must be one of {GUIDANCE_LOADERS}")
-    if mode not in GUIDANCE_RPROC_MODES:
-        fail(f"GUIDANCE_FW_RPROC_MODE={mode!r} must be one of {GUIDANCE_RPROC_MODES}")
-    if owner not in GUIDANCE_DOORBELL_OWNERS:
-        fail(
-            "GUIDANCE_FW_DOORBELL_OWNER=%r must be one of %s"
-            % (owner, GUIDANCE_DOORBELL_OWNERS)
-        )
-    if owner == "uio":
-        fail(
-            "GUIDANCE_FW_DOORBELL_OWNER=uio is not implemented: the vendor rtos_cmdqu "
-            "driver owns IRQ 101 with an exclusive request_irq and uio_pdrv_genirq "
-            "cannot share it, so the firmware notification rides RTOS_CMDQU_WAIT_EVENT"
-        )
-    if loader == "fsbl" and mode == "load":
-        fail(
-            "GUIDANCE_FW_LOADER=fsbl with GUIDANCE_FW_RPROC_MODE=load is the DMA-race "
-            "hang recorded in the README: the FSBL releases the C906L while U-Boot and "
-            "the early kernel still own the shared AXI DMA controller; FSBL boot must "
-            "use attach"
-        )
-    if loader == "remoteproc" and mode == "attach":
-        fail(
-            "GUIDANCE_FW_RPROC_MODE=attach needs GUIDANCE_FW_LOADER=fsbl: with "
-            "loader=remoteproc nothing has released the core before Linux starts"
-        )
+    for gone in GUIDANCE_RETIRED_SETTINGS:
+        if gone in settings:
+            fail(
+                f"{gone} is gone: the rtos-mode argument follows from GUIDANCE_FW_LOADER, "
+                f"and the doorbell belongs to the vendor cmdqu driver whether or not a "
+                f"setting says so"
+            )
 
     regions = remoteproc_memory_regions(dts_text)
     if "fast_image" not in regions:
@@ -645,16 +627,10 @@ def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
             "the C906L firmware band (fast_image) must stay in the rproc memory-region; "
             "got %s" % regions
         )
-    if owner == "rtos_cmdqu":
-        if not re.search(r"\brtos_cmdqu\s*\{", dts_text):
-            fail(
-                "GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu but the DTS has no rtos_cmdqu node"
-            )
-        if not re.search(r"\binterrupts\s*=\s*<101\b", dts_text):
-            fail(
-                "GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu but the DTS mailbox has no "
-                "IRQ 101"
-            )
+    if not re.search(r"\brtos_cmdqu\s*\{", dts_text):
+        fail("the DTS has no rtos_cmdqu node, so the command queue has no driver")
+    if not re.search(r"\binterrupts\s*=\s*<101\b", dts_text):
+        fail("the DTS mailbox has no IRQ 101, so the doorbell cannot be delivered")
 
 
 def validate_guidance_boot_policy(

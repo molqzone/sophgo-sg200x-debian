@@ -27,15 +27,14 @@ Before=
 # step here -- it used to be required because the firmware only validated a page it did
 # not build; ownership now sits with whoever writes the bytes.
 ExecStart=
-# 参数的来源是 `GUIDANCE_FW_RPROC_MODE` 的**含义**，不是它的字面值：`load` 是“由 Linux
-# 写固件并起核”，交给 rtos-mode 时这个名字是 `remoteproc`；`attach` 才是 rtos-mode 的
-# `attach`。曾经把字面值直接填进来，生成的 `rtos-mode load` 不是它的子命令，单元以 usage
-# 退出 2，核从未被放行；安装步骤现在会对着 rtos-mode 的 case 分支核一遍。
-# The argument comes from what the mode *means*, not from its spelling: `load` is "Linux
-# writes the firmware and starts the core", which rtos-mode calls `remoteproc`; `attach`
-# is rtos-mode's `attach`.  Filling in the literal spelling produced `rtos-mode load`,
-# which is not one of its subcommands -- the unit exited 2 with the usage text and the
-# core was never released.  The install step now checks the result against the tool.
+# 参数由构建期的 `GUIDANCE_FW_LOADER` 推导，不是独立的配置项：remoteproc 意味着 Linux 写
+# 固件并起核（`rtos-mode remoteproc`），fsbl 意味着加载器已经放核（`rtos-mode attach`）。
+# 独立变量曾经把字面值 `load` 填进来——那不是 rtos-mode 的子命令，单元以 usage 退出 2，
+# 核从未被放行。安装步骤现在对着 rtos-mode 的 case 分支核一遍。
+# The argument follows from the build-time `GUIDANCE_FW_LOADER` instead of being a knob
+# of its own: remoteproc means Linux writes the firmware and starts the core, fsbl means
+# the loader already released it.  The knob it used to be once held `load`, which is not
+# a rtos-mode subcommand -- the unit exited 2 and the core was never released.
 ExecStart=/usr/bin/rtos-mode @GUIDANCE_FW_RPROC_COMMAND@
 
 # 失败要**可见**：把退出码落到 /run，而不是让“服务没起来”变成“板子像砖”。

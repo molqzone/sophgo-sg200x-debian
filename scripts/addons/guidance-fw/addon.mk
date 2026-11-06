@@ -6,11 +6,10 @@ GUIDANCE_FW_CONTRACT := $(GUIDANCE_FW_FIRMWARE_DIR)/guidance_contract.json
 GUIDANCE_FW_DROPIN_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
 # 由 scripts/Makefile 的启动策略决定；单独使用本文件时退回默认值。
 # Set by scripts/Makefile's boot policy; a default keeps this file usable on its own.
-GUIDANCE_FW_RPROC_MODE ?= load
 # load 与 attach 是策略的取值，不是 rtos-mode 的子命令。映射放在这里，只有一个地方。
 # `load` and `attach` are policy values, not rtos-mode subcommands; the mapping lives here
 # and nowhere else.
-GUIDANCE_FW_RPROC_COMMAND ?= $(if $(filter $(GUIDANCE_FW_RPROC_MODE),attach),attach,remoteproc)
+GUIDANCE_FW_RPROC_COMMAND ?= $(if $(filter fsbl,$(GUIDANCE_FW_LOADER)),attach,remoteproc)
 
 $(BUILDDIR)/guidance-fw-build-stamp:
 	@echo "$(COLOUR_GREEN)Checking guidance-fw firmware for $(BOARD)$(END_COLOUR)"

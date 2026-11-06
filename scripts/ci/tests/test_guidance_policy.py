@@ -19,11 +19,7 @@ CONFIGS = REPO_ROOT / "configs"
 COMPONENT = REPO_ROOT / "components/guidance-fw"
 ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
 DTS = next((CONFIGS / "maixcam/dts").glob("*.dts")).read_text(encoding="utf-8")
-PRODUCTION = {
-    "GUIDANCE_FW_LOADER": "remoteproc",
-    "GUIDANCE_FW_RPROC_MODE": "load",
-    "GUIDANCE_FW_DOORBELL_OWNER": "rtos_cmdqu",
-}
+PRODUCTION = {"GUIDANCE_FW_LOADER": "remoteproc"}
 
 
 def policy(**overrides: str) -> dict[str, str]:
@@ -32,7 +28,7 @@ def policy(**overrides: str) -> dict[str, str]:
     return settings
 
 
-def generate_dropin(mode: str) -> str:
+def generate_dropin(loader: str) -> str:
     """Run the real addon into a temp rootfs and return the installed drop-in."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -45,7 +41,7 @@ def generate_dropin(mode: str) -> str:
             f"ROOTFS := {rootfs}\n"
             f"COMPONENTS_ROOT := {REPO_ROOT / 'components'}\n"
             "BOARD := maixcam\n"
-            f"GUIDANCE_FW_RPROC_MODE := {mode}\n"
+            f"GUIDANCE_FW_LOADER := {loader}\n"
             f"include {ADDON}\n",
             encoding="utf-8",
         )
@@ -62,41 +58,24 @@ class BootPolicyTests(unittest.TestCase):
     def test_production_policy_is_the_shipped_one(self) -> None:
         settings = effective_assignments(CONFIGS, "maixcam")
         self.assertEqual(settings.get("GUIDANCE_FW_LOADER"), "remoteproc")
-        self.assertEqual(settings.get("GUIDANCE_FW_RPROC_MODE"), "load")
-        self.assertEqual(settings.get("GUIDANCE_FW_DOORBELL_OWNER"), "rtos_cmdqu")
+        for gone in validate.GUIDANCE_RETIRED_SETTINGS:
+            self.assertNotIn(gone, settings)
         validate.check_guidance_boot_policy(settings, DTS)
 
-    def test_fsbl_attach_is_accepted(self) -> None:
-        validate.check_guidance_boot_policy(
-            policy(GUIDANCE_FW_LOADER="fsbl", GUIDANCE_FW_RPROC_MODE="attach"), DTS)
+    def test_fsbl_is_accepted(self) -> None:
+        validate.check_guidance_boot_policy(policy(GUIDANCE_FW_LOADER="fsbl"), DTS)
 
-    def test_fsbl_load_is_the_dma_race_hang(self) -> None:
-        with self.assertRaises(PlanError) as caught:
-            validate.check_guidance_boot_policy(
-                policy(GUIDANCE_FW_LOADER="fsbl", GUIDANCE_FW_RPROC_MODE="load"), DTS)
-        self.assertIn("DMA-race", str(caught.exception))
+    def test_the_retired_knobs_are_refused_not_ignored(self) -> None:
+        # 独立变量能配出工具不认识的东西，这正是 rtos-mode load 那次事故的形状。
+        for gone in validate.GUIDANCE_RETIRED_SETTINGS:
+            with self.subTest(setting=gone):
+                with self.assertRaises(PlanError) as caught:
+                    validate.check_guidance_boot_policy(policy(**{gone: "whatever"}), DTS)
+                self.assertIn("is gone", str(caught.exception))
 
-    def test_attach_without_fsbl_is_refused(self) -> None:
-        with self.assertRaises(PlanError) as caught:
-            validate.check_guidance_boot_policy(
-                policy(GUIDANCE_FW_RPROC_MODE="attach"), DTS)
-        self.assertIn("fsbl", str(caught.exception))
-
-    def test_uio_doorbell_is_refused_because_it_is_not_implemented(self) -> None:
-        with self.assertRaises(PlanError) as caught:
-            validate.check_guidance_boot_policy(
-                policy(GUIDANCE_FW_DOORBELL_OWNER="uio"), DTS)
-        self.assertIn("not implemented", str(caught.exception))
-
-    def test_unknown_values_are_refused(self) -> None:
-        for key, value in (
-            ("GUIDANCE_FW_LOADER", "uboot"),
-            ("GUIDANCE_FW_RPROC_MODE", "start"),
-            ("GUIDANCE_FW_DOORBELL_OWNER", "rpmsg"),
-        ):
-            with self.subTest(key=key):
-                with self.assertRaises(PlanError):
-                    validate.check_guidance_boot_policy(policy(**{key: value}), DTS)
+    def test_unknown_loader_is_refused(self) -> None:
+        with self.assertRaises(PlanError):
+            validate.check_guidance_boot_policy(policy(GUIDANCE_FW_LOADER="uboot"), DTS)
 
     def test_dts_must_keep_the_firmware_band(self) -> None:
         text = DTS.replace("memory-region\t= <&fast_image &rtos_boot_trace>;",
@@ -134,8 +113,8 @@ class DropinGenerationTests(unittest.TestCase):
         self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", dropin)
         self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", dropin)
 
-    def test_attach_policy_generates_attach(self) -> None:
-        dropin = generate_dropin("attach")
+    def test_fsbl_loader_generates_attach(self) -> None:
+        dropin = generate_dropin("fsbl")
         self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", dropin)
 
     def test_the_firmware_owns_the_page_format(self) -> None:
