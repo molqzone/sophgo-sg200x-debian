@@ -6,6 +6,15 @@ stack and its userspace tools are gone, and what remains is the minimum the
 product needs on the small core -- the firmware artifact, the CMDQU doorbell
 kernel patches, and the boot wiring.
 
+> **This branch pins the inert baseline build, not the product application.**
+> `firmware/c906-mcu.{elf,bin}` here are the LED-only sample from
+> [xrobot-org/bsp-lichee-rvnano-c906l](https://github.com/xrobot-org/bsp-lichee-rvnano-c906l).
+> The C906L is still released through `rtos-mode remoteproc`, so the drop-in, the
+> remoteproc path and the hash pins stay exercised, but the core runs no
+> application: no servo surfaces, no IMU, no shared page. A camera baseline must
+> not move the actuators, and the empty BSP sample is the smallest thing that
+> still proves the core comes up.
+
 ## `cop`: the generic page manager (and why there is no `pages.json`)
 
 `/usr/bin/cop` is the business-free half of the link. It discovers the pages
@@ -38,42 +47,67 @@ hatch, and "what the page means" lives in the product's own tooling.
 ## Contents
 
 ```text
-firmware/c906-mcu.elf        product RISC-V firmware (remoteproc artifact)
-firmware/c906-mcu.bin        raw image, only for an opt-in FSBL/FIP build
-firmware/guidance_contract.json  the page layout the firmware was built against
+firmware/c906-mcu.elf        baseline: LED-only BSP sample (remoteproc artifact)
+firmware/c906-mcu.bin        same build, raw image, only for an opt-in FSBL/FIP build
+firmware/guidance_contract.json  the page geometry this image declares; the baseline
+                             firmware never reads it, `cop` and `validate.py` do
 firmware/sha256sums.txt      integrity pins for all three artifacts
 ports/osdrv/patches/        0001-cmdqu-allow-user-commands.patch (doorbell)
                             0002-cmdqu-notify-event.patch (notification wait)
 tools/rtos-mode              board tool: start the C906L remoteproc at boot
 tools/cop                    board tool: page status/dump/log/format, typed commands
 linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
-                             boot drop-in template: format the page, then start the
-                             rproc in the mode the board's boot policy picks
+                             boot drop-in template: start the rproc in the mode
+                             the board's boot policy picks
 linux/modprobe.d/guidance-uio.conf   uio_pdrv_genirq of_id=generic-uio
 linux/modules-load.d/guidance-uio.conf  load that module at boot
 ```
 
 ## Firmware provenance
 
-The artifacts are built from the product firmware repository
-[xrobot-org/bsp-guidance-action](https://github.com/xrobot-org/bsp-guidance-action)
-and refreshed by copying `build/firmware/c906-mcu.{elf,bin}` and
+The **product** artifacts come from the product firmware repository
+[molqzone/bsp-guidance-action](https://github.com/molqzone/bsp-guidance-action)
+(private; the `xrobot-org/bsp-guidance-action` link this file used to carry never
+resolved). They are refreshed by copying `build/firmware/c906-mcu.{elf,bin}` and
 `build/firmware/guidance_contract.json` here, then recording new hashes in
-`firmware/sha256sums.txt`. The firmware in this revision carries the shared-page
-guidance contract at `0x8FFDC000` and answers the Linux doorbell
+`firmware/sha256sums.txt`. The product firmware carries the shared-page guidance
+contract at `0x8FFDC000` and answers the Linux doorbell
 (`ip_id=IP_SYSTEM, cmd_id=0x7f`) with the mailbox reply sequence mirrored from
 the vendor reference implementation.
+
+**This baseline branch pins the inert build instead**: the LED-only sample from
+[xrobot-org/bsp-lichee-rvnano-c906l](https://github.com/xrobot-org/bsp-lichee-rvnano-c906l),
+stripped, recipe below. It keeps the boot wiring honest (the core is still
+released by `rtos-mode remoteproc`, so a broken drop-in still shows up) while
+running no application. The contract JSON stays pinned because it is the geometry
+the image declares: the DTS `guidance-pages` node, `configs/maixcam/memmap.py`
+and `scripts/ci/validate.py` all agree on it whether or not the firmware uses it.
+Because nothing formats the page on this branch, it stays `UNFORMATTED` until
+someone runs `cop format --contract /lib/firmware/guidance_contract.json`;
+telemetry, `cop log` and the bootlog console ring are empty by design, not a
+failure.
 
 The page base is the one fact the two sides hand over: build the firmware with the
 same value this image declares in `configs/maixcam/memmap.py`, and the ELF, the
 linker script and the published contract all follow it.
 
 ```sh
+# product build: the page base is the image's input
 cmake --preset c906-release -DSG200X_GUIDANCE_PAGE_BASE=0x8FFDC000
 cmake --build build/release --target firmware
 # then copy build/firmware/{c906-mcu.elf,c906-mcu.bin,guidance_contract.json} here
 # and re-pin: (cd firmware && sha256sum c906-mcu.elf c906-mcu.bin \
 #   guidance_contract.json > sha256sums.txt)
+
+# baseline build: the inert BSP sample, no page base involved
+git clone https://github.com/xrobot-org/bsp-lichee-rvnano-c906l
+cd bsp-lichee-rvnano-c906l && git submodule update --init --recursive
+SG200X_SDK_DIR=<duo-buildroot-sdk-v2 at 6f8962c> \
+SG200X_CROSS_COMPILE=<xpack riscv-none-elf-gcc 15.2>/bin/riscv-none-elf- \
+SG200X_BASH=/bin/bash OUTPUT_DIR=$PWD/build/firmware \
+bash scripts/sg200x-sdk/build.sh
+riscv-none-elf-strip -o c906-mcu.elf build/firmware/c906-mcu.elf
+# copy {c906-mcu.elf,c906-mcu.bin} here and re-pin those two lines only
 ```
 
 Board usage:
@@ -167,13 +201,14 @@ through `/dev/uioN`.
 
 ## Boot order
 
-The drop-in `20-guidance-fw.conf` first runs `/usr/bin/cop format --contract` as an
-`ExecStartPre`: the page belongs to Linux (the firmware only validates it), so a
-fresh card would otherwise leave the firmware looking at an unformatted page and
-silently skipping every publish. It then runs `rtos-mode <mode>`, which loads
+The drop-in `20-guidance-fw.conf` runs `rtos-mode <mode>`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
-media chain without stopping the remote processor.
+media chain without stopping the remote processor. It does **not** format the
+page: the product firmware formats it at bring-up, and on this baseline branch
+nothing does, so the page stays `UNFORMATTED` until an operator runs
+`cop format --contract` -- the unit never fails on a cold page, and `cop status`
+reports the state instead of inventing one.
 
 ### Boot policy is a board setting, not a build accident
 
