@@ -127,7 +127,12 @@ include $(wildcard /builder/addons/*/addon.mk)
 
 strip-quotes = $(subst ",,$(1))
 addon-targets = $(addprefix $(BUILDDIR)/,$(addsuffix -stamp,$(call strip-quotes,$(IMAGE_ADDITIONS))))
-_PACKAGES = $(call strip-quotes,$(PACKAGES))
+# 运行时包 + （可选）开发工具链。ENABLE_DEV_TOOLS=1 只是把编译器和 -dev 包装回来，
+# 平时不装：它们约占 rootfs 的 40%，而镜像大小直接决定每次刷写的时间。
+# Runtime packages plus, optionally, the toolchain.  ENABLE_DEV_TOOLS=1 puts the
+# compiler and -dev packages back; they were about 40% of the rootfs.
+_PACKAGES = $(call strip-quotes,$(PACKAGES)) \
+	$(if $(filter 1,$(ENABLE_DEV_TOOLS)),$(call strip-quotes,$(PACKAGES_DEV)))
 
 # C906L 启动策略：三件事在构建期定死，不再由“IMAGE_ADDITIONS 里有没有 guidance-fw”
 # 反推 FSBL 输入，也不由 drop-in 里的 ExecStart 在运行时选。变量来自板级 settings.mk
@@ -624,8 +629,10 @@ ifeq ($(ENABLE_MEDIA_STACK),1)
 
 endif
 	@cp $(BUILDDIR)/linux-image-$(BOARD)-*.deb $(ROOTFS)/tmp/install/
+ifeq ($(ENABLE_DEV_TOOLS),1)
 	@cp $(BUILDDIR)/linux-headers-*.deb $(ROOTFS)/tmp/install/
 	@cp $(BUILDDIR)/linux-libc-dev*.deb $(ROOTFS)/tmp/install/
+endif
 
 ifeq ($(ENABLE_LOCAL_PINMUX),1)
 	@cp $(BUILDDIR)/package/cvi-pinmux-cv181x_$(PINMUX_VERSION)_$(DEB_ARCH).deb $(ROOTFS)/tmp/install/
