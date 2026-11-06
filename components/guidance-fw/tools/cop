@@ -7,7 +7,6 @@
     cop status [--contract FILE]      decode the self-describing page header
     cop dump [--offset N] [--bytes N] hex dump (forensics)
     cop log [--contract FILE] [--new] stream the console ring
-    cop format --contract FILE        initialize a cold page (Linux owns the format)
     cop watch [--contract FILE]       print new telemetry slots (opaque bytes)
     cop send --contract FILE --type N --payload HEX   send one typed command
 
@@ -23,8 +22,13 @@ the header cannot carry: the frame layout, checksum, channel names and the
 command values.  `cop` does not know what a command *means* - `send --type N`
 is the transport-level escape hatch; the product's own tool names the types.
 
-Everything here is a mechanism (map, format, read, write, ring); no product
-semantics and no product names.
+Everything here is a mechanism (map, read, write, ring); no product semantics and no
+product names.
+
+There is deliberately no `format` verb: the core that writes the page builds it at
+bring-up, and a page nobody built is a fact to report, not something to overwrite from
+the other side.  `status` prints UNFORMATTED / FOREIGN and the caller decides what that
+means for it.
 """
 
 import argparse
@@ -290,28 +294,6 @@ def cmd_dump(args):
             "".join(chr(byte) if 32 <= byte < 127 else "." for byte in chunk)))
 
 
-def cmd_format(args):
-    if not args.contract:
-        fail("format needs --contract (a cold page has no geometry to read)")
-    contract = load_contract(args.contract)
-    page_c = contract["page"]
-    page = open_page(args, "shared", page_c["bytes"])
-    page.write(0, bytes(page_c["bytes"]))
-    page.write(0, HEADER.pack(page_c["magic"], page_c["abi_version"], page_c["bytes"],
-                              contract["telemetry"]["slot_count"],
-                              contract["telemetry"]["slot_bytes"],
-                              contract["region"]["payload_bytes"],
-                              contract["region"]["offset"], page_c["wire_tag"]))
-    print("page formatted: %s" % state_name(parse_header(page)))
-
-
-def console_layout(contract):
-    if contract:
-        console = contract["console"]
-        return (console["index_offset"], console["ring_offset"], console["ring_bytes"])
-    return (0, 64, DEFAULT_PAGE_SIZE - 64)
-
-
 def cmd_log(args):
     contract = load_contract(args.contract) if args.contract else None
     index_offset, ring_offset, ring_bytes = console_layout(contract)
@@ -342,7 +324,8 @@ def cmd_watch(args):
     page = open_page(args, "shared", DEFAULT_PAGE_SIZE)
     header = parse_header(page)
     if state_name(header) != "FORMATTED":
-        fail("page is %s; run `cop format --contract ...` first" % state_name(header))
+        fail("page is %s: the core that builds it is not running, or pins a firmware "
+             "that does not build it" % state_name(header))
     geom = geometry(header)
     slot = header["slot_bytes"]
     seen = page.u32(geom["head"])
@@ -377,7 +360,8 @@ def cmd_send(args):
         fail("payload is %d bytes, the contract leaves %d" % (len(body), payload_bytes - 8))
     page = open_page(args, "shared", contract["page"]["bytes"])
     if state_name(parse_header(page)) != "FORMATTED":
-        fail("page is not formatted; run `cop format --contract ...` first")
+        fail("page is %s; a command needs a page its owner has built"
+             % state_name(parse_header(page)))
     seq = (page.u32(region["seq_offset"]) + 1) & 0xFFFF
     slot = struct.pack("<IHH%ds" % (payload_bytes - 8), command["magic"], args.type,
                        seq, body)
@@ -413,8 +397,6 @@ def main(argv):
     log = sub.add_parser("log", help="stream the console ring")
     log.add_argument("--contract")
     log.add_argument("--new", action="store_true")
-    fmt = sub.add_parser("format", help="initialize a cold page")
-    fmt.add_argument("--contract", required=True)
     watch = sub.add_parser("watch", help="print new telemetry slots as opaque bytes")
     watch.add_argument("--contract")
     send = sub.add_parser("send", help="send one typed command")
@@ -424,7 +406,7 @@ def main(argv):
 
     args = parser.parse_args(argv)
     handlers = {"list": cmd_list, "status": cmd_status, "dump": cmd_dump,
-                "format": cmd_format, "log": cmd_log, "watch": cmd_watch,
+                "log": cmd_log, "watch": cmd_watch,
                 "send": cmd_send}
     return handlers[args.command](args) or 0
 

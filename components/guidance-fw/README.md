@@ -27,7 +27,6 @@ cop list                       # pages, maps, addresses, sizes - DT only
 cop status [--contract FILE]   # decode the header; optional contract cross-check
 cop dump --offset 0 --bytes 64 # forensics
 cop log [--contract FILE]      # console ring
-cop format --contract FILE     # the only verb that needs geometry (a cold page has none)
 cop watch [--contract FILE]    # new telemetry slots, opaque bytes
 cop send --contract FILE --type N --payload HEX
 ```
@@ -82,10 +81,10 @@ released by `rtos-mode remoteproc`, so a broken drop-in still shows up) while
 running no application. The contract JSON stays pinned because it is the geometry
 the image declares: the DTS `guidance-pages` node, `configs/maixcam/memmap.py`
 and `scripts/ci/validate.py` all agree on it whether or not the firmware uses it.
-Because nothing formats the page on this branch, it stays `UNFORMATTED` until
-someone runs `cop format --contract /lib/firmware/guidance_contract.json`;
-telemetry, `cop log` and the bootlog console ring are empty by design, not a
-failure.
+Because nothing builds the page on this branch, it stays `UNFORMATTED`: telemetry,
+`cop log` and the bootlog console ring are empty by design, not a failure.  There is no
+`cop format` to fix that from the Linux side — a page nobody built is a fact to report,
+and the verb was removed when the firmware took ownership of the format.
 
 The page base is the one fact the two sides hand over: build the firmware with the
 same value this image declares in `configs/maixcam/memmap.py`, and the ELF, the
@@ -142,9 +141,9 @@ the frame geometry, the name-service area, the command values and the console
 ring geometry. This component pins it next to the ELF and installs it to
 `/lib/firmware/` next to the ELF it describes; the board tools read it there:
 
-* `cop format` / `cop send` take the offsets from the contract (`--contract`);
-  `cop status` / `cop dump` need no contract at all because the page is
-  self-describing.
+* `cop send` takes the command magic and region offsets from the contract
+  (`--contract`); `cop status` / `cop dump` need no contract at all because the page
+  is self-describing.
 * `bootlogd` reads the console ring geometry from it too, so its snapshots cannot
   be silently wrong about where the frozen coprocessor's output is.
 * missing or invalid contract = hard error with the path in the message. There is
@@ -205,10 +204,9 @@ The drop-in `20-guidance-fw.conf` runs `rtos-mode <mode>`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
 media chain without stopping the remote processor. It does **not** format the
-page: the product firmware formats it at bring-up, and on this baseline branch
-nothing does, so the page stays `UNFORMATTED` until an operator runs
-`cop format --contract` -- the unit never fails on a cold page, and `cop status`
-reports the state instead of inventing one.
+page: the core that writes the page builds it at bring-up, and on this baseline branch
+no application does, so the page stays `UNFORMATTED` -- the unit never fails on a cold
+page, and `cop status` reports the state instead of inventing one.
 
 ### Boot policy is a board setting, not a build accident
 

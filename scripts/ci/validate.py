@@ -640,6 +640,110 @@ def load_memmap(path: Path):
     return module.MemoryMap
 
 
+def check_guidance_contract_page(contract: dict[str, object]) -> None:
+    """The contract's declared offsets must be the ones the page tool derives.
+
+    `cop` reads the page's own header, so its offsets are a *derivation*; the contract
+    states them.  Two independent statements of one layout is exactly the shape that
+    drifts quietly, so the build asks the tool what it would compute and compares.  The
+    rest is arithmetic that a human should not have to re-check by eye: every region
+    inside the page, the command slot ending exactly at `write_state`, the sequence word
+    ending the page, and a name-service table that fits its declared capacity.
+
+    这里用 `cop` 自己的推导结果对账，而不是把偏移量再抄一遍：工具读的是页头，契约是声明，
+    两边不一致时构建期就红，而不是等板子上错位。
+    """
+    page = contract["page"]
+    telemetry = contract["telemetry"]
+    channels = contract["channels"]
+    region = contract["region"]
+    frame = contract["frame"]
+    page_bytes = page["bytes"]
+
+    tool = _load_cop_module()
+    if tool.PAGE_MAGIC != page["magic"]:
+        fail("cop and the contract disagree about the page magic")
+    if tool.HEADER_BYTES != page["header_bytes"]:
+        fail("cop and the contract disagree about the header size")
+    if tool.CHANNEL_TABLE_MAGIC != channels["magic"]:
+        fail("cop and the contract disagree about the name-service magic")
+    if tool.CHANNEL_ENTRY_BYTES != channels["entry_bytes"]:
+        fail("cop and the contract disagree about the channel entry size")
+    if tool.CHANNEL_NAME_BYTES != channels["name_bytes"]:
+        fail("cop and the contract disagree about the channel name size")
+
+    header = {
+        "magic": page["magic"],
+        "abi": page["abi_version"],
+        "page_size": page_bytes,
+        "slot_count": telemetry["slot_count"],
+        "slot_bytes": telemetry["slot_bytes"],
+        "payload_bytes": frame["payload_bytes"],
+        "region_offset": region["offset"],
+        "tag": page["wire_tag"],
+    }
+    geometry = tool.geometry(header)
+    for name, declared in (
+        ("telemetry", telemetry["offset"]),
+        ("head", telemetry["head_offset"]),
+        ("write_state", telemetry["write_state_offset"]),
+        ("channels", channels["offset"]),
+    ):
+        if geometry[name] != declared:
+            fail(
+                "cop derives %s at %d but the contract declares %d"
+                % (name, geometry[name], declared)
+            )
+
+    if channels["offset"] + channels["bytes"] > page_bytes:
+        fail("the name-service table runs past the end of the page")
+    if 16 + channels["capacity"] * channels["entry_bytes"] > channels["bytes"]:
+        fail(
+            "the name-service area is %d bytes but its capacity needs %d"
+            % (channels["bytes"],
+               16 + channels["capacity"] * channels["entry_bytes"])
+        )
+    if region["offset"] + region["payload_bytes"] != region["write_state_offset"]:
+        fail("the command slot does not end where write_state begins")
+    if region["write_state_offset"] + 4 != region["seq_offset"]:
+        fail("write_state and the sequence word are not adjacent")
+    if region["seq_offset"] + 4 > page_bytes:
+        fail("the command sequence word runs past the end of the page")
+    if region["offset"] < channels["offset"] + channels["bytes"]:
+        fail("the command region overlaps the name-service table")
+
+    names: set[str] = set()
+    keys: set[int] = set()
+    for entry in channels["entries"]:
+        name = str(entry["name"])
+        if not name:
+            fail("a channel entry has an empty name")
+        if len(name.encode()) > channels["name_bytes"]:
+            fail("channel name %r does not fit in %d bytes" % (name, channels["name_bytes"]))
+        if name in names:
+            fail("channel %r is announced twice" % name)
+        if int(entry["key"]) in keys:
+            fail("two channels share key 0x%08x" % int(entry["key"]))
+        names.add(name)
+        keys.add(int(entry["key"]))
+        if not 0 <= int(entry["endpoint"]) < page_bytes:
+            fail("channel %r has endpoint %r outside the page"
+                 % (name, entry["endpoint"]))
+
+
+def _load_cop_module():
+    """Import `cop` (no .py suffix) so the build can ask what it would compute."""
+    import importlib.machinery
+    import importlib.util
+
+    path = REPO_ROOT / "components/guidance-fw/tools/cop"
+    loader = importlib.machinery.SourceFileLoader("guidance_cop", str(path))
+    spec = importlib.util.spec_from_loader("guidance_cop", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
 def validate_guidance_contract(config_root: Path) -> None:
     """The page layout has one owner: enforce that everything else agrees with it.
 
@@ -658,6 +762,7 @@ def validate_guidance_contract(config_root: Path) -> None:
         fail(f"{contract_path} is not valid JSON: {error}")
     if contract.get("schema") != 1:
         fail(f"unsupported firmware contract schema: {contract.get('schema')}")
+    check_guidance_contract_page(contract)
     page = contract["page"]
     console = contract["console"]
 
