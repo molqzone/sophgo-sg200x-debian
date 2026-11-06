@@ -127,8 +127,45 @@ strip-quotes = $(subst ",,$(1))
 addon-targets = $(addprefix $(BUILDDIR)/,$(addsuffix -stamp,$(call strip-quotes,$(IMAGE_ADDITIONS))))
 _PACKAGES = $(call strip-quotes,$(PACKAGES))
 
+# C906L 启动策略：两件事在构建期定死，不再由“IMAGE_ADDITIONS 里有没有 guidance-fw”
+# 反推 FSBL 输入，也不由 drop-in 里的 ExecStart 在运行时选。变量来自板级 settings.mk
+# （configs/*/settings.mk），validate.py 再按设备树核对一遍。
+#
+# 只有两件：谁放核（LOADER）、门铃 IRQ 归谁（DOORBELL_OWNER）。drop-in 里 rtos-mode
+# 的参数**不是**第三个旋钮——它是 LOADER 的直接后果，由 addons/guidance-fw/addon.mk
+# 推导（remoteproc → 由 Linux 写固件并起核 → `remoteproc`；fsbl → 核已经被放行 →
+# `attach`）。它曾经是个独立变量，而独立变量能写出 rtos-mode 根本没有的子命令：那次
+# 生成出来的就是 `rtos-mode load`，单元以 usage 退出 2，核从未被放行。
+# C906L boot policy, fixed at build time: who releases the core and who owns the
+# doorbell IRQ.  The rtos-mode argument in the drop-in is **not** a third knob -- it
+# follows from the loader and is derived in addons/guidance-fw/addon.mk.  It used to be
+# its own variable, and an independent variable can hold a subcommand rtos-mode does not
+# have: that build shipped `rtos-mode load`, exited 2 with the usage text, and never
+# released the core at all.
+GUIDANCE_FW_LOADER ?= remoteproc
+GUIDANCE_FW_DOORBELL_OWNER ?= rtos_cmdqu
+GUIDANCE_FW_ENABLED := $(if $(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),1,0)
+
 FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/blank.bin
-ifneq ($(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),)
+ifeq ($(GUIDANCE_FW_ENABLED),1)
+ifeq ($(filter $(GUIDANCE_FW_LOADER),remoteproc fsbl),)
+$(error GUIDANCE_FW_LOADER='$(GUIDANCE_FW_LOADER)' must be one of remoteproc|fsbl)
+endif
+ifeq ($(filter $(GUIDANCE_FW_DOORBELL_OWNER),rtos_cmdqu uio),)
+$(error GUIDANCE_FW_DOORBELL_OWNER='$(GUIDANCE_FW_DOORBELL_OWNER)' must be one of rtos_cmdqu|uio)
+endif
+ifeq ($(GUIDANCE_FW_DOORBELL_OWNER),uio)
+$(error GUIDANCE_FW_DOORBELL_OWNER=uio is not implemented: the vendor rtos_cmdqu driver owns IRQ 101 with an exclusive request_irq and uio_pdrv_genirq cannot share it, so the firmware notification rides RTOS_CMDQU_WAIT_EVENT instead)
+endif
+ifeq ($(GUIDANCE_FW_LOADER),fsbl)
+# Debug variant only: the loader releases the core, so Linux must not write firmware or
+# start it again -- rtos-mode attach brings up the vendor stack around a running core.
+# 逃生门：FSBL 已经放核，Linux 只接上厂商栈；已知长时间运行会挂（见 README），
+# 生产镜像不要用。注意 fsbl 与 load 配不出来的：这个分支没有别的选择，只能 attach，
+# 而 FSBL 在 U-Boot 之前放核抢 AXI DMA 的那次挂死，因此不再是“可以配出来”的选项。
+FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
+FSBL_BLCP_2ND_PATH := $(COMPONENTS_ROOT)/guidance-fw/firmware/c906-mcu.bin
+else
 # The firmware artifact is still pinned and verified, but it is never handed to
 # the FSBL: embedding it makes the FSBL release the C906L before U-Boot, and
 # U-Boot plus the early kernel then race the firmware over the shared AXI DMA
@@ -149,6 +186,7 @@ FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
 # does release the core early, which is the behaviour being avoided here.
 FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/no-blcp-2nd.bin
 endif
+endif
 
 MEDIA_IMAGE_TARGETS :=
 ifeq ($(ENABLE_MEDIA_STACK),1)
@@ -161,6 +199,9 @@ endif
 $(info $(blue)Board: $(BOARD)$(reset))
 $(info $(blue)Storage: $(STORAGE_TYPE)$(reset))
 $(info $(blue)Image Addons: $(IMAGE_ADDITIONS)$(reset))
+ifeq ($(GUIDANCE_FW_ENABLED),1)
+$(info $(blue)C906L boot: loader $(GUIDANCE_FW_LOADER) / doorbell $(GUIDANCE_FW_DOORBELL_OWNER)$(reset))
+endif
 $(info $(blue)Packages: $(_PACKAGES)$(reset))
 
 NPROCS := $(shell nproc)
@@ -261,6 +302,9 @@ $(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp 
 		grep -Fq 'static DEFINE_MUTEX(send_wait_lock);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
 		grep -Fq 'wait_list = kzalloc(sizeof(struct rtos_cmdqu_wait_list_t), GFP_KERNEL);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
 		grep -Fq 'ret = rtos_cmdqu_send_wait(&cmdq, cmdq.cmd_id);' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
+		grep -Fq 'RTOS_CMDQU_EVENT_SLOT' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.h; \
+		grep -Fq 'rtos_cmdqu_wait_event' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
+		grep -Fq 'if (i == RTOS_CMDQU_EVENT_SLOT)' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
 	fi
 	@touch $@
 
@@ -609,6 +653,17 @@ $(BUILDDIR)/image-compile-stamp: $(BUILDDIR)/image-customize-stamp
 	@rm -rf /tmp/genimage/
 	@cd $(BUILDDIR) && genimage --config /builder/genimage_$(STORAGE_TYPE).cfg --tmppath /tmp/genimage --rootpath $(ROOTFS)
 	@rm -rf /tmp/genimage/
+	@# 根分区必须能被 5.10 挂载：e2fsprogs 1.47 默认打开 orphan_file（incompat 0x1000，
+	@# 5.15 才有），带上它时内核会拒绝挂载根文件系统，表现为上电即卡死、无任何输出。
+	@# 这里在打包处断言，而不是等板子黑屏才发现。
+	@# The root filesystem must be mountable by 5.10: e2fsprogs 1.47 enables orphan_file
+	@# (incompat 0x1000, Linux 5.15+) by default, and a root fs carrying it is refused at
+	@# mount time -- the board just hangs with no output.  Assert it here, at packaging,
+	@# instead of discovering it as a black screen.
+	@if dumpe2fs -h $(BUILDDIR)/images/root.ext4 2>/dev/null | grep -q orphan_file; then \
+		echo "ERROR: root.ext4 carries orphan_file, which the 5.10 kernel cannot mount" >&2; \
+		exit 1; \
+	fi
 	@if [ "$(STORAGE_TYPE)" = "emmc" ]; then \
 		python3 /builder/python/raw2cimg.py -v $(BUILDDIR)/images/sdcard.img $(BUILDDIR)/images $(BOARD_PARTITION_FILE); \
 		mkdir -p /tmp/rom/; \

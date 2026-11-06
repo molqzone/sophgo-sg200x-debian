@@ -63,9 +63,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: image-*
+          pattern: image-maixcam-sc035hgs-*
           path: release
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
+          body: |
+            Validated MaixCAM baseline with the SC035HGS color MIPI camera fully working and USB RNDIS.

@@ -139,6 +139,7 @@ def layer_inputs(
             repo / "scripts" / "python" / "raw2cimg.py",
             repo / "scripts" / "setup_rootfs.sh",
             component / "firmware",
+            component / "lib",
             component / "linux",
             component / "tools",
         ]

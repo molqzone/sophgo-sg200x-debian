@@ -37,10 +37,16 @@ not in workflow conditionals.
 
 `components/guidance-fw` owns the product firmware for the small core:
 
-- `firmware`: versioned `c906-mcu.{elf,bin}` artifacts with sha256 pins.
+- `firmware`: versioned `c906-mcu.{elf,bin}` artifacts, the page layout they
+  were built against (`guidance_contract.json`), and sha256 pins for all three.
+- `lib`: gone. The contract JSON is the only copy of the layout; it is installed
+  to `/lib/firmware/guidance_contract.json` (next to the ELF it describes) and read
+directly by `cop` and
+  `bootlogd` (no separate loader module).
 - `ports/osdrv/patches`: the CMDQU `IP_SYSTEM` doorbell kernel patch.
-- `tools`: `rtos-mode` (boot the C906L remoteproc) and `guidance-cmd`
-  (ping/led commands over the doorbell).
+- `tools`: `rtos-mode` (boot the C906L remoteproc) and `cop` (the generic page
+  tool: status/dump/log/watch/format/send, driven by the contract or by the
+  page's own header).
 - `linux/systemd`: the `load-systemko` drop-in that starts the C906L before
   the media chain.
 
@@ -48,6 +54,20 @@ The image layer verifies the artifacts, installs the ELF to `/lib/firmware`,
 injects the BIN into the FSBL/FIP, and installs the tools and drop-in.
 Firmware changes are refreshed from the product repository and re-pinned in
 `firmware/sha256sums.txt`; image builds never compile the firmware.
+
+The boot policy is a board setting, not a build accident: `configs/<board>/settings.mk`
+declares who releases the C906L, whether `cvitek_remoteproc` loads the firmware or
+attaches to an already-running core, and who owns the doorbell IRQ. `scripts/Makefile`
+derives the FSBL input and generates the systemd drop-in from it, and
+`scripts/ci/validate.py` refuses unsupported combinations and checks the policy
+against the device tree.
+
+The page layout itself is not re-derived here: `guidance_contract.json` is the
+owner's statement of it, `cop` and `bootlogd` read it directly, and
+`scripts/ci/validate.py` fails the build unless
+the DTS `guidance-pages` reg and `configs/maixcam/memmap.py` agree with it. The
+one fact the two sides must agree on -- the two page addresses -- is declared
+once on each side and checked, never copied again.
 
 ## Build ownership
 
