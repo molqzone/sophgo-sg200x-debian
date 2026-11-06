@@ -9,6 +9,14 @@ Before=load-systemko.service
 
 [Service]
 Type=simple
+# 这个进程只覆盖预分配环里的整条记录（pwrite + fsync），从不在 /boot 上建、长、删文件：
+# 那张 FAT 分区是 U-Boot 读内核和 DTB 的地方，运行时改它的元数据会把启动链路一起弄坏。
+# 环由镜像预分配（scripts/addons/bootlog），缺失时 bootlogd 直接失败而不是就地造一个。
+# This process only overwrites whole records in a preallocated ring (pwrite + fsync) and
+# never creates, grows or deletes anything on /boot: that FAT partition is where U-Boot
+# reads the kernel and DTB from, and mutating its metadata at runtime breaks the boot
+# path too.  The ring is preallocated by the image; when it is missing, bootlogd fails
+# rather than allocating one on the spot.
 ExecStart=/usr/local/sbin/bootlogd
 Restart=always
 RestartSec=5
