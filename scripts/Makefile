@@ -142,8 +142,6 @@ _PACKAGES = $(call strip-quotes,$(PACKAGES)) \
 # rtos-mode argument ran.  The values come from the board settings; validate.py re-checks
 # them against the device tree.
 GUIDANCE_FW_LOADER ?= remoteproc
-GUIDANCE_FW_RPROC_MODE ?= load
-GUIDANCE_FW_DOORBELL_OWNER ?= rtos_cmdqu
 GUIDANCE_FW_ENABLED := $(if $(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),1,0)
 
 FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/blank.bin
@@ -151,19 +149,7 @@ ifeq ($(GUIDANCE_FW_ENABLED),1)
 ifeq ($(filter $(GUIDANCE_FW_LOADER),remoteproc fsbl),)
 $(error GUIDANCE_FW_LOADER='$(GUIDANCE_FW_LOADER)' must be one of remoteproc|fsbl)
 endif
-ifeq ($(filter $(GUIDANCE_FW_RPROC_MODE),load attach),)
-$(error GUIDANCE_FW_RPROC_MODE='$(GUIDANCE_FW_RPROC_MODE)' must be one of load|attach)
-endif
-ifeq ($(filter $(GUIDANCE_FW_DOORBELL_OWNER),rtos_cmdqu uio),)
-$(error GUIDANCE_FW_DOORBELL_OWNER='$(GUIDANCE_FW_DOORBELL_OWNER)' must be one of rtos_cmdqu|uio)
-endif
-ifeq ($(GUIDANCE_FW_DOORBELL_OWNER),uio)
-$(error GUIDANCE_FW_DOORBELL_OWNER=uio is not implemented: the vendor rtos_cmdqu driver owns IRQ 101 with an exclusive request_irq and uio_pdrv_genirq cannot share it, so the firmware notification rides RTOS_CMDQU_WAIT_EVENT instead)
-endif
 ifeq ($(GUIDANCE_FW_LOADER),fsbl)
-ifeq ($(GUIDANCE_FW_RPROC_MODE),load)
-$(error GUIDANCE_FW_LOADER=fsbl with GUIDANCE_FW_RPROC_MODE=load is the DMA-race hang recorded in the README: the FSBL would release the C906L while U-Boot and the early kernel still own the shared AXI DMA controller. FSBL boot must use attach)
-endif
 # Debug variant only: the loader releases the core, so Linux must not write firmware or
 # start it again -- rtos-mode attach brings up the vendor stack around a running core.
 # 逃生门：FSBL 已经放核，Linux 只接上厂商栈；已知长时间运行会挂（见 README），
@@ -171,9 +157,6 @@ endif
 FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
 FSBL_BLCP_2ND_PATH := $(COMPONENTS_ROOT)/guidance-fw/firmware/c906-mcu.bin
 else
-ifeq ($(GUIDANCE_FW_RPROC_MODE),attach)
-$(error GUIDANCE_FW_RPROC_MODE=attach needs GUIDANCE_FW_LOADER=fsbl: with loader=remoteproc nothing has released the core before Linux, so attach would find no running core)
-endif
 # The firmware artifact is still pinned and verified, but it is never handed to
 # the FSBL: embedding it makes the FSBL release the C906L before U-Boot, and
 # U-Boot plus the early kernel then race the firmware over the shared AXI DMA
@@ -208,7 +191,7 @@ $(info $(blue)Board: $(BOARD)$(reset))
 $(info $(blue)Storage: $(STORAGE_TYPE)$(reset))
 $(info $(blue)Image Addons: $(IMAGE_ADDITIONS)$(reset))
 ifeq ($(GUIDANCE_FW_ENABLED),1)
-$(info $(blue)C906L boot: $(GUIDANCE_FW_LOADER) / $(GUIDANCE_FW_RPROC_MODE) / doorbell $(GUIDANCE_FW_DOORBELL_OWNER)$(reset))
+$(info $(blue)C906L boot: loader $(GUIDANCE_FW_LOADER), doorbell rtos_cmdqu (IRQ 101)$(reset))
 endif
 $(info $(blue)Packages: $(_PACKAGES)$(reset))
 

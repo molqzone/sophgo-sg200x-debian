@@ -16,17 +16,19 @@ ENABLE_MEDIA_STACK=1
 ENABLE_GUIDANCE_FW=1
 ENABLE_LOCAL_PINMUX=1
 
-# C906L 启动策略（构建期定死，不在运行时选）：谁放核、remoteproc 是 load 还是 attach、
-# 门铃归谁。scripts/Makefile 据此选 FSBL 输入并生成 systemd drop-in，validate.py 再按
-# 设备树核对一遍。fsbl + attach 只作 debug 变体（README 记着它会挂），生产用默认值。
-# C906L boot policy, fixed at build time: who releases the core, whether remoteproc
-# loads or attaches, and who owns the doorbell IRQ.  scripts/Makefile turns this into
-# the FSBL input and the systemd drop-in; validate.py re-checks it against the device
-# tree.  fsbl + attach is the debug variant only (the README records that it hangs);
-# production uses the defaults.
+# C906L 启动策略（构建期定死，不在运行时选）：**只剩一个旋钮**——谁放核。
+# scripts/Makefile 据此选 FSBL 输入，addons/guidance-fw/addon.mk 据此生成 systemd
+# drop-in（rtos-mode 的参数由它推导，不是第二个变量），validate.py 再按设备树核对一遍。
+# fsbl 只作 debug 变体（README 记着它会挂），生产用默认值。
+#
+# 曾经还有两个：`GUIDANCE_FW_RPROC_MODE`（load|attach）与 `GUIDANCE_FW_DOORBELL_OWNER`
+# （rtos_cmdqu|uio）。前者是 LOADER 的函数，写成独立变量就能配出 rtos-mode 根本不认识的
+# 子命令；后者两个取值里只有一个能实现（IRQ 101 被厂商驱动独占）。两个都删了，留下的是
+# "谁放核"这一个事实，以及设备树里必须存在的 rtos_cmdqu/IRQ 101。
+# C906L boot policy, fixed at build time: **one knob** -- who releases the core.  The
+# rtos-mode argument follows from it, and the doorbell is not a choice (IRQ 101 belongs
+# to the vendor driver), so neither is a setting any more.
 GUIDANCE_FW_LOADER=remoteproc
-GUIDANCE_FW_RPROC_MODE=load
-GUIDANCE_FW_DOORBELL_OWNER=rtos_cmdqu
 USE_VENDOR_APT=0
 MAIXCAM_SENSOR_CONFIG=
 MAIXCAM_SENSOR_FIXED=0

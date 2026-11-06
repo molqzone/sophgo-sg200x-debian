@@ -33,7 +33,7 @@ TEMPLATE = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
 SCRIPTS = REPO_ROOT / "scripts"
 
 
-def render(mode: str) -> str:
+def render(loader: str) -> str:
     """Install the real addon into a temp rootfs and return the installed drop-in."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -46,7 +46,7 @@ def render(mode: str) -> str:
             f"ROOTFS := {rootfs}\n"
             f"COMPONENTS_ROOT := {REPO_ROOT / 'components'}\n"
             "BOARD := maixcam\n"
-            f"GUIDANCE_FW_RPROC_MODE := {mode}\n"
+            f"GUIDANCE_FW_LOADER := {loader}\n"
             f"include {ADDON}\n",
             encoding="utf-8",
         )
@@ -74,8 +74,8 @@ class DropinRenderingTests(unittest.TestCase):
         # 策略说“Linux 写固件并起核”，rtos-mode 里那条分支叫 remoteproc。
         self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", render("load"))
 
-    def test_attach_renders_attach(self) -> None:
-        self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", render("attach"))
+    def test_fsbl_renders_attach(self) -> None:
+        self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", render("fsbl"))
 
     def test_nothing_is_left_unsubstituted(self) -> None:
         self.assertNotIn("@GUIDANCE_FW_RPROC_COMMAND@", render("load"))
@@ -83,7 +83,7 @@ class DropinRenderingTests(unittest.TestCase):
     def test_every_rendered_argument_exists_in_rtos_mode(self) -> None:
         arms = tool_arguments()
         self.assertNotIn("load", arms)
-        for mode in ("load", "attach"):
+        for mode in ("remoteproc", "fsbl"):
             command = re.search(
                 r"^ExecStart=/usr/bin/rtos-mode (\S+)$", render(mode), re.MULTILINE
             )

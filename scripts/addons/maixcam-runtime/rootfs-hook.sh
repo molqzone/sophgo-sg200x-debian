@@ -13,7 +13,7 @@ cat > /etc/systemd/system/finalize-image.service.d/10-maixcam.conf <<EOF
 ExecStartPre=
 ExecStartPre=-/usr/sbin/parted -s -f /dev/mmcblk0 resizepart $root_partition 100%
 ExecStartPre=-/usr/sbin/resize2fs /dev/mmcblk0p$root_partition
-ExecStartPre=-/bin/sh -c "if [ ! -e /swapfile ]; then fallocate -l 1024M /swapfile && chmod 600 /swapfile && mkswap /swapfile; fi"
+ExecStartPre=-/bin/sh -c "if [ ! -e /swapfile ]; then fallocate -l 256M /swapfile && chmod 600 /swapfile && mkswap /swapfile; fi"
 ExecStartPre=-/bin/sh -c "grep -q '^/swapfile ' /etc/fstab || echo '/swapfile swap swap defaults 0 0' >> /etc/fstab"
 ExecStartPre=-/sbin/swapon /swapfile
 ExecStartPre=-/bin/sh -c "if [ -e /dev/hwrng ]; then dd if=/dev/hwrng of=/dev/urandom count=1 bs=4096; fi"
