@@ -50,6 +50,9 @@ GUIDANCE_FW_ADDON = "guidance-fw"
 GUIDANCE_LOADERS = ("remoteproc", "fsbl")
 GUIDANCE_RPROC_MODES = ("load", "attach")
 GUIDANCE_DOORBELL_OWNERS = ("rtos_cmdqu", "uio")
+BOOTLOG_DAEMON = "scripts/addons/bootlog/bootlogd"
+BOOTLOG_ADDON = "scripts/addons/bootlog/addon.mk"
+BOOTLOG_SERVICE = "scripts/addons/bootlog/bootlog-snap.service"
 GUIDANCE_DROPIN_TEMPLATE = (
     "components/guidance-fw/linux/systemd/load-systemko.service.d/"
     "20-guidance-fw.conf.in"
@@ -210,6 +213,87 @@ def validate_pins(excluded_paths: tuple[Path, ...] = ()) -> None:
     for value, source in expected.items():
         if locations[value] != [source]:
             fail(f"pin {value} must occur only in {source}: {locations[value]}")
+
+
+def validate_bootlog_ring() -> None:
+    check_bootlog_ring(
+        (REPO_ROOT / BOOTLOG_DAEMON).read_text(encoding="utf-8"),
+        (REPO_ROOT / BOOTLOG_ADDON).read_text(encoding="utf-8"),
+        (REPO_ROOT / BOOTLOG_SERVICE).read_text(encoding="utf-8"),
+    )
+
+
+def check_bootlog_ring(daemon: str, addon: str, service: str) -> None:
+    """The boot log must never allocate on the partition U-Boot boots from.
+
+    FAT has no journal, so a directory entry, a file size or a cluster chain that the
+    writer changes at runtime is a chance to leave the boot partition inconsistent
+    after a power cut -- and this daemon runs on exactly the partition U-Boot reads
+    the kernel and DTB from.  It already happened once (`fsck.fat`: snap.log claiming
+    23418 bytes with a cluster chain over 24576, then short reads out of U-Boot), so
+    the shape is enforced here rather than trusted: the ring is preallocated at image
+    build time and the daemon may only `pwrite` whole records into it and `fsync`.
+
+    这条检查不看“有没有 sync”，而是看写入的形状：环在镜像里预分配，运行时只按整条记录
+    就地覆盖。文件大小和簇链一旦可能在运行时变化，掉电就可能把启动分区带坏。
+    """
+    for token in ("os.pwrite", "os.fsync", "RING_PATH"):
+        if token not in daemon:
+            fail(f"{BOOTLOG_DAEMON}: the crash-safe ring needs {token!r}")
+
+    for call in re.findall(r"os\.open\(([^)]*)\)", daemon):
+        if "RING_PATH" not in call:
+            continue
+        for flag in ("O_CREAT", "O_TRUNC", "O_APPEND", "O_WRONLY"):
+            if flag in call:
+                fail(
+                    f"{BOOTLOG_DAEMON}: the ring must be opened O_RDWR without "
+                    f"{flag}, or the write can change its size or cluster chain"
+                )
+
+    # `open(path, "ab")` would allocate just as well as O_APPEND, and reading needs no
+    # write mode at all: only "r"/"rb" are allowed anywhere in the daemon.
+    for mode in re.findall(r'"([rwaxb+]{1,3})"', daemon):
+        if set(mode) & set("aw+"):
+            fail(
+                f"{BOOTLOG_DAEMON}: open(..., {mode!r}) can create, grow or truncate; "
+                f"the ring is written with pwrite and read with 'rb'"
+            )
+
+    for token in ("os.truncate", "os.ftruncate", "os.remove", "os.unlink",
+                  "os.rename", "os.mkdir", "shutil."):
+        if token in daemon:
+            fail(
+                f"{BOOTLOG_DAEMON}: {token} allocates or frees on the boot "
+                f"partition; the ring is preallocated by the image"
+            )
+
+    record = re.search(r"^RECORD = (\d+)$", daemon, re.MULTILINE)
+    if record is None:
+        fail(f"{BOOTLOG_DAEMON}: RECORD size is not declared")
+    if "bootlog.bin" not in addon or "dd if=/dev/zero" not in addon:
+        fail(
+            f"{BOOTLOG_ADDON}: the ring must be preallocated here, because creating "
+            f"it at runtime is what corrupts the boot partition"
+        )
+    if "stat -c %s" not in addon:
+        fail(f"{BOOTLOG_ADDON}: the preallocated ring's size must be asserted")
+    addon_record = re.search(r"^BOOTLOG_RECORD := (\d+)$", addon, re.MULTILINE)
+    if addon_record is None:
+        fail(f"{BOOTLOG_ADDON}: BOOTLOG_RECORD is not declared")
+    if addon_record.group(1) != record.group(1):
+        fail(
+            "the preallocated ring and the daemon disagree about the record size: "
+            f"{addon_record.group(1)} vs {record.group(1)}"
+        )
+
+    if "ExecStart=/usr/local/sbin/bootlogd" not in service:
+        fail(f"{BOOTLOG_SERVICE}: must run /usr/local/sbin/bootlogd")
+    if "Restart=always" not in service:
+        fail(
+            f"{BOOTLOG_SERVICE}: Restart=always is required: a crash must bring the "
+            f"logger back, the boot must not lose its snapshots because one write failed"
+        )
 
 
 def validate_addons(config_root: Path, entries: list[dict[str, object]]) -> None:
@@ -479,7 +563,7 @@ def validate_guidance_boot_policy(
     template = REPO_ROOT / GUIDANCE_DROPIN_TEMPLATE
     if not template.is_file():
         fail(f"guidance drop-in template is missing: {template}")
-    if "@GUIDANCE_FW_RPROC_MODE@" not in template.read_text(encoding="utf-8"):
+    if "@GUIDANCE_FW_RPROC_COMMAND@" not in template.read_text(encoding="utf-8"):
         fail(
             "the guidance drop-in template must leave the rtos-mode argument to the "
             "board's boot policy"
@@ -717,6 +801,7 @@ def main() -> int:
         validate_pins((args.output, *args.exclude_path))
         validate_component()
         validate_guidance_contract(config_root)
+        validate_bootlog_ring()
         validate_workflows()
         validate_output(
             entries,

@@ -1,111 +1,296 @@
-#!/bin/sh
-# bootlogd - per-boot persistent system snapshots for post-mortem debugging.
-#
-# Runs early in the boot (before load-systemko, the media-chain stage that is
-# known to hang on a bad camera firmware) and appends a snapshot every 15s to
-# the FAT boot partition.  The boot partition is chosen deliberately: when the
-# board hangs before the network comes up, the card can be pulled and read by
-# any computer -- no serial console, SSH, or running Linux required.
-#
-# Layout: /boot/bootlog/current-<boot_id8>/00-marker   boot identity line
-#                                    /snap.log        rolling snapshots
-# Rotation: only the newest 10 boots are kept; each boot's log is capped.
-set -u
+#!/usr/bin/env python3
+"""bootlogd - per-boot system snapshots in a crash-safe ring on the boot partition.
 
-DIR=/boot/bootlog
-KEEP=10          # boots to keep
-CAP=4194304      # per-boot log cap (bytes); older tail is dropped
-TAILKEEP=2097152 # how much of the tail to keep after capping
-INTERVAL=15      # seconds between snapshots
+Why a ring and not a log file
+-----------------------------
+This daemon writes to the FAT partition U-Boot reads the kernel and DTB from.  FAT
+has no journal, so *any* metadata it mutates -- a new directory entry, a grown file,
+a rename, a delete -- is a chance to leave that partition inconsistent when the
+board loses power.  That is not theoretical: `fsck.fat` reported snap.log claiming
+23418 bytes while its cluster chain held more than 24576, and the boots after that
+read short files out of U-Boot (a 376-byte marker where the DTB is 21376) and
+failed.  The logging was damaging the thing it exists to observe.
 
-mkdir -p "$DIR" || exit 1
+So the daemon never creates, grows, truncates or deletes anything.  The image
+preallocates `/boot/bootlog.bin` as a fixed run of records (see addons/bootlog),
+and `bootlogd` only overwrites whole records inside that file with `pwrite` +
+`fsync`.  The file's size and cluster chain never change, so a power cut can lose
+the record being written and nothing else: no FAT table and no directory entry is
+ever modified.
 
-BID=$(cut -c1-8 /proc/sys/kernel/random/boot_id 2>/dev/null)
-[ -n "$BID" ] || BID=unknown
+Reading it
+----------
+`bootlogd --show /boot/bootlog.bin` prints the records oldest first, on the board or
+on a card mounted on a normal computer.  Records whose magic or CRC does not match
+(the torn one from a power cut) are skipped rather than guessed at.
 
-# Rotate: older current-* dirs beyond the newest KEEP are removed.  The boot
-# id is unique per boot, so stale dirs from previous boots accumulate here.
-ls -dt "$DIR"/current-* 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
-	rm -rf "$old"
-done
+One record (RECORD bytes, little endian):
 
-CUR="$DIR/current-$BID"
-mkdir -p "$CUR" || exit 1
+    b"BLOG" | index:u32 | length:u32 | crc32(payload):u32 | payload | padding
 
-echo "boot $(date -u +%Y%m%dT%H%M%SZ) id=$BID kernel=$(uname -r)" \
-	> "$CUR/00-marker"
+`index` increases by one per write and survives reboots -- the daemon resumes from
+the highest index it finds -- so readers order records without any mutable header
+that could itself be torn.
+"""
 
-snapshot() {
-	echo "===== $(date -u +%Y-%m-%dT%H:%M:%SZ) ====="
-	uptime
-	echo "--- dmesg tail:"
-	dmesg 2>/dev/null | tail -30
-	echo "--- ps:"
-	ps aux --sort=-%cpu 2>/dev/null | head -12
-	echo "--- interrupts:"
-	head -18 /proc/interrupts 2>/dev/null
-	echo "--- net:"
-	ip -br addr 2>/dev/null
-	echo "--- temp:"
-	cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null
-	echo "--- mem:"
-	head -2 /proc/meminfo 2>/dev/null
-	echo "--- media:"
-	lsmod 2>/dev/null | grep -E "cif|mipi|vi|vpss|snsr" | head -10
-	echo "--- c906 console ring:"
-	# The C906L console is its own page, exposed by the `guidance-pages` uio device
-	# as map 0: an index word, then the ring.  Offsets and capacity come from the
-	# firmware-published contract (`/lib/firmware/guidance_contract.json`), not
-	# from a copy kept here -- reading it is the only way to see the coprocessor
-	# once it has frozen, because the freeze signature is exactly this counter
-	# stopping.  bootlogd must never take the boot down, so a failure is one
-	# diagnostic line rather than an abort; it still says which one.
-	python3 -c '
-import glob, json, mmap, os, struct
-path = None
-try:
-    with open("/lib/firmware/guidance_contract.json") as handle:
-        contract = json.load(handle)
-    console = contract["console"]
-    ring = console["ring_bytes"]
-    for entry in sorted(glob.glob("/sys/class/uio/uio*")):
-        try:
-            with open(os.path.join(entry, "name")) as handle:
-                if handle.read().strip() == "guidance-pages":
-                    path = "/dev/" + os.path.basename(entry)
-                    break
-        except OSError:
-            continue
-    if path is None:
-        raise SystemExit("guidance-pages uio device not found")
+from __future__ import annotations
+
+import errno
+import fcntl
+import glob
+import json
+import mmap
+import os
+import struct
+import subprocess
+import sys
+import time
+import zlib
+
+RING_PATH = "/boot/bootlog.bin"
+RECORD = 8192
+MAGIC = b"BLOG"
+HEADER = struct.Struct("<4sIII")
+PAYLOAD = RECORD - HEADER.size
+INTERVAL = 15
+DMESG_DEPTH = 30
+
+
+def pack_record(index: int, payload: bytes) -> bytes:
+    """One whole record, header included, padded to RECORD bytes."""
+    payload = payload[:PAYLOAD]
+    head = HEADER.pack(MAGIC, index & 0xFFFFFFFF, len(payload), zlib.crc32(payload))
+    return head + payload + bytes(RECORD - HEADER.size - len(payload))
+
+
+def unpack_record(blob: bytes) -> tuple[int, bytes] | None:
+    """The record's (index, payload), or None if it is torn or not a record."""
+    if len(blob) != RECORD:
+        return None
+    magic, index, length, crc = HEADER.unpack_from(blob)
+    if magic != MAGIC or length > PAYLOAD:
+        return None
+    payload = blob[HEADER.size:HEADER.size + length]
+    if zlib.crc32(payload) != crc:
+        return None
+    return index, payload
+
+
+def slots_in(path: str) -> int:
+    """How many records the preallocated ring holds; refuse to run without one."""
+    try:
+        size = os.stat(path).st_size
+    except FileNotFoundError:
+        raise SystemExit(
+            "%s is missing: this image did not preallocate the boot log ring, and "
+            "allocating one at runtime is exactly what corrupted the boot partition"
+            % path
+        )
+    if size < RECORD or size % RECORD:
+        raise SystemExit(
+            "%s is %d bytes, not a whole number of %d-byte records; refusing to write"
+            % (path, size, RECORD)
+        )
+    return size // RECORD
+
+
+def complete_records(path: str) -> list[tuple[int, bytes]]:
+    """Every intact record, in file order; torn ones are simply absent."""
+    records: list[tuple[int, bytes]] = []
+    with open(path, "rb") as handle:
+        while True:
+            blob = handle.read(RECORD)
+            if len(blob) != RECORD:
+                break
+            found = unpack_record(blob)
+            if found is not None:
+                records.append(found)
+    return records
+
+
+def resume_index(path: str) -> int:
+    """Next index to write: one past the highest record already in the ring."""
+    highest = -1
+    for index, _ in complete_records(path):
+        highest = max(highest, index)
+    return (highest + 1) & 0xFFFFFFFF
+
+
+def append(path: str, payload: bytes, index: int, slots: int) -> int:
+    """Overwrite one whole record in place.  Never changes the file's size."""
     fd = os.open(path, os.O_RDWR)
-    m = mmap.mmap(fd, console["bytes"], offset=0)      # map 0 = console page
-    idx = struct.unpack_from("<I", m, console["index_offset"])[0]
-    start = idx % ring
-    data = bytes(m[console["ring_offset"]:console["ring_offset"] + ring])
-    txt = (data[start:] + data[:start]).decode("utf-8", "replace")
-    print("console_index=%d" % idx)
-    for line in txt.split("\r"):
-        line = line.strip()
-        if line:
-            print(line[:200])
-except SystemExit as error:
-    print("c906 console ring: %s" % error)
-except Exception as error:
-    print("c906 console ring: unreadable (%s: %s)" % (type(error).__name__, error))
-' 2>/dev/null || echo "c906 console ring: unreadable"
-}
+    try:
+        os.pwrite(fd, pack_record(index, payload), (index % slots) * RECORD)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return (index + 1) & 0xFFFFFFFF
 
-while true; do
-	{
-		snapshot
-	} >> "$CUR/snap.log" 2>&1
 
-	SZ=$(stat -c %s "$CUR/snap.log" 2>/dev/null || echo 0)
-	if [ "$SZ" -gt "$CAP" ]; then
-		tail -c "$TAILKEEP" "$CUR/snap.log" > "$CUR/snap.log.tmp" 2>/dev/null \
-			&& mv "$CUR/snap.log.tmp" "$CUR/snap.log"
-	fi
+def run(command: list[str], keep: int | None = None) -> str:
+    try:
+        done = subprocess.run(
+            command, capture_output=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    text = done.stdout.decode("utf-8", "replace")
+    if keep is not None:
+        text = "\n".join(text.splitlines()[-keep:])
+    return text.rstrip("\n")
 
-	sleep "$INTERVAL"
-done
+
+def read_text(path: str, keep: int | None = None) -> str:
+    try:
+        with open(path) as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return ""
+    if keep is not None:
+        lines = lines[:keep]
+    return "\n".join(lines)
+
+
+def boot_id() -> str:
+    return read_text("/proc/sys/kernel/random/boot_id", 1).strip()[:8] or "unknown"
+
+
+def mmc_errors(dmesg: str) -> str:
+    """Card errors, if any.  A hardware fault shows here; a FAT inconsistency this
+    daemon could cause does not.  卡本身的错误只出现在这一节。"""
+    words = ("error", "timeout", "retry", "fail", "reset")
+    hits = [
+        line for line in dmesg.splitlines()
+        if "mmc" in line.lower() and any(word in line.lower() for word in words)
+    ]
+    return "\n".join(hits[-10:]) or "(none)"
+
+
+def console_ring() -> str:
+    """The C906L console page through uio, if this board has one.
+
+    Offsets and capacity come from the firmware-published contract rather than a copy
+    kept here: reading this ring is the only way to see the coprocessor once it has
+    frozen, because the freeze signature *is* this counter stopping.
+    """
+    try:
+        with open("/lib/firmware/guidance_contract.json") as handle:
+            console = json.load(handle)["console"]
+        path = None
+        for entry in sorted(glob.glob("/sys/class/uio/uio*")):
+            try:
+                with open(os.path.join(entry, "name")) as handle:
+                    if handle.read().strip() == "guidance-pages":
+                        path = "/dev/" + os.path.basename(entry)
+                        break
+            except OSError:
+                continue
+        if path is None:
+            return "guidance-pages uio device not found"
+        fd = os.open(path, os.O_RDWR)
+        try:
+            view = mmap.mmap(fd, console["bytes"], offset=0)  # map 0 = console page
+            try:
+                index = struct.unpack_from("<I", view, console["index_offset"])[0]
+                ring = console["ring_bytes"]
+                start = index % ring
+                data = bytes(view[console["ring_offset"]:console["ring_offset"] + ring])
+            finally:
+                view.close()
+        finally:
+            os.close(fd)
+        text = (data[start:] + data[:start]).decode("utf-8", "replace")
+        lines = ["console_index=%d" % index]
+        lines += [line.strip()[:200] for line in text.split("\r") if line.strip()]
+        return "\n".join(lines)
+    except Exception as error:  # noqa: BLE001 - a snapshot must never take the boot down
+        return "unreadable (%s: %s)" % (type(error).__name__, error)
+
+
+def snapshot() -> str:
+    """One text block: what the board looked like at this instant."""
+    dmesg = run(["dmesg"])
+    sections = [
+        "===== %s =====" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "up %s | boot_id=%s kernel=%s"
+        % (run(["uptime"]).strip(), boot_id(), os.uname().release),
+        "--- dmesg tail:",
+        "\n".join(dmesg.splitlines()[-DMESG_DEPTH:]),
+        "--- ps:",
+        run(["ps", "aux", "--sort=-%cpu"], keep=12),
+        "--- interrupts:",
+        read_text("/proc/interrupts", keep=18),
+        "--- net:",
+        run(["ip", "-br", "addr"]),
+        "--- temp:",
+        read_text("/sys/class/thermal/thermal_zone0/temp", keep=1),
+        "--- mem:",
+        read_text("/proc/meminfo", keep=2),
+        "--- media:",
+        "\n".join(
+            line for line in run(["lsmod"]).splitlines()
+            if any(word in line for word in ("cif", "mipi", "vi", "vpss", "snsr"))
+        ),
+        "--- mmc:",
+        mmc_errors(dmesg),
+        "--- c906 console ring:",
+        console_ring(),
+    ]
+    return "\n".join(section for section in sections if section != "") + "\n"
+
+
+def show(path: str) -> int:
+    try:
+        records = list(complete_records(path))
+    except FileNotFoundError:
+        print("%s: missing" % path, file=sys.stderr)
+        return 2
+    if not records:
+        print("%s: no intact records" % path, file=sys.stderr)
+        return 1
+    records.sort(key=lambda item: item[0])
+    for index, payload in records:
+        print("=== record %d ===" % index)
+        sys.stdout.write(payload.decode("utf-8", "replace"))
+        if not payload.endswith(b"\n"):
+            print()
+    print("=== %d record(s) ===" % len(records))
+    return 0
+
+
+def take_lock(path: str) -> int:
+    """Held until exit: two daemons must not interleave records."""
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in (errno.EACCES, errno.EAGAIN):
+            os.close(fd)
+            raise SystemExit("another bootlogd holds %s" % path)
+        raise
+    return fd
+
+
+def main(argv: list[str]) -> int:
+    if argv[1:2] == ["--show"]:
+        return show(argv[2] if len(argv) > 2 else RING_PATH)
+    if len(argv) != 1:
+        print("usage: bootlogd [--show [path]]", file=sys.stderr)
+        return 2
+
+    slots = slots_in(RING_PATH)
+    index = resume_index(RING_PATH)
+    take_lock("/run/bootlogd.lock")
+    while True:
+        try:
+            index = append(RING_PATH, snapshot().encode("utf-8"), index, slots)
+        except Exception as error:  # noqa: BLE001 - never take the boot down
+            print("bootlogd: %s: %s" % (type(error).__name__, error), file=sys.stderr)
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv))
+    except KeyboardInterrupt:
+        sys.exit(0)
