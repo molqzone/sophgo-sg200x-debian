@@ -215,6 +215,30 @@ def validate_pins(excluded_paths: tuple[Path, ...] = ()) -> None:
             fail(f"pin {value} must occur only in {source}: {locations[value]}")
 
 
+def validate_entropy_seed() -> None:
+    """The image must carry a seed and credit it before sysinit.
+
+    The board spent ~11 s before `crng init done` with every early unit queued behind
+    it, and systemd-random-seed only *waits* for the pool before loading its seed -- so
+    a seed file alone changes nothing on a cold boot.  The build therefore fails if the
+    unit, the script or the seed is missing.
+    """
+    unit = REPO_ROOT / "scripts/addons/entropy/seed-entropy.service"
+    script = REPO_ROOT / "scripts/addons/entropy/seed-entropy"
+    addon = REPO_ROOT / "scripts/addons/entropy/addon.mk"
+    for path in (unit, script, addon):
+        if not path.is_file():
+            fail(f"entropy seeding is incomplete: {path} is missing")
+    text = unit.read_text(encoding="utf-8")
+    if "Before=sysinit.target systemd-random-seed.service" not in text:
+        fail("seed-entropy must run before sysinit and before systemd-random-seed")
+    if "RNDADDENTROPY" not in script.read_text(encoding="utf-8"):
+        fail("seed-entropy must credit the pool (RNDADDENTROPY), not just write bytes")
+    if "random-seed" not in (REPO_ROOT / "scripts/setup_rootfs.sh").read_text(
+            encoding="utf-8"):
+        fail("setup_rootfs.sh must write /var/lib/systemd/random-seed into the image")
+
+
 def validate_bootlog_ring() -> None:
     check_bootlog_ring(
         (REPO_ROOT / BOOTLOG_DAEMON).read_text(encoding="utf-8"),
@@ -983,6 +1007,7 @@ def main() -> int:
         validate_component()
         validate_guidance_contract(config_root)
         validate_bootlog_ring()
+        validate_entropy_seed()
         validate_workflows()
         validate_output(
             entries,

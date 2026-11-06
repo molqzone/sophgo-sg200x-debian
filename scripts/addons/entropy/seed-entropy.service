@@ -1,0 +1,16 @@
+[Unit]
+Description=Credit the image's entropy seed before anything waits for randomness
+Documentation=file:/usr/local/sbin/seed-entropy
+# 必须赶在 sysinit 之前、也在 systemd-random-seed 之前：后者在 v262 里会先等熵池就绪，
+# 等不到就把启动堵在 sysinit（实测 10.9 秒的 crng init 就是这么来的）。
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target systemd-random-seed.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/seed-entropy
+
+[Install]
+WantedBy=sysinit.target
