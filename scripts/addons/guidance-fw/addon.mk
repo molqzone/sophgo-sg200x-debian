@@ -45,4 +45,7 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 	@install -D -m 0644 \
 		"$(GUIDANCE_FW_COMPONENT)/linux/modules-load.d/guidance-uio.conf" \
 		"$(ROOTFS)/etc/modules-load.d/guidance-uio.conf"
+	@install -D -m 0644 \
+		"$(GUIDANCE_FW_COMPONENT)/linux/udev/60-guidance-uio.rules" \
+		"$(ROOTFS)/etc/udev/rules.d/60-guidance-uio.rules"
 	@touch $@

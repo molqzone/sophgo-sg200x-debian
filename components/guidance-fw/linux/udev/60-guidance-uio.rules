@@ -1,0 +1,8 @@
+# The two shared pages are exposed through a generic-uio device.  udev hands out
+# /dev/uioN as root-only by default, which makes `cop` and `bootlogd --show` fail with a
+# PermissionError on a normal login -- the two tools whose whole job is to look at the
+# coprocessor.  Give the plugdev group read/write instead, so inspecting a board does not
+# require root.
+# 共享页通过 generic-uio 暴露，udev 默认给 root 独占；这会让 `cop` 和 `bootlogd --show`
+# 在普通登录下直接抛 PermissionError。交给 plugdev 组读写，看板子不需要 root。
+SUBSYSTEM=="uio", KERNEL=="uio*", MODE="0660", GROUP="plugdev"
