@@ -1,0 +1,13 @@
+[Unit]
+Description=Record this boot's timeline into the boot log ring
+# 别人都起来之后再量："多用户到达"才是这一轮要测的终点。
+# Measured after everything else: reaching multi-user is the end point being measured.
+After=multi-user.target
+ConditionPathExists=/run/bootlogd.lock
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/boot-time
+
+[Install]
+WantedBy=multi-user.target

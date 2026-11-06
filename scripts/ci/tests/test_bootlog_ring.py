@@ -175,6 +175,19 @@ class FitTests(unittest.TestCase):
 
 
 class SnapshotTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 主机的 dmesg 可能没有权限，但板子上有；快照的结构不该取决于跑测试的机器。
+        # The host's dmesg may be unreadable while the board's is not; the snapshot's
+        # shape must not depend on which machine runs the tests.
+        self.saved_run = bootlogd.run
+        bootlogd.run = lambda command, keep=None: (
+            "\n".join("sample line %d" % i for i in range(40))
+            if command == ["dmesg"] else "sample"
+        )
+
+    def tearDown(self) -> None:
+        bootlogd.run = self.saved_run
+
     def test_a_snapshot_names_the_sections_a_post_mortem_needs(self) -> None:
         # 冻结的核、消失的网络、坏掉的卡：这三类问题必须在快照里有名字，否则拔出卡来只能看到
         # 一堆 uptime。卡片错误单独一节，因为它才是“卡坏了”的证据，写好者造成的 FAT 不一致
@@ -188,6 +201,48 @@ class SnapshotTests(unittest.TestCase):
                         text.index("--- dmesg tail:"))
 
 
+class BootTimelineTests(unittest.TestCase):
+    """The one-off boot report belongs in exactly one record."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.directory.name) / "boot-time.txt")
+        self.saved = bootlogd.BOOT_TIMELINE
+        bootlogd.BOOT_TIMELINE = self.path
+
+    def tearDown(self) -> None:
+        bootlogd.BOOT_TIMELINE = self.saved
+        self.directory.cleanup()
+
+    def test_absent_timeline_adds_no_section(self) -> None:
+        self.assertNotIn("--- boot:", bootlogd.snapshot())
+
+    def test_present_timeline_is_in_the_snapshot(self) -> None:
+        Path(self.path).write_text("=== boot timeline ===\nStartup finished in 9.1s\n")
+        text = bootlogd.snapshot()
+        self.assertIn("--- boot:", text)
+        self.assertIn("Startup finished in 9.1s", text)
+
+    def test_the_timeline_is_spent(self) -> None:
+        Path(self.path).write_text("x\n")
+        bootlogd.consume_boot_timeline()
+        self.assertFalse(Path(self.path).exists())
+        self.assertNotIn("--- boot:", bootlogd.snapshot())
+
+    def test_consuming_a_missing_timeline_is_harmless(self) -> None:
+        bootlogd.consume_boot_timeline()
+
+    def test_the_boot_section_comes_before_the_bulky_ones(self) -> None:
+        Path(self.path).write_text("timeline\n")
+        saved = bootlogd.run
+        bootlogd.run = lambda command, keep=None: "line\n" * 40
+        try:
+            text = bootlogd.snapshot()
+        finally:
+            bootlogd.run = saved
+        self.assertLess(text.index("--- boot:"), text.index("--- dmesg tail:"))
+
+
 class ContractTests(unittest.TestCase):
     def test_the_tree_satisfies_the_ring_contract(self) -> None:
         validate.validate_bootlog_ring()
@@ -198,6 +253,7 @@ class ContractTests(unittest.TestCase):
             daemon.replace("os.open(path, os.O_RDWR)", 'open(path, "ab")'),
             daemon.replace("os.fsync(fd)", "os.ftruncate(fd, 0)"),
             daemon.replace("os.pwrite(fd,", "os.truncate(path,"),
+            daemon.replace("os.unlink(BOOT_TIMELINE)", "os.unlink(RING_PATH)"),
         ):
             with self.subTest(edit=edit[:40]):
                 with self.assertRaises(PlanError):
@@ -245,7 +301,9 @@ class AddonTests(unittest.TestCase):
             self.skipTest("make is not available")
 
     def test_the_addon_preallocates_a_whole_number_of_records(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        workspace = REPO_ROOT / ".cache"
+        workspace.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=str(workspace)) as directory:
             root = Path(directory)
             build = root / "build"
             rootfs = root / "rootfs"

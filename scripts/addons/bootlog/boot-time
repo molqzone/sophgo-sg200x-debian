@@ -1,0 +1,31 @@
+#!/bin/sh
+# boot-time - record where this boot's seconds went, into the boot log ring.
+#
+# 开机时间要能被测量，否则"慢"就只是感觉：这里把内核到 init 的间隔、systemd 的三段分解、
+# 关键链上前 14 个单元、以及最慢的 12 个单元写进 /run，bootlogd 的下一个快照把它作为
+# 单独一条记录写进环里，然后删掉——所以每次启动只会出现一条，之后的位置留给真正的快照。
+# Boot time has to be measurable or "slow" is just a feeling.  This writes the kernel to
+# init gap, systemd's own split, the top of the critical chain and the twelve slowest
+# units into /run; bootlogd's next snapshot records it as its own ring entry and removes
+# it, so there is exactly one per boot.
+set -u
+
+out=/run/boot-time.txt
+{
+	echo "=== boot timeline ==="
+	systemd-analyze 2>/dev/null || echo "systemd-analyze: unavailable"
+	echo "--- kernel:"
+	dmesg 2>/dev/null | grep -E 'Freeing unused kernel|Run /sbin/init|random: crng init|mmc0: new|dw_mmc|usb0' | head -10
+	echo "--- critical chain:"
+	systemd-analyze critical-chain 2>/dev/null | head -14
+	echo "--- blame:"
+	systemd-analyze blame 2>/dev/null | head -12
+	echo "--- reached:"
+	for unit in multi-user.target load-systemko.service bootlog-snap.service; do
+		printf '%s %s\n' "$unit" "$(systemctl show -p ActiveEnterTimestampMonotonic --value "$unit" 2>/dev/null)"
+	done
+} > "$out" 2>&1
+
+# bootlogd 拿不到锁、或者环写不进去时不要把文件留在 /run 里悄悄攒着。
+# 如果 10 秒后它还在，说明快照没取走它。
+( sleep 10; rm -f "$out" ) &
