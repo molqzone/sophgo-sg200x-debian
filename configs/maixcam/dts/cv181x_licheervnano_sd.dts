@@ -25,23 +25,26 @@
 
 &dmac {
 	/*
-	 * 这颗 DesignWare AXI DMAC 由两颗核共享（共 8 个通道），固件侧早已声明分区：
-	 * 0–3 归 Linux，4–7 归 C906L（sg200x_dma.hpp 的 OWNED_CHANNEL_MASK = 0xF0，
-	 * 它自己写请求线重映射、并把 4–7 的完成中断路由到 CPU2）。
+	 * 这颗 DesignWare AXI DMAC 的通道分区是存在的（固件侧 sg200x_dma.hpp：
+	 * OWNED_CHANNEL_MASK = 0xF0，注释写明 0–3 归 Linux、4–7 归 C906L），但它现在
+	 * **不能**交给 Linux：实测把节点打开（哪怕 dma-channels = 4）后，内核在 DMAC
+	 * probe 处停住——串口停在 7.4 秒、无 panic、USB 消失，正是"总线被挂住"的签名。
+	 * probe 会去开关 clk_sdma_axi 并写控制器全局寄存器，而固件和启动器已经在用它。
 	 *
-	 * 所以 Linux 只声明 0–3：dw_dma_filter() 不认通道号，驱动按空闲顺序发通道，
-	 * dma-channels=8 时相机/音频随时会拿到固件正在用的 4–7，那次双核 AXI 竞争
-	 * 就是这么把 SoC 挂死的。声明 4 之后驱动连 4–7 的寄存器都不会碰。
+	 * 相机不受影响：drivers/media/platform/cvitek 的 CIF 驱动不走 dmaengine，
+	 * 它不需要这个设备节点。
 	 *
-	 * 曾经的做法是把整个控制器 status = "disabled"：它确实躲开了竞争，代价是相机
-	 * 的 DMA 通道也一起没了。分区比关掉更准确。
-	 * The DMAC is shared: channels 0-3 belong to Linux, 4-7 to the C906L (declared by the
-	 * firmware as OWNED_CHANNEL_MASK = 0xF0).  Declaring four channels here keeps the
-	 * driver from ever touching 4-7, while leaving DMA available to the camera path.
+	 * 所以：控制器整体归 C906L。若将来确实要让 Linux 用这条 DMA，先把 probe 为什么会
+	 * 挂查清楚，再把 dma-channels 设成 8 − popcount(0xF0) = 4（validate.py 检查这个数），
+	 * 并且只能碰 0–3 通道。
+	 * The controller is the C906L's.  Enabling the node here hung the board inside the
+	 * driver's probe (serial stopped at 7.4 s, no panic, USB gone) -- a bus that never
+	 * answers, because probe touches the shared clock and global registers.  The camera
+	 * does not need it: the CIF driver has its own DMA and never asks dmaengine.
 	 */
-	dma-channels = /bits/ 8 <4>;
-	status = "okay";
+	status = "disabled";
 };
+
 
 /*
  * SPI2 is the IMU bus on the C906L side.  It has no Linux client on this board, so

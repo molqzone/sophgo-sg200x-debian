@@ -290,28 +290,27 @@ def check_maixcam_dma_partition(dts_text: str, memmap_text: str) -> None:
     if not match:
         fail("maixcam: the DTS has no &dmac override")
     body = match.group("body")
-    if re.search(r'status\s*=\s*"disabled"', body):
+    if not re.search(r'status\s*=\s*"disabled"', body):
         fail(
-            "maixcam: &dmac is disabled, which takes DMA away from the camera too; declare "
-            "the channel partition instead (dma-channels = <DMA_CHANNELS_LINUX>)"
+            "maixcam: &dmac must stay disabled: enabling it hung the board inside the "
+            "driver's probe (serial stopped at 7.4 s, no panic, USB gone).  The firmware "
+            "owns the controller and the camera's CIF does not use dmaengine."
         )
     channels = re.search(r"dma-channels\s*=\s*/bits/\s*8\s*<(?P<count>\d+)>", body)
-    if not channels:
-        fail("maixcam: &dmac must declare dma-channels explicitly")
-    declared = int(channels.group("count"))
-    mask = re.search(r"^\s*DMA_CHANNEL_MASK_C906L\s*=\s*(?P<mask>0x[0-9A-Fa-f]+)", memmap_text,
-                     re.MULTILINE)
-    total = re.search(r"^\s*DMA_CHANNELS_TOTAL\s*=\s*(?P<total>\d+)", memmap_text,
-                      re.MULTILINE)
-    if not mask or not total:
-        fail("memmap.py must declare DMA_CHANNELS_TOTAL and DMA_CHANNEL_MASK_C906L")
-    owned = int(mask.group("mask"), 16)
-    expected = int(total.group("total")) - bin(owned).count("1")
-    if declared != expected:
-        fail(
-            "maixcam: dma-channels=%d but memmap.py says Linux may use %d of %d channels "
-            "(the C906L owns mask 0x%02x)" % (declared, expected, int(total.group("total")), owned)
-        )
+    if channels:
+        mask = re.search(r"^\s*DMA_CHANNEL_MASK_C906L\s*=\s*(?P<mask>0x[0-9A-Fa-f]+)", memmap_text,
+                         re.MULTILINE)
+        total = re.search(r"^\s*DMA_CHANNELS_TOTAL\s*=\s*(?P<total>\d+)", memmap_text,
+                          re.MULTILINE)
+        if not mask or not total:
+            fail("memmap.py must declare DMA_CHANNELS_TOTAL and DMA_CHANNEL_MASK_C906L")
+        expected = int(total.group("total")) - bin(int(mask.group("mask"), 16)).count("1")
+        if int(channels.group("count")) != expected:
+            fail(
+                "maixcam: dma-channels=%s would hand the C906L's channels to Linux; with "
+                "mask 0x%02x it must be %d" % (channels.group("count"),
+                                               int(mask.group("mask"), 16), expected)
+            )
     if not re.search(r"&spi2\s*\{[^}]*status\s*=\s*\"disabled\"", dts_text, re.DOTALL):
         fail(
             "maixcam: SPI2 must stay disabled on the Linux side: the C906L owns that "
