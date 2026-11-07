@@ -8,7 +8,12 @@
 | 层次 | 内容 | 状态 |
 |---|---|---|
 | L1 管道 | 设备树 → uio → mmap → `cop` | ✅ **通过**（见 §3） |
-| L2 协议 | 页头/通道表/门铃回执 | ❌ 定位到根因：FSBL 没给 RTOS 写 `transfer_config`（见 §4） |
+| L2 协议 | 页头/通道表/门铃回执 | ✅ **通过 2026-11-07 20:05**（见 §8） |
+
+> **2026-11-07 更正**：§3.4 / §3.6 里"产品固件把板子挂死"的结论是错的，板子从来没死过。
+> 真正的两处根因见 §8：固件把 UART0 的焊盘认领给了 PWM4/5（于是内核控制台消失，看起来
+> 像停机），以及 `dcache.cipa` 在这个核上会把没进 cache 的写丢掉（于是共享页永远格式化
+> 不成功）。两处都修了，L2 实测通过。
 
 ## 二、两天里被推翻的假设（别再重走）
 
@@ -252,3 +257,96 @@ ls -l .cache/build/boards/maixcam-sd/fip.bin
 cop status
 cop send --contract /lib/firmware/guidance_contract.json --type 1 --payload ''
 ```
+
+## 八、2026-11-07 20:05：L2 通过，以及被推翻的"挂死"
+
+### 8.1 板子从来没有挂过
+
+串口在 `[16.5] remoteproc1: Booting fw image` 之后出现一行
+`RT: dump_print_enable & log will not print`，然后就再无输出。把它当成"板子停摆"是
+错的——同一时刻板子：
+
+```
+uptime 3 min, load 3.29
+/sys/class/remoteproc/remoteproc1/state = running
+/dev/uio0 在位
+NCM 网卡起来，192.168.100.2 ping 通、10.42.0.1 ssh 通（debian/rv）
+dmesg 一直记到 227 s（我们登录触发的那条 journald 消息）
+```
+
+所以"产品固件把 Linux 打死"这条假设彻底作废；§3.4/§3.6 作废。串口消失只是**控制台
+没了**，不是内核没了。
+
+### 8.2 根因一：固件把 UART0 的焊盘认领给了 PWM4/5
+
+`User/app_main.cpp` 的舵面 PWM 表前两路是 `UART0_RX → PWM5`、`UART0_TX → PWM4`，而
+`SG200XPWM` 在构造函数里就写 pinmux。表上的注释还写着"本固件不用 UART0，Linux 控制台是
+`ttyS1`"——那是旧前提；镜像已经把控制台搬到 `console=ttyS0`，于是固件一起来就把控制台
+从引脚上摘掉。
+
+证据链：
+1. Linux 往 `/dev/ttyS0` 写，`rc=0`，`stty` 115200 正常，但线上一个字节都没有。
+2. UART0 的 `LSR = 0x60`（THRE + TEMT 都置位）——字节真的移出去了。
+3. 因此不是 UART，是**引脚**：认领 PWM4/5 就是把 UART0 从那两个焊盘上挪走。
+
+修法：`TAIL_PWM_CLAIMS_UART0_PADS = false`，bring-up 不认领这两个焊盘，并在日志里明说
+"surface N has no pad (UART0 console kept)"，而不是假装这两路舵面有输出。要恢复，得先
+把镜像控制台搬回 UART1，或者把这两路改到 PWM14/15（触摸屏的 `IIC2_SCL/SDA`）。
+
+### 8.3 根因二：`dcache.cipa` 在这个核上会丢数据
+
+页格式化失败的表面症状是固件日志
+
+```
+E app_main.cpp:760 Shared page would not take a format; IMU telemetry is NOT running
+```
+
+`Format()` 的机器码核对过：从页对象读 7 个布局字段写进页头、`sw magic,0(page)`、
+然后对整页做一次 `dcache.cipa`，紧接着 `Check()` 先 `invalidate(32)` 再读 magic。
+问题是 `cipa`（一条指令做 clean+invalidate）执行时，刚写的 store 可能还在 store buffer
+里：clean 那半看不到任何脏行，invalidate 那半照常把行作废，数据永久丢失。于是：
+
+- 固件自己的 `Check()` 读到 FOREIGN → `Ready()` 假 → 整条遥测链停掉；
+- 从 Linux 经 `/dev/mem` 读 `0x8ffdc000`，看到的是上电残留（`magic=0x08604460`），
+  而不是页头。
+
+修法（`driver/shared_page/sg200x_thead_coherence.hpp`）：`PageSync` 拆成
+`fence iorw,iorw` → `dcache.cpa(范围)` → `dcache.ipa(范围)`；`PagePublish` 也补上前导
+fence。顺序不能倒——clean 必须先看见脏行，invalidate 才有资格丢掉已经落到 DRAM 的那份。
+
+顺带说明为什么 console 页一直是好的：它走 `Publish`（只有 clean），而且每次之后还有
+`fence_io()`，所以从来没踩到 `cipa`。
+
+### 8.4 验证记录
+
+装上新固件后（`remoteproc` stop/start 即可，**不需要断电**——`Quiesce()` 让 rproc 重启
+不再挂板，这点也顺手验证了）：
+
+```
+$ cop status
+page      : FORMATTED magic=0x31506461
+geometry  : abi=1 size=4096 slots=58 slot=64 payload=24 region=4064 tag=6
+layout    : ring=64 head=3776 write_state=3780 channels=3840
+channels  : 1 announced (gen 1) at 3840
+            imu          endpoint=0x400 flags=1 key=0xb784461b
+head      : 2001 (write_state 0)          # 两次读之间从 344 涨到 2001，环在前进
+
+$ cop send --contract /usr/lib/firmware/guidance_contract.json --type 1
+sent type=1 seq=5, reply=0x00000005
+sent type=1 seq=6, reply=0x00000006
+```
+
+固件侧日志（经 `/dev/mem` 读 console 页，不需要串口）确认它已经跑过 `Format()` 并进入
+IMU 初始化，只是在重试 `BMI088: Init failed. Try again.`——这块 MaixCAM 上没有 BMI088，
+属于预期。
+
+### 8.5 还没做的
+
+1. **卡上还是旧固件**（`824e6b91`，没有这两处修复）。当前跑的是 scp 到 `/tmp` 再
+   `cp` 进 `/lib/firmware` 的那份（`8d006384`），**冷启动会退回旧固件**。要么断电把卡
+   拿出来装，要么就用 `remoteproc` stop/start 迭代。
+2. `cop log` 在板子上直接崩：`NameError: name 'console_layout' is not defined`。这是
+   **上游 `molqzone/cop` 的 `b40ca7f` 本身就有的 bug**（不是本地截断），`cmd_log` 调用
+   了一个从未定义的函数。在修好之前，用 `/dev/mem` 读 `0x8ffdb000` 看固件日志。
+3. 固件在 IMU 初始化失败时每 132 µs 打一行日志，4 KiB 的 console 环被刷满，bring-up
+   阶段的日志会被挤掉。重试应该退避。
