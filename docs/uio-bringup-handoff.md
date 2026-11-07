@@ -350,3 +350,65 @@ IMU 初始化，只是在重试 `BMI088: Init failed. Try again.`——这块 Ma
    了一个从未定义的函数。在修好之前，用 `/dev/mem` 读 `0x8ffdb000` 看固件日志。
 3. 固件在 IMU 初始化失败时每 132 µs 打一行日志，4 KiB 的 console 环被刷满，bring-up
    阶段的日志会被挤掉。重试应该退避。
+
+## 九、2026-11-07 夜：把"放核即冻死"二分到一行
+
+### 9.1 先纠正三个被我自己带偏的结论
+
+1. **IMU 无罪。** 不启动模块图、不碰 SPI2、不发 DMA 的最小固件照样冻。
+2. **`clk_ignore_unused` 不是解药。** 全时钟门开着（EN1/EN2 = `0xFFFFFFFF`）一样冻；只打开
+   `clk_sdma_axi` 也不够。
+3. **`5f5de2e`（UART0 焊盘 / PWM14/15）无罪。** 不含它们的 `8d006384` 一样冻。
+
+还有一个更根本的教训：**6 秒的观察窗口会给出假阳性。** 阶段 0 盯了 90 秒、阶段 4 盯了
+65 秒、阶段 12/15 各盯 45–60 秒，这四条才可信；之前"6 秒没死就算通过"的判定作废。
+
+### 9.2 运行时阶段探针（`GUIDANCE_STAGE_PROBE`）
+
+每次改固件都要重编 + 换卡 + 断电，成本高到无法二分。现在阶段号是**运行时**的：Linux 用
+`/dev/mem` 往 boot-trace 页偏移 `0x800` 写一个数（`cvitek-rproc` 只用该页前 16 字节），
+固件在 `CreateDefaultTask` 第一句读它，走到指定阶段就自旋。
+
+```sh
+# 放核前选阶段（0–16），掉电后该字归 0，所以冷启动永远停在阶段 0
+devmem 0x8FFFF800 32 15
+echo start > /sys/class/remoteproc/remoteproc0/state
+```
+
+配套的 `/usr/bin/rtos-mode` 闸门只加载模块、不放核，所以"放核"是一次显式操作，冷启动
+永远回到有网络、可控的状态——这是能连续做二十多次实验的前提。
+
+### 9.3 结果
+
+| 阶段 | 内容 | 结果 |
+|---|---|---|
+| 0 | 只放核 | ✅ 90 s |
+| 4 | DMAC quiesce（RCC 门 + DMAC 寄存器） | ✅ 65 s |
+| 5–9 | SPI2 焊盘/时钟/控制器、GPIO、PWM10/舵面×4/屏幕 14·15、存储 | ✅ |
+| 10 | 页 `Format()` + 读回（`cop status` 实测 FORMATTED、`imu` 已通告） | ✅ |
+| 12 | + 两个定时器 | ✅ 45 s |
+| 15 | + app/命令线程（命令线程阻塞在门铃上） | ✅ 60 s |
+| **16** | **同上，但主线程用 `vTaskDelay` 让出 CPU** | ❌ **10 s 内冻死** |
+
+**结论：固件初始化的一切都是干净的，缺的只有一件事——主线程把 CPU 让出去。**
+用 `nop` 忙等停住，板子活；用 `vTaskDelay` 停住，板子死。
+
+### 9.4 下一步该查什么（按优先级）
+
+1. **小核 tick 与大核 tick 是否互相踩。** SDK 的 port 用
+   `mtimecmp = configMTIMECMP_BASE_ADDRESS + mhartid * 8`，写法正确；但**两颗核报出来的
+   `mhartid` 是不是同一个值**没验证过。若小核把自己当成 hart 0，它就会每 1 ms 改写大核的
+   `mtimecmp`——Linux 的 tick 停、ssh 立刻失去响应，而小核自己照常跑（正好是观测到的样子）。
+   验证方法：从大核读 `/proc/cpuinfo` 与设备树 `cpus` 节点，再让固件把 `mhartid` 写进页里
+   对比。**这是目前最值得先查的一条。**
+2. 若 hart 不冲突，再看"让出 CPU 后才会发生的东西"：libxr 定时器任务在同一时刻的
+   `SleepUntil` 路径、以及 `LibXR::Thread` 的让出是否碰了共享的 systimer。
+3. 只有 1、2 都排除后，才回到 mailbox 硬件自旋锁（`SPIN_UART`）那条线：内核补丁里
+   `CVITEK_SPIN_UART` 的注释写着 "this spinlock field is used for linux & rtos"，如果固件
+   在持有它的时候被挂住，大核任何一次 printk 都会卡死。
+
+### 9.5 这次一并落地的仓库改动
+
+- 固件：`GUIDANCE_STAGE_PROBE`（运行时阶段探针）、`GUIDANCE_APP_TIMERS`（定时器开关）、
+  `GUIDANCE_START_MODULE_GRAPH`（模块图开关）、`GUIDANCE_BRINGUP_PARK`（空探针）。
+- 镜像：`clk_ignore_unused` 回到 cmdline（实测不是解药，但它让时钟状态可预期，先留着）。
