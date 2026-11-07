@@ -23,9 +23,31 @@ CREDIT_BITS_PER_BYTE = 8
 BUFFER = 256
 
 
+def pool_info(data: bytes) -> bytes:
+    """Build the `struct rand_pool_info` payload for RNDADDENTROPY.
+
+    内核的 `struct rand_pool_info` 是 `{ int entropy_count; int buf_size; __u32 buf[]; }`
+    —— **entropy_count 在第一个**。这两个字段曾经写反：内核于是按 buf_size 去读 8 倍于
+    实际长度的数据，计入的熵要么是错的要么根本没到阈值，池子一直不初始化。
+    症状不是"种子没用"，而是启动时好时坏：只有内核自己的抖动熵在 NCM gadget 之前攒够
+    才起得来（实测 10.9 s 成功、14 s 未成就卡死），看起来像随机的"假砖头"。
+
+    The kernel's `struct rand_pool_info` is `{ int entropy_count; int buf_size; __u32 buf[]; }`
+    -- entropy_count comes **first**.  The two fields were once swapped, so the kernel read
+    8x the real length and the credited entropy was either wrong or never reached the
+    threshold, leaving the pool uninitialized.  The symptom was not "the seed does nothing"
+    but a boot that worked only when the kernel's own jitter entropy arrived before the NCM
+    gadget (measured: fine at 10.9 s, stuck at 14 s) -- a random-looking fake brick.
+    """
+    return struct.pack("<ii", CREDIT_BITS_PER_BYTE * len(data), len(data)) + data
+
+
 def main() -> int:
-    if os.path.exists("/dev/hwrng"):
-        return 0  # a real RNG is present; nothing to credit
+    # 不要因为 `/dev/hwrng` 存在就提前返回：这颗 SoC 的 hwrng 驱动没有出现在设备树里，
+    # 而"节点存在但不出数"比"节点不存在"更难查。种子永远计入，代价只是几十微秒。
+    # Do not return early on `/dev/hwrng`: this SoC has no hwrng node in its device tree,
+    # and "the node exists but yields nothing" is far harder to diagnose than its absence.
+    # The seed is always credited; it costs tens of microseconds.
     try:
         with open(SEED, "rb") as handle:
             data = handle.read(BUFFER)
@@ -35,13 +57,20 @@ def main() -> int:
     if len(data) < 64:
         print("seed-entropy: seed is only %d bytes" % len(data), file=sys.stderr)
         return 1
-    payload = struct.pack("<ii", len(data), CREDIT_BITS_PER_BYTE * len(data)) + data
+    credits = CREDIT_BITS_PER_BYTE * len(data)
+    payload = pool_info(data)
     fd = os.open("/dev/urandom", os.O_WRONLY)
     try:
         fcntl.ioctl(fd, RNDADDENTROPY, payload)
     finally:
         os.close(fd)
-    print("seed-entropy: credited %d bytes" % len(data))
+    try:
+        with open("/proc/sys/kernel/random/entropy_avail") as handle:
+            available = handle.read().strip()
+    except OSError:
+        available = "?"
+    print("seed-entropy: credited %d bytes (%d bits), entropy_avail=%s"
+          % (len(data), credits, available))
     return 0
 
 
