@@ -745,6 +745,32 @@ image-clean:
 image-clean-customize:
 	@rm -f $(BUILDDIR)/image-customize-stamp
 
+# `make clean` 删的是内核/U-Boot/OpenSBI/FSBL/osdrv/middleware 的检出与 stamp：下一次
+# 构建要重新 clone 并重编全部（几十分钟），连带把 sdk 缓存也废掉。这是个有意的动作，
+# 不应该被一次手滑的调用触发——所以没有 CONFIRM=1 就只打印后果并失败。
+# `make clean` deletes those checkouts and stamps; the next build re-clones and recompiles
+# everything.  That is a deliberate act: without CONFIRM=1 this prints what it would cost
+# and fails, which is also how "why is it rebuilding the world?" gets answered.
+ifeq ($(CONFIRM),1)
 clean: opensbi-clean uboot-clean linux-clean osdrv-clean middleware-clean fsbl-clean
+else
+clean:
+	@echo "make clean removes the kernel, u-boot, opensbi, fsbl, osdrv and middleware" >&2
+	@echo "checkouts and every compiled artifact: the next build re-clones and recompiles" >&2
+	@echo "all of them (tens of minutes)." >&2
+	@echo "Nothing was removed.  Re-run as: make clean CONFIRM=1" >&2
+	@exit 1
+endif
 
-.PHONY: image clean opensbi uboot linux osdrv middleware fsbl fsbl-clean uboot-clean linux-clean opensbi-clean
+# 一眼看出"这次为什么全量重建"：哪些 stamp 在、哪些不在。
+# Why a build is rebuilding everything, without reading a log.
+cache-status:
+	@echo "build cache: $(BUILDDIR)"
+	@printf '  stamps: %s\n' "$$(ls -1 $(BUILDDIR) 2>/dev/null | grep -c 'stamp$$')"
+	@for s in linux-compile-stamp uboot-compile-stamp opensbi-compile-stamp \
+		fsbl-compile-stamp osdrv-compile-stamp middleware-compile-stamp \
+		image-prepare-stamp image-compile-stamp guidance-fw-stamp; do \
+		if [ -e "$(BUILDDIR)/$$s" ]; then echo "  present  $$s"; \
+		else echo "  MISSING  $$s"; fi; done
+
+.PHONY: image clean opensbi uboot linux osdrv middleware fsbl fsbl-clean uboot-clean linux-clean opensbi-clean cache-status
