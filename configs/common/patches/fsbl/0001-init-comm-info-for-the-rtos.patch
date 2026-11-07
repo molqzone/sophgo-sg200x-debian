@@ -108,3 +108,43 @@ diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
  	transfer_config_s.dump_print_enable = RTOS_DUMP_PRINT_ENABLE;
  	transfer_config_s.dump_print_size_idx = RTOS_DUMP_PRINT_SZ_IDX;
  	transfer_config_s.image_type = RTOS_FAST_IMAGE_TYPE;
+diff --git a/plat/cv180x/bl2/bl2_opt.c b/plat/cv180x/bl2/bl2_opt.c
+--- a/plat/cv180x/bl2/bl2_opt.c
++++ b/plat/cv180x/bl2/bl2_opt.c
+@@ -219,6 +219,16 @@
+ 	NOTICE("C2S/0x%x/0x%x/0x%x.\n", fip_param2.blcp_2nd_loadaddr, fip_param2.blcp_2nd_runaddr,
+ 	       fip_param2.blcp_2nd_size);
+ 
++	/*
++	 * RTOS 的 comm-info 与有没有 BLCP 载荷无关：没有载荷时下面会直接 return，而 RTOS
++	 * 照样要从 mailbox 读这份配置。写晚了它只能拿到残值 → checksum fail → 退回内置
++	 * 默认配置 → 用不属于它的 DMA 地址把总线挂死。
++	 * The RTOS comm-info does not depend on a BLCP payload: without one this function
++	 * returns early, yet the RTOS still reads this config from the mailbox.  Writing it
++	 * later is exactly how the RTOS ended up on its built-in default and hung the bus.
++	 */
++	init_comm_info(0);
++
+ 	if (!fip_param2.blcp_2nd_runaddr) {
+ 		NOTICE("No C906L image.\n");
+ 		return 0;
+diff --git a/plat/cv181x/bl2/bl2_opt.c b/plat/cv181x/bl2/bl2_opt.c
+--- a/plat/cv181x/bl2/bl2_opt.c
++++ b/plat/cv181x/bl2/bl2_opt.c
+@@ -189,6 +189,16 @@
+ 	NOTICE("C2S/0x%x/0x%x/0x%x.\n", fip_param2.blcp_2nd_loadaddr, fip_param2.blcp_2nd_runaddr,
+ 	       fip_param2.blcp_2nd_size);
+ 
++	/*
++	 * RTOS 的 comm-info 与有没有 BLCP 载荷无关：没有载荷时下面会直接 return，而 RTOS
++	 * 照样要从 mailbox 读这份配置。写晚了它只能拿到残值 → checksum fail → 退回内置
++	 * 默认配置 → 用不属于它的 DMA 地址把总线挂死。
++	 * The RTOS comm-info does not depend on a BLCP payload: without one this function
++	 * returns early, yet the RTOS still reads this config from the mailbox.  Writing it
++	 * later is exactly how the RTOS ended up on its built-in default and hung the bus.
++	 */
++	init_comm_info(0);
++
+ 	if (!fip_param2.blcp_2nd_runaddr) {
+ 		NOTICE("No C906L image.\n");
+ 		return 0;
