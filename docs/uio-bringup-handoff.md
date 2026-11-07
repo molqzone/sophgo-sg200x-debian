@@ -80,7 +80,13 @@ dmesg        remoteproc0: Started from 0x8fe00000
 **这是"总线被挂住"的签名**：没有 oops/panic，因为 CPU 停在一个永远不回的 AXI 事务上，
 连 printk 都打不出来。
 
-### 3.5 根因：FSBL 不再写 `transfer_config`
+### 3.5 第一层根因（已修）：FSBL 不再写 `transfer_config`
+
+> **2026-11-07 19:2x 更新**：这一条已经修好。修完后串口上的 `checksum fail` **消失**，
+> RTOS 改为打印 `dump_print_enable & log will not print` 并继续往下走——说明配置被接受。
+> 但板子仍在约 25 秒后停摆，所以还有第二层原因（见 §3.6）。
+
+原始分析保留如下。
 
 `configs/common/patches/fsbl/0001-fix-compile-error.patch` 把
 `plat/cv181x/bl2/bl2_main.c` 里 `init_comm_info()` 的**函数体**用 `#if 0` 关掉了：
@@ -111,6 +117,23 @@ int init_comm_info(int ret)
 
 `use default confi setting` 这句在**厂商预编译库**里（源码树里搜不到，只在 ELF 里），
 所以**无法从固件源码侧改成 fail-stop**；必须在 FSBL 侧把配置填对，让默认路径永不触发。
+
+### 3.6 第二层根因（未解决）：产品固件自己的运行时
+
+修好 comm-info 之后：
+
+```
+[16.19] remoteproc1: Booting fw image c906-mcu.elf, size 1278632
+[16.42] boot trace host sentinel at 0x8ffff000
+[25.39] RT: dump_print_enable & log will not print     ← RTOS 接受了配置（不再 checksum fail）
+（之后：串口静默、USB 消失、无 panic）
+```
+
+同一块板、同一份 FSBL、同一个镜像，换成**惰性固件**（`02f36c3a…`，不碰 DMA）就能一路
+到 ssh。所以第二层的原因在产品固件的运行时——最可能是它的 IMU/SPI2 DMA 路径
+（固件侧 `sg200x_dma.hpp` 用通道 4–7 + 硬件请求线 20/21）。
+
+判据：如果固件把 IMU/DMA 关掉后板子能活，就确认在这里；然后逐步加回去定位到具体一步。
 
 ## 四、待办（按顺序，做完就能验 L2）
 
