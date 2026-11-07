@@ -230,6 +230,24 @@ def validate_entropy_seed() -> None:
     for path in (unit, script, addon):
         if not path.is_file():
             fail(f"entropy seeding is incomplete: {path} is missing")
+    fsbl_patch = REPO_ROOT / "configs/common/patches/fsbl"
+    early = [path for path in fsbl_patch.glob("*.patch")
+             if "hold_c906l_in_reset" in path.read_text(encoding="utf-8")]
+    if not early:
+        fail("the FSBL patch that holds the C906L in reset is missing")
+    source = "".join(path.read_text(encoding="utf-8") for path in early)
+    if "hold_c906l_in_reset(void)" not in source:
+        fail("the FSBL patch must define hold_c906l_in_reset()")
+    # 位置比内容重要：BL2 是在 load_ddr() 之后才去 load_blcp_2nd() 的，把"按住小核"放在那里
+    # 就晚了一步——DDR 已经在小核还在跑的时候重新训练完了。必须在 load_ddr() 之前。
+    # Placement is the whole point: load_blcp_2nd() runs after load_ddr(), so holding the
+    # core there is too late.  The added call has to sit immediately before load_ddr().
+    for match in re.finditer(r"\+\s*hold_c906l_in_reset\(\);", source):
+        if "load_ddr();" in source[match.end():match.end() + 120]:
+            break
+    else:
+        fail("the FSBL patch must call hold_c906l_in_reset() before load_ddr()")
+
     text = unit.read_text(encoding="utf-8")
     if "Before=sysinit.target systemd-random-seed.service" not in text:
         fail("seed-entropy must run before sysinit and before systemd-random-seed")
