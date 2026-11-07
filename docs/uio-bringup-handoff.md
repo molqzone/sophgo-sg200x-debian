@@ -528,3 +528,34 @@ sent type=1 seq=3, reply=0x00000003
 - `maixcam-pinmux` 这个 oneshot 目前只在卡上手工装过 + 仓库里有 addon；**要 `make image`
   才会进正式镜像**；
 - **根因仍未解**：为什么 C906L 的 idle 任务会拖死大核（§9.6 末）。keep-awake 是工程解，不是解释。
+
+### 9.11 舵机上电"打满"的真正原因与修复
+
+`PWM4`/`PWM5` 的焊盘就是 **UART0_TX / UART0_RX**，而 UART 空闲电平是**高**、RX 更是输入（悬空）。
+所以从**上电到固件接管**（约 16 秒）之间，接在这两个脚上的两个舵机分别表现为"**直接打满**"和
+"**保持力矩 + 偶尔抽一下**"——另外两个舵机在 `GPIO_RTX`/`GPIO_ZQ` 上，复位后不是 UART，所以没事。
+这解释了为什么只有这两个出问题（实测四个通道寄存器完全一致，都是 150 Hz / 1.5 ms 中位）。
+
+修复分两层：
+
+1. `u-boot` 的 `misc_init_r`（交棒给 Linux 之前）：把 PWM4/PWM5 配成 150 Hz、只高 1 tick
+   （= 无脉冲），再切焊盘，最后使能。顺序与固件 LL 驱动一致，避免半个周期的怪电平。
+   窗口从 ~16 s 缩到 u-boot 自己那 2-3 s。**必须同时打开 `CONFIG_MISC_INIT_R`**，否则
+   `--gc-sections` 会把整个函数回收掉——代码在源码里、却不在二进制里，这个坑很容易漏。
+2. `maixcam-servo-early.service`（卡上）：systemd `sysinit.target` 即补一遍同样的值，
+   在 u-boot 修复还没落地时把窗口压到 1-2 s。
+
+### 9.12 一个设计层面的缺口：制导的输入源不存在
+
+`User/xrobot_main.hpp` 里的链路是完整的：
+
+```
+"vision_target" -> ProNavGuidance -> "png_yaw" -> SurfaceActuator -> PWM1/2/4/5
+```
+
+但**没有任何东西发布 `vision_target`**：共享页契约里只有 `imu` 一个通道（小核→大核），
+小核内部也没有生产者。于是 `png_yaw` 恒为 0，`SurfaceActuator` 把四个舵面钉在
+`center=1500 µs`——看起来像"制导没跑"，其实是**没有输入**。
+
+要让舵面真的跟着目标动，先得定：视觉目标由 Linux 通过共享页下发（契约里加大核→小核的通道），
+还是小核自己接摄像头。这是设计缺口，不是 bug。
