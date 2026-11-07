@@ -458,3 +458,34 @@ port 里也没有 `WFI`（`configUSE_TICKLESS_IDLE=0`）。可疑方向按顺序
 
 **代价**：keep-awake 是自旋，小核不再省电。作为工程解它能让固件稳定运行；作为根因它只是
 把问题挪开——真要用在功耗敏感的产品上，得先弄清第 1、2 条。
+
+### 9.7 修好之后：IMU 真的通了
+
+keep-awake 修好后的第一件事就是把**完整产品固件**（探针关、模块图开）放上去跑。实测 60 秒板子
+稳定，然后固件控制台给出：
+
+```
+IMU gyro rate: 999 Hz
+IMU telemetry: entering Printf
+IMU g +0.005 -0.012 +0.001 rad/s | a -0.045 +0.177 +0.978 g
+IMU g +0.004 +0.002 -0.004 rad/s | a -0.049 +0.181 +0.979 g
+```
+
+重力落在 Z 轴 ~0.98 g、角速度近零——数据是真的，BMI088 走 SPI2 在 999 Hz 采样，并已发布到
+共享页（`cop status`：`FORMATTED`、`imu` 通道已通告、`head` 在涨）。
+
+**这也解释了今天反复出现的 `BMI088: Init failed. Try again.`**：它不是"这块板子没有 IMU"，
+而是**固件从来没进入稳态**的那个循环。固件完整跑起来之后，IMU 一次就初始化成功。
+
+### 9.8 另一条线：heartbeat 灯不亮（已单独修掉）
+
+- 用户 LED 是 **GPIOA14**，而那颗焊盘（`0x03001038`）的主功能是 **`SD0_PWR_EN`**：
+  `SD0_PWR_EN__SDIO0_PWR_EN = 0`、`SD0_PWR_EN__XGPIOA_14 = 3`；
+- u-boot 的 `cvi_board_init()` 写了 3，但**随后它要从 SD 卡读内核**，那次 MMC 初始化又按
+  `PINMUX_SDIO0` 把它设回 0；
+- 于是 Linux 侧一切看着正常（`trigger=[heartbeat]`、`brightness` 在翻转），但电平到不了引脚；
+- 同一次读数里 `0x03001070/74`（UART1 的两个焊盘，同一段代码设的）**也是 0**——所以
+  `console=ttyS1` 从来没有输出，不是"没接线"，而是**焊盘没复用成 UART1**。
+
+修法：`scripts/addons/maixcam-pinmux/`（`local-fs` 之后的 oneshot，补 `0x38=3`、`0x70=1`、
+`0x74=1`），已进 `IMAGE_ADDITIONS` 并提交（`a68dee4`）。
