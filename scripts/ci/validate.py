@@ -235,9 +235,14 @@ def validate_entropy_seed() -> None:
         fail("seed-entropy must run before sysinit and before systemd-random-seed")
     if "RNDADDENTROPY" not in script.read_text(encoding="utf-8"):
         fail("seed-entropy must credit the pool (RNDADDENTROPY), not just write bytes")
-    if "random-seed" not in (REPO_ROOT / "scripts/setup_rootfs.sh").read_text(
-            encoding="utf-8"):
+    setup = (REPO_ROOT / "scripts/setup_rootfs.sh").read_text(encoding="utf-8")
+    if "random-seed" not in setup:
         fail("setup_rootfs.sh must write /var/lib/systemd/random-seed into the image")
+    # 一个能让"复位之后死在哪"可复现的镜像，必须有 U-Boot 标记和持久化 journal。
+    if "preboot=" not in setup:
+        fail("setup_rootfs.sh must give U-Boot a preboot marker (why a boot hangs)")
+    if "Storage=persistent" not in setup:
+        fail("setup_rootfs.sh must persist the journal (a hang must leave evidence)")
 
 
 def validate_bootlog_ring() -> None:

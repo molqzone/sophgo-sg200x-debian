@@ -188,6 +188,28 @@ for hook in /tmp/install/rootfs-hooks/*.sh; do
   /bin/sh "$hook"
 done
 
+# 启动阶段标记：U-Boot 在 bootcmd 之前交替写 /stage-a、/stage-b。板子挂死之后**不要断电**，
+# 直接把卡拔下来看：标记翻了一个，就说明这次的复位走到了 U-Boot；一个都没翻，说明复位根本
+# 没到 U-Boot（关机卡住，或者 FSBL/ROM 复位后起不来）。热复位到底死在哪一步，靠这个就能切
+# 成两半，而不是靠灯猜。`fatrm` 失败只会让两个文件同时存在，仍然能看出"这次跑过"。
+# U-Boot toggles /stage-a and /stage-b before bootcmd runs.  After a hang, pull the card
+# (do not power cycle) and look: a new marker means the reset reached U-Boot; no new
+# marker means it never got there.
+if ! grep -q '^preboot=' /etc/u-boot-initial-env; then
+	printf '%s\n' 'preboot=if test -e mmc 0:1 /stage-a; then fatwrite mmc 0 ${loadaddr} /stage-b 4; fatrm mmc 0 /stage-a; else fatwrite mmc 0 ${loadaddr} /stage-a 4; fatrm mmc 0 /stage-b; fi' >> /etc/u-boot-initial-env
+fi
+
+# journal 默认只写 /run，掉电即失——而板子最需要的恰好是"上一次启动死在哪"。持久化到
+# /var/log/journal 并限制大小（16 MiB），挂死后再上电就能 journalctl -b -1 看到关机序列。
+# The journal defaults to /run, so a hang leaves nothing behind.  Persist it, bounded.
+install -d -m 2755 -o root -g systemd-journal /var/log/journal 2>/dev/null || true
+install -d -m 0755 /etc/systemd/journald.conf.d 2>/dev/null || true
+cat > /etc/systemd/journald.conf.d/10-persistent.conf <<'JOURNAL'
+[Journal]
+Storage=persistent
+SystemMaxUse=16M
+JOURNAL
+
 echo "/boot/uboot.env	0x0000          0x20000" > /etc/fw_env.config
 mkenvimage -s 0x20000 -o /boot/uboot.env /etc/u-boot-initial-env
 
