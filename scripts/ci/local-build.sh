@@ -126,6 +126,21 @@ fi
 # chroot into the riscv64 rootfs even when the host has a qemu-riscv64 handler.
 # Mount it here (the build container is privileged) so the handler is visible.
 if [[ ${IN_CONTAINER:-0} == 1 ]]; then
+	# 让所有 clone（含子模块）优先走离线镜像：middleware 的 media_server 用 .gitmodules 里的
+	# https://github.com/scpcom/... 直接 clone 子模块，光改 versions.env 管不到它们。
+	# insteadOf 要同时覆盖带 .git 和不带 .git 两种写法，否则会拼出 foo.git.git。
+	# Route every clone, submodules included, through the offline mirrors: media_server clones
+	# scpcom/* from its .gitmodules, which versions.env cannot redirect.
+	if [[ -d /offline-cache/git ]]; then
+		for mirror in /offline-cache/git/*.git; do
+			[[ -e $mirror ]] || continue
+			name=$(basename "$mirror" .git)
+			for org in sophgo scpcom sipeed; do
+				git config --global url."$mirror".insteadOf "https://github.com/$org/$name" || true
+				git config --global url."$mirror".insteadOf "https://github.com/$org/$name.git" || true
+			done
+		done
+	fi
 	mkdir -p /proc/sys/fs/binfmt_misc
 	mountpoint -q /proc/sys/fs/binfmt_misc || \
 		mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
