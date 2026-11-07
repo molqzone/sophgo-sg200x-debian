@@ -13,6 +13,26 @@ class MemoryMap:
     DRAM_SIZE = 256 * SIZE_1M
 
     # ==============
+    # DMA channel partition
+    # ==============
+    # 厂商的 SDMA 有 8 个通道，两颗核共享同一个控制器和同一张请求线重映射表。固件侧早已
+    # 声明了归属（bsp-guidance-action 的 sg200x_dma.hpp：OWNED_CHANNEL_MASK = 0xF0，
+    # 注释写明 "Channels 0-3 remain owned by Linux; the C906L adapter owns 4-7"），并且
+    # 自己写请求线、把 4–7 的完成中断路由到 CPU2。
+    #
+    # Linux 侧唯一要做的就是**只声明它该看到的那几个通道**：dw_dma_filter() 不认通道号，
+    # 驱动按空闲顺序发通道，所以 dma-channels=8 时相机/音频随时可能拿到固件正在用的 4–7——
+    # 那次"双核 AXI 竞争把 SoC 挂死"就是这么来的。声明 4 之后，驱动连 4–7 的寄存器都不会写。
+    # The vendor SDMA has 8 channels shared by both cores; the firmware already declares the
+    # partition (OWNED_CHANNEL_MASK = 0xF0).  Linux must declare only the channels it may
+    # use, because its channel filter ignores ids and would otherwise hand out the ones the
+    # firmware is using.
+    DMA_CHANNELS_TOTAL = 8
+    DMA_CHANNEL_MASK_C906L = 0xF0
+    DMA_CHANNELS_LINUX = DMA_CHANNELS_TOTAL - bin(DMA_CHANNEL_MASK_C906L).count("1")
+    assert DMA_CHANNELS_LINUX == 4, DMA_CHANNELS_LINUX
+
+    # ==============
     # C906L FreeRTOS
     # ==============
     FREERTOS_SIZE = 2 * SIZE_1M
