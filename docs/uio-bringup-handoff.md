@@ -412,3 +412,49 @@ echo start > /sys/class/remoteproc/remoteproc0/state
 - 固件：`GUIDANCE_STAGE_PROBE`（运行时阶段探针）、`GUIDANCE_APP_TIMERS`（定时器开关）、
   `GUIDANCE_START_MODULE_GRAPH`（模块图开关）、`GUIDANCE_BRINGUP_PARK`（空探针）。
 - 镜像：`clk_ignore_unused` 回到 cmdline（实测不是解药，但它让时钟状态可预期，先留着）。
+
+### 9.6 结论（2026-11-07 22:2x）：元凶是小核的 idle 任务
+
+§9.3 里"阶段 16 冻、15 活"的差别，最终落在一件事上：**FreeRTOS 的 idle 任务有没有被调度**。
+
+- 所有"停住"的阶段都用 `nop` 忙等——app_main 一直占着 CPU，**idle 永远得不到调度**，全部存活；
+- 一旦主线程 `vTaskDelay` 让出 CPU，或完整跑到 `vTaskSuspend`，idle 开始跑，**大核 5–10 秒内失去响应**；
+- 去掉 libxr 的定时器任务（不调 `PlatformInit`）**无效**——不是它；
+- 放一个优先级 1 的自旋任务挤掉 idle（优先级 0）→ **阶段 20 存活 60 秒，固件完整可用**。
+
+**一次被我自己弄坏的实验值得记下来**：第一次测"挤掉 idle"时结果是"无效"，因为
+`LibXR::Thread::Create()` 返回 `void`（失败走内部 ASSERT）、`stack_depth` 的单位是**字节**
+而我传了 512，而且我没检查任务是否真的建起来。修正后日志给出 `keep-awake: tasks 4 -> 5`，
+实验才成立。**凡是"加了个东西却没效果"的结论，先证明那个东西真的存在。**
+
+修复后实测（同一块板、同一张卡）：
+
+```
+$ cop status
+page      : FORMATTED magic=0x31506461
+geometry  : abi=1 size=4096 slots=58 slot=64 payload=24 region=4064 tag=6
+channels  : 1 announced (gen 1) at 3840
+            imu          endpoint=0x400 flags=1 key=0xb784461b
+head      : 7048 → 8623        # 两次读之间，遥测一直在发布
+```
+
+固件控制台里也能看到这次真正生效的那些功能：
+
+```
+bring-up: screen PWM14/15 owned (pad 436/440, no panel present)
+bring-up: board ok
+page layout: abi=1 size=4096 slots=58 sample=64 payload=24 region=4064 tag=6
+Shared page formatted; IMU telemetry publishing to the ring.
+keep-awake: tasks 4 -> 5
+```
+
+**仍未解释**：为什么小核空转会拖死大核。这颗 SoC 上没有任何文档说 idle 会影响另一个核，
+port 里也没有 `WFI`（`configUSE_TICKLESS_IDLE=0`）。可疑方向按顺序：
+
+1. 硬件自旋锁：内核补丁定义了 `CVITEK_SPIN_UART` / `CVITEK_SPIN_LINUX_RTOS` /
+   `CVITEK_SPIN_MBOX` 三个两核共享的锁（注释原话 "this spinlock field is used for linux
+   & rtos"）。已在固件里加了 `GUIDANCE_DOORBELL_SIGNAL`，可以在不敲铃的情况下复测阶段 20。
+2. C906L 空闲时的时钟/电源握手把 AXI 拖住（需要示波器或厂商文档才能确认）。
+
+**代价**：keep-awake 是自旋，小核不再省电。作为工程解它能让固件稳定运行；作为根因它只是
+把问题挪开——真要用在功耗敏感的产品上，得先弄清第 1、2 条。
