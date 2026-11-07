@@ -193,6 +193,14 @@ def invalidate(build_root: Path, layer: str) -> None:
                 stamp.unlink()
 
 
+def layer_missing(build_root: Path, layer: str) -> list[str]:
+    """Which completion paths are absent: names the gap instead of saying "incomplete"."""
+    return [
+        relative for relative in LAYER_COMPLETION_PATHS.get(layer, ())
+        if not (build_root / relative).exists()
+    ]
+
+
 def layer_complete(build_root: Path, layer: str) -> bool:
     try:
         paths = LAYER_COMPLETION_PATHS[layer]
@@ -252,8 +260,17 @@ def main() -> int:
                     if changed:
                         reasons.append("source hash changed")
                     if not complete:
-                        reasons.append("build output incomplete")
-                    failures.append(f"{layer} ({', '.join(reasons)})")
+                        missing = layer_missing(build_root, layer)
+                        reasons.append("missing " + ", ".join(missing))
+                        # `*.git/HEAD` 缺失 = 源码检出没了，只有在线把镜像补回来（或重新 clone）；
+                        # 其余是构建产物。两种原因修法不同，别混成一句 "incomplete"。
+                        sources = [item for item in missing if ".git/" in item]
+                        if sources:
+                            reasons.append(
+                                "source checkout missing -- run scripts/ci/mirror-sources.sh "
+                                "while online, then OFFLINE=1 can restore it"
+                            )
+                    failures.append(f"{layer} ({'; '.join(reasons)})")
                 continue
             if (changed or not complete) and not args.dry_run:
                 invalidate(build_root, layer)

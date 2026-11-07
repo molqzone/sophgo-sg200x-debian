@@ -267,11 +267,20 @@ $(BUILDDIR)/linux-compile-stamp: $(BUILDDIR)/linux-prepare-configure-stamp
 
 linux: $(BUILDDIR)/linux-compile-stamp
 
+ifeq ($(CONFIRM),1)
 linux-clean:
 	@rm -rf $(BUILDDIR)/kernel
 	@rm -f $(BUILDDIR)/linux-*-stamp
 	@rm -f $(BUILDDIR)/linux-*.deb
 
+
+else
+linux-clean:
+	@echo "linux-clean deletes the cached Kernel sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make linux-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/osdrv-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OSdrv for $(BOARD)$(END_COLOUR)"
@@ -330,10 +339,19 @@ $(BUILDDIR)/osdrv-package-stamp: $(BUILDDIR)/osdrv-compile-stamp
 
 osdrv: $(BUILDDIR)/osdrv-package-stamp
 
+ifeq ($(CONFIRM),1)
 osdrv-clean:
 	@rm -rf $(BUILDDIR)/osdrv
 	@rm -f $(BUILDDIR)/osdrv-*-stamp
 
+
+else
+osdrv-clean:
+	@echo "osdrv-clean deletes the cached OSDRV sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make osdrv-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/middleware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out Middleware for $(BOARD)$(END_COLOUR)"
@@ -396,10 +414,19 @@ $(BUILDDIR)/middleware-package-stamp: $(BUILDDIR)/middleware-compile-stamp
 
 middleware: $(BUILDDIR)/middleware-package-stamp
 
+ifeq ($(CONFIRM),1)
 middleware-clean:
 	@rm -rf $(BUILDDIR)/middleware
 	@rm -f $(BUILDDIR)/middleware-*-stamp
 
+
+else
+middleware-clean:
+	@echo "middleware-clean deletes the cached middleware sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make middleware-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/vcodec-firmware-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out vcodec-firmware for $(BOARD)$(END_COLOUR)"
@@ -422,10 +449,19 @@ $(BUILDDIR)/vcodec-firmware-package-stamp: $(BUILDDIR)/vcodec-firmware-prepare-c
 
 vcodec-firmware: $(BUILDDIR)/vcodec-firmware-package-stamp
 
+ifeq ($(CONFIRM),1)
 vcodec-firmware-clean:
 	@rm -rf $(BUILDDIR)/vcodec-firmware
 	@rm -f $(BUILDDIR)/vcodec-firmware-*-stamp
 
+
+else
+vcodec-firmware-clean:
+	@echo "vcodec-firmware-clean deletes the cached vcodec firmware sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make vcodec-firmware-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/uboot-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out U-Boot for $(BOARD)$(END_COLOUR)"
@@ -466,10 +502,19 @@ $(BUILDDIR)/uboot-compile-stamp: $(BUILDDIR)/uboot-prepare-configure-stamp
 
 uboot: $(BUILDDIR)/uboot-compile-stamp
 
+ifeq ($(CONFIRM),1)
 uboot-clean:
 	@rm -rf $(BUILDDIR)/u-boot
 	@rm -f $(BUILDDIR)/uboot-*-stamp
 
+
+else
+uboot-clean:
+	@echo "uboot-clean deletes the cached U-Boot sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make uboot-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/opensbi-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out OpenSBI for $(BOARD)$(END_COLOUR)"
@@ -495,10 +540,19 @@ $(BUILDDIR)/opensbi-compile-stamp: $(BUILDDIR)/opensbi-prepare-patch-stamp $(BUI
 
 opensbi: $(BUILDDIR)/opensbi-compile-stamp
 
+ifeq ($(CONFIRM),1)
 opensbi-clean:
 	@rm -rf $(BUILDDIR)/opensbi
 	@rm -f $(BUILDDIR)/opensbi-*-stamp
 
+
+else
+opensbi-clean:
+	@echo "opensbi-clean deletes the cached OpenSBI sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make opensbi-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/fsbl-prepare-checkout-stamp:
 	@echo "$(COLOUR_GREEN)Checking out FSBL for $(BOARD)$(END_COLOUR)"
@@ -544,11 +598,20 @@ $(BUILDDIR)/fsbl-package-stamp: $(BUILDDIR)/fsbl-compile-stamp
 
 fsbl: $(BUILDDIR)/fsbl-package-stamp
 
+ifeq ($(CONFIRM),1)
 fsbl-clean:
 	@rm -rf $(BUILDDIR)/fsbl
 	@rm -rf $(BUILDDIR)/package/cvitek-fsbl-*
 	@rm -f $(BUILDDIR)/fsbl-*-stamp
 
+
+else
+fsbl-clean:
+	@echo "fsbl-clean deletes the cached FSBL sources and stamps; the next build"
+	@echo "re-clones and recompiles them.  Nothing was removed:"
+	@echo "  make fsbl-clean CONFIRM=1"
+	@exit 1
+endif
 
 $(BUILDDIR)/cvi-pinmux-package-stamp:
 	@echo "$(COLOUR_GREEN)Building pinned cvi_pinmux for $(BOARD)$(END_COLOUR)"
