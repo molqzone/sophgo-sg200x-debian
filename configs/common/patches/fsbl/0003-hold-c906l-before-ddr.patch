@@ -1,0 +1,114 @@
+diff --git a/plat/cv180x/bl2/bl2_main.c b/plat/cv180x/bl2/bl2_main.c
+index db64313..9154256 100644
+--- a/plat/cv180x/bl2/bl2_main.c
++++ b/plat/cv180x/bl2/bl2_main.c
+@@ -86,6 +86,9 @@ void bl2_main(void)
+ #endif
+ #endif
+ 
++	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。\n	 * Hold the C906L before DDR is retrained under it. */
++	hold_c906l_in_reset();
++
+ 	load_ddr();
+ 
+ 	load_rest();
+diff --git a/plat/cv180x/include/platform.h b/plat/cv180x/include/platform.h
+index 6da1eb8..c566b1a 100644
+--- a/plat/cv180x/include/platform.h
++++ b/plat/cv180x/include/platform.h
+@@ -61,6 +61,7 @@ void apply_chip_conf(const struct chip_conf chip_conf[], uint32_t size, enum CHI
+ 		     enum CHIP_CONF_CMD scan_end);
+ 
+ void reset_c906l(uintptr_t reset_address);
++void hold_c906l_in_reset(void);
+ 
+ void set_pinmux(int io_type);
+ 
+diff --git a/plat/cv180x/platform.c b/plat/cv180x/platform.c
+index 904c37f..2d4b501 100644
+--- a/plat/cv180x/platform.c
++++ b/plat/cv180x/platform.c
+@@ -80,6 +80,26 @@ void __system_reset(const char *file, unsigned int line)
+ 	__builtin_unreachable();
+ }
+ 
++/*
++ * 热复位（SBI SRST）只复位大核，C906L 不在它管的范围里：上一轮启动的核会继续从 DDR 取指，
++ * 而 BL2 紧接着要重新训练 DDR —— 一个还在使用 DDR 的核会让 SoC 在打印任何东西之前就卡死。
++ * 这就是"上电只有小核灯闪、大核永远不起来"的成因。
++ *
++ * A warm reset leaves the C906L running, and BL2 then re-trains DDR underneath it.  Hold
++ * the core down *before* load_ddr(): clock off, entry address zeroed, and never released
++ * here -- cvitek_remoteproc releases it later, which is the remoteproc boot policy.  On a
++ * cold boot this is a no-op: POR already leaves the core in reset.
++ */
++void hold_c906l_in_reset(void)
++{
++	NOTICE("Hold C906L.\n");
++
++	mmio_clrbits_32(0x3003024, 1 << 6);
++	mmio_setbits_32(SEC_SYS_BASE + 0x04, 1 << 13);
++	mmio_write_32(SEC_SYS_BASE + 0x20, 0);
++	mmio_write_32(SEC_SYS_BASE + 0x24, 0);
++}
++
+ void reset_c906l(uintptr_t reset_address)
+ {
+ 	NOTICE("RSC.\n");
+diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
+index 7a239fe..9c42914 100644
+--- a/plat/cv181x/bl2/bl2_main.c
++++ b/plat/cv181x/bl2/bl2_main.c
+@@ -90,6 +90,9 @@ void bl2_main(void)
+ 	jump_to_warmboot_entry();
+ #endif
+ #endif
++	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。\n	 * Hold the C906L before DDR is retrained under it. */
++	hold_c906l_in_reset();
++
+ 	load_ddr();
+ 
+ 	load_rest();
+diff --git a/plat/cv181x/include/platform.h b/plat/cv181x/include/platform.h
+index ba4531d..162e972 100644
+--- a/plat/cv181x/include/platform.h
++++ b/plat/cv181x/include/platform.h
+@@ -61,6 +61,7 @@ void apply_chip_conf(const struct chip_conf chip_conf[], uint32_t size, enum CHI
+ 		     enum CHIP_CONF_CMD scan_end);
+ 
+ void reset_c906l(uintptr_t reset_address);
++void hold_c906l_in_reset(void);
+ 
+ void set_pinmux(int io_type);
+ 
+diff --git a/plat/cv181x/platform.c b/plat/cv181x/platform.c
+index df0ae54..a9736bc 100644
+--- a/plat/cv181x/platform.c
++++ b/plat/cv181x/platform.c
+@@ -79,6 +79,26 @@ void __system_reset(const char *file, unsigned int line)
+ 	__builtin_unreachable();
+ }
+ 
++/*
++ * 热复位（SBI SRST）只复位大核，C906L 不在它管的范围里：上一轮启动的核会继续从 DDR 取指，
++ * 而 BL2 紧接着要重新训练 DDR —— 一个还在使用 DDR 的核会让 SoC 在打印任何东西之前就卡死。
++ * 这就是"上电只有小核灯闪、大核永远不起来"的成因。
++ *
++ * A warm reset leaves the C906L running, and BL2 then re-trains DDR underneath it.  Hold
++ * the core down *before* load_ddr(): clock off, entry address zeroed, and never released
++ * here -- cvitek_remoteproc releases it later, which is the remoteproc boot policy.  On a
++ * cold boot this is a no-op: POR already leaves the core in reset.
++ */
++void hold_c906l_in_reset(void)
++{
++	NOTICE("Hold C906L.\n");
++
++	mmio_clrbits_32(0x3003024, 1 << 6);
++	mmio_setbits_32(SEC_SYS_BASE + 0x04, 1 << 13);
++	mmio_write_32(SEC_SYS_BASE + 0x20, 0);
++	mmio_write_32(SEC_SYS_BASE + 0x24, 0);
++}
++
+ void reset_c906l(uintptr_t reset_address)
+ {
+ 	NOTICE("RSC.\n");
