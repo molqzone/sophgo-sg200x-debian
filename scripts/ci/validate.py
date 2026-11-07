@@ -259,6 +259,10 @@ def validate_entropy_seed() -> None:
     # 一个能让"复位之后死在哪"可复现的镜像，必须有 U-Boot 标记和持久化 journal。
     if "preboot=" not in setup:
         fail("setup_rootfs.sh must give U-Boot a preboot marker (why a boot hangs)")
+    # 总线挂死时唯一能救回板子的是硬件看门狗（CPU 自己已经停住，软件看门狗无效）。
+    if "RuntimeWatchdogSec" not in setup:
+        fail("setup_rootfs.sh must arm the hardware watchdog (RuntimeWatchdogSec): a bus "
+             "hang stops the big core and only the SoC's own watchdog can recover it")
     if "Storage=persistent" not in setup:
         fail("setup_rootfs.sh must persist the journal (a hang must leave evidence)")
 
