@@ -1,19 +1,20 @@
 diff --git a/plat/cv180x/bl2/bl2_main.c b/plat/cv180x/bl2/bl2_main.c
-index db64313..9154256 100644
+index e1eee38..5b6e377 100644
 --- a/plat/cv180x/bl2/bl2_main.c
 +++ b/plat/cv180x/bl2/bl2_main.c
-@@ -86,6 +86,9 @@ void bl2_main(void)
+@@ -72,6 +72,10 @@ void bl2_main(void)
+ 	jump_to_warmboot_entry();
  #endif
  #endif
- 
-+	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。\n	 * Hold the C906L before DDR is retrained under it. */
++	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。
++	 * Hold the C906L before DDR is retrained under it. */
 +	hold_c906l_in_reset();
 +
  	load_ddr();
- 
- 	load_rest();
+ #ifdef OD_CLK_SEL
+ 	load_rest_od_sel();
 diff --git a/plat/cv180x/include/platform.h b/plat/cv180x/include/platform.h
-index 6da1eb8..c566b1a 100644
+index e88e050..a4a2ec1 100644
 --- a/plat/cv180x/include/platform.h
 +++ b/plat/cv180x/include/platform.h
 @@ -61,6 +61,7 @@ void apply_chip_conf(const struct chip_conf chip_conf[], uint32_t size, enum CHI
@@ -25,10 +26,10 @@ index 6da1eb8..c566b1a 100644
  void set_pinmux(int io_type);
  
 diff --git a/plat/cv180x/platform.c b/plat/cv180x/platform.c
-index 904c37f..2d4b501 100644
+index 9fd73ca..a053ac7 100644
 --- a/plat/cv180x/platform.c
 +++ b/plat/cv180x/platform.c
-@@ -80,6 +80,26 @@ void __system_reset(const char *file, unsigned int line)
+@@ -78,6 +78,26 @@ void __system_reset(const char *file, unsigned int line)
  	__builtin_unreachable();
  }
  
@@ -56,14 +57,15 @@ index 904c37f..2d4b501 100644
  {
  	NOTICE("RSC.\n");
 diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
-index 7a239fe..9c42914 100644
+index 09b117b..10567f9 100644
 --- a/plat/cv181x/bl2/bl2_main.c
 +++ b/plat/cv181x/bl2/bl2_main.c
-@@ -90,6 +90,9 @@ void bl2_main(void)
+@@ -88,6 +88,10 @@ void bl2_main(void)
  	jump_to_warmboot_entry();
  #endif
  #endif
-+	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。\n	 * Hold the C906L before DDR is retrained under it. */
++	/* DDR 重新训练之前必须先按住 C906L（见 platform.c 的 hold_c906l_in_reset）。
++	 * Hold the C906L before DDR is retrained under it. */
 +	hold_c906l_in_reset();
 +
  	load_ddr();
@@ -82,7 +84,7 @@ index ba4531d..162e972 100644
  void set_pinmux(int io_type);
  
 diff --git a/plat/cv181x/platform.c b/plat/cv181x/platform.c
-index df0ae54..a9736bc 100644
+index 8126e26..bd2f48d 100644
 --- a/plat/cv181x/platform.c
 +++ b/plat/cv181x/platform.c
 @@ -79,6 +79,26 @@ void __system_reset(const char *file, unsigned int line)

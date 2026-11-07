@@ -89,12 +89,18 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 # and neither the container's own loopback nor the docker gateway has a listener there.  The
 # container is already --privileged, so host networking costs nothing and makes the proxy
 # variables work as written.
+forward_args=()
+for name in ${BUILD_OVERRIDES:-}; do
+	forward_args+=(-e "$name")
+done
 exec docker run --rm --privileged --network host \
 		-e IN_CONTAINER=1 \
 		-e CCACHE_DIR=/ccache \
 		-e OFFLINE="$offline" \
 		-e OFFLINE_CACHE=/offline-cache \
 		-e SDK_CACHE_NO_VERIFY="${SDK_CACHE_NO_VERIFY:-}" \
+		-e BUILD_OVERRIDES="${BUILD_OVERRIDES:-}" \
+		"${forward_args[@]}" \
 		-e HTTP_PROXY="$proxy_http" \
 		-e HTTPS_PROXY="$proxy_https" \
 		-e APT_HTTP_PROXY="$proxy_apt_http" \
@@ -193,6 +199,14 @@ run_cache() {
 }
 
 run_builder_make() {
+	# BUILD_OVERRIDES="FSBL_COMMIT OPENSBI_COMMIT" forwards the current values of those
+	# variables as make assignments, which take precedence over versions.env.  It exists for
+	# builds seeded from tarballs (scripts/ci/seed-source-tarball.sh): the tree is the pinned
+	# one, the local commit id is not.
+	override_args=()
+	for name in ${BUILD_OVERRIDES:-}; do
+		override_args+=("$name=${!name}")
+	done
 	make -C /builder \
 		BOARD="$board" STORAGE_TYPE="$storage" \
 		BUILDDIR="$build_root" ROOTFS="$rootfs" \
@@ -202,7 +216,7 @@ run_builder_make() {
 		OFFLINE="$offline" OFFLINE_CACHE="$offline_cache" \
 		APT_HTTP_PROXY="$proxy_apt_http" APT_HTTPS_PROXY="$proxy_apt_https" \
 		OUTPUT_DIR=/output CROSS_COMPILE="$CROSS_COMPILE" \
-		RTOS_CROSS_COMPILE="$RTOS_CROSS_COMPILE" "$@"
+		RTOS_CROSS_COMPILE="$RTOS_CROSS_COMPILE" "${override_args[@]}" "$@"
 }
 
 case "$target" in
