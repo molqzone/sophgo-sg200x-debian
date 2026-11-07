@@ -83,3 +83,60 @@ int cvi_board_init(void)
         suck_loop(100);
         return 0;
 }
+
+/*
+ * 交棒给内核之前，把两个舵面焊盘从 UART0 切到 PWM4/PWM5，并让它们输出"无脉冲"（≈0 占空）。
+ *
+ * 为什么必须在这里：这两个焊盘就是 **UART0_TX / UART0_RX**，而 UART 的空闲电平是**高**。
+ * 从上电到固件接管（约 16 秒）之间，舵机/电调输入看到的是恒高，中间还夹着 FSBL 的 `RT:`
+ * 输出和 u-boot 自己的启动日志（115200 的方波流）——**上电就满行程**就是这么来的。u-boot
+ * 的 console 也在 UART0，所以不能更早，只能在 `misc_init_r`（bootcmd 之前）这一刻压掉。
+ *
+ * Before handing off to Linux, move the two surface pads from UART0 to PWM4/PWM5 and drive
+ * them at ~0 duty.  Those pads *are* UART0_TX/RX and a UART idles **high**, so between
+ * power-on and the firmware's bring-up (~16 s) a servo/ESC input sees a constant high --
+ * with the FSBL's `RT:` output and u-boot's own boot log mixed in.  That is why the surface
+ * goes to full travel at power-on.  u-boot's console is on UART0 too, so this cannot happen
+ * earlier than `misc_init_r`, just before bootcmd.
+ */
+#define PWM1_BASE      0x03061000UL
+#define PWM1_HL(ch)    (PWM1_BASE + (ch) * 8UL)
+#define PWM1_PERIOD(ch) (PWM1_BASE + (ch) * 8UL + 4UL)
+#define PWM1_POLARITY   (PWM1_BASE + 0x40UL)
+#define PWM1_START      (PWM1_BASE + 0x44UL)
+#define PWM1_UPDATE     (PWM1_BASE + 0x4CUL)
+#define PWM1_OE         (PWM1_BASE + 0xD0UL)
+
+/* 150 Hz @ 100 MHz → 666 667 ticks；inactive = 666 666 → 只高 1 tick，也就是没有脉冲。
+   150 Hz @ 100 MHz -> 666,667 ticks; inactive = 666,666 leaves one tick high: no pulse. */
+#define SERVO_PERIOD_TICKS   0xA2C2BUL
+#define SERVO_INACTIVE_TICKS 0xA2C2AUL
+
+static void servo_pads_safe_low(void)
+{
+	/* PWM4/PWM5 是 pwm1 的本地通道 0/1。顺序照 LL 驱动：先写周期，再提交、再启动，
+	 * 最后才切焊盘——这样引脚上不会出现半个周期的怪电平。
+	 * PWM4/PWM5 are pwm1's local channels 0/1.  Same order as the firmware's LL driver:
+	 * period first, then commit, then start, and the pad last, so the pin never shows a
+	 * half-programmed level. */
+	mmio_write_32(PWM1_HL(0), SERVO_INACTIVE_TICKS);
+	mmio_write_32(PWM1_PERIOD(0), SERVO_PERIOD_TICKS);
+	mmio_write_32(PWM1_HL(1), SERVO_INACTIVE_TICKS);
+	mmio_write_32(PWM1_PERIOD(1), SERVO_PERIOD_TICKS);
+	mmio_write_32(PWM1_POLARITY, 0x0);	/* active high */
+	mmio_write_32(PWM1_UPDATE, 0x3);	/* commit channels 0/1 */
+	mmio_write_32(PWM1_UPDATE, 0x0);
+	mmio_write_32(PWM1_START, 0x0);
+	mmio_write_32(PWM1_OE, 0x3);
+	mmio_write_32(PWM1_START, 0x3);
+
+	/* UART0_TX → PWM4 (function 2)、UART0_RX → PWM5 (function 2) */
+	mmio_write_32(0x03001040, 0x2);
+	mmio_write_32(0x03001044, 0x2);
+}
+
+int misc_init_r(void)
+{
+	servo_pads_safe_low();
+	return 0;
+}
