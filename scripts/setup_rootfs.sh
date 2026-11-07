@@ -202,6 +202,17 @@ fi
 # journal 默认只写 /run，掉电即失——而板子最需要的恰好是"上一次启动死在哪"。持久化到
 # /var/log/journal 并限制大小（16 MiB），挂死后再上电就能 journalctl -b -1 看到关机序列。
 # The journal defaults to /run, so a hang leaves nothing behind.  Persist it, bounded.
+# 硬件看门狗兜底：固件走 DMA 时如果发起了不会完成的事务，大核会停在总线上——这种"挂死"
+# 没有任何软件能在本核上观察到（CPU 自己就是被卡住的那个）。让 systemd 打开 /dev/watchdog
+# 并定时喂狗，一旦卡住 15 秒，SoC 会自己复位重启，板子不再需要人去拔电。
+# 注意：这是**兜底**，不是修复；真正的修复是固件不去发非法 DMA（地址边界断言）。
+install -d -m 0755 /etc/systemd/system.conf.d 2>/dev/null || true
+cat > /etc/systemd/system.conf.d/10-watchdog.conf <<'WATCHDOG'
+[Manager]
+RuntimeWatchdogSec=15s
+RebootWatchdogSec=2min
+WATCHDOG
+
 install -d -m 2755 -o root -g systemd-journal /var/log/journal 2>/dev/null || true
 install -d -m 0755 /etc/systemd/journald.conf.d 2>/dev/null || true
 cat > /etc/systemd/journald.conf.d/10-persistent.conf <<'JOURNAL'
