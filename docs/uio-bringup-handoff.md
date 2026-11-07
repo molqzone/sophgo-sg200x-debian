@@ -489,3 +489,42 @@ IMU g +0.004 +0.002 -0.004 rad/s | a -0.049 +0.181 +0.979 g
 
 修法：`scripts/addons/maixcam-pinmux/`（`local-fs` 之后的 oneshot，补 `0x38=3`、`0x70=1`、
 `0x74=1`），已进 `IMAGE_ADDITIONS` 并提交（`a68dee4`）。
+
+### 9.9 正常启动路径下的端到端验证（2026-11-07 22:3x）
+
+`rtos-mode` 恢复原版（开机自动放核）、卡内固件 `04e364e7`（探针关、模块图开、keep-awake 开）后，
+一次普通断电重启上验到的：
+
+```
+uptime 0 min（NCM/ssh 正常）
+remoteproc0 state = running                  # 正常启动路径放下了小核
+/lib/firmware/c906-mcu.elf = 04e364e77709
+devmem 0x03001038 = 0x00000003               # 灯焊盘被 oneshot 补成 GPIOA14
+/dev/cvi-rtos-cmdqu 存在                      # 厂商模块链这次装齐了
+
+$ cop status
+page      : FORMATTED magic=0x31506461
+channels  : imu  endpoint=0x400 flags=1 key=0xb784461b
+head      : 1020 → 1105（3 秒内）              # 遥测在持续发布
+
+$ cop log
+IMU gyro rate: 999 Hz
+IMU g +0.003 -0.009 -0.002 rad/s | a -0.045 +0.183 +0.977 g
+
+$ cop send --contract /usr/lib/firmware/guidance_contract.json --type 1
+sent type=1 seq=1, reply=0x00000001
+sent type=1 seq=2, reply=0x00000002
+sent type=1 seq=3, reply=0x00000003
+```
+
+**L1 与 L2 全部通过，IMU 在 999 Hz 采样并发布，命令一问一答。**
+
+### 9.10 交接时的状态与待办
+
+- 卡内固件 `04e364e7`；`/usr/bin/rtos-mode` 为原版（自动放核）；`/boot/c906-state` 与闸门脚本
+  仍在但已不被调用，可删；
+- 卡上 cmdline 仍带 `clk_ignore_unused`（调试期加回的），未验证是否仍必要——**下一次做单变量
+  把它去掉再测一遍**；
+- `maixcam-pinmux` 这个 oneshot 目前只在卡上手工装过 + 仓库里有 addon；**要 `make image`
+  才会进正式镜像**；
+- **根因仍未解**：为什么 C906L 的 idle 任务会拖死大核（§9.6 末）。keep-awake 是工程解，不是解释。
