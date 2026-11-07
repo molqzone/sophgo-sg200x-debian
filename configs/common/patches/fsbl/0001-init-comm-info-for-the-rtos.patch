@@ -1,31 +1,7 @@
 diff --git a/plat/cv180x/bl2/bl2_main.c b/plat/cv180x/bl2/bl2_main.c
 --- a/plat/cv180x/bl2/bl2_main.c
 +++ b/plat/cv180x/bl2/bl2_main.c
-@@ -5,6 +5,23 @@
- #include <string.h>
- #include <delay_timer.h>
- 
-+/*
-+ * 厂商 RTOS 的配置头不在 FSBL 构建里，这三个宏原本来自它。它们只影响 RTOS 自己的打印环
-+ * 开关与 fast-image 类型；checksum 由结构体内容自身算出，因此任何自洽取值都能通过校验。
-+ * The vendor RTOS config header is not part of the FSBL build.  These three values only
-+ * select the RTOS's own print ring and fast-image mode; the checksum is derived from the
-+ * struct itself, so any self-consistent choice validates.
-+ */
-+#ifndef RTOS_FAST_IMAGE_TYPE
-+#define RTOS_FAST_IMAGE_TYPE 0
-+#endif
-+#ifndef RTOS_DUMP_PRINT_ENABLE
-+#define RTOS_DUMP_PRINT_ENABLE 1
-+#endif
-+#ifndef RTOS_DUMP_PRINT_SZ_IDX
-+#define RTOS_DUMP_PRINT_SZ_IDX 0
-+#endif
-+
- #ifdef RTOS_ENABLE_FREERTOS
- int init_comm_info(int ret)
- {
-@@ -17,12 +34,21 @@
+@@ -17,21 +17,33 @@
  	 */
  	transfer_config_s.conf_magic = RTOS_MAGIC_HEADER;
  	transfer_config_s.conf_size = ((uint64_t)&transfer_config_s.checksum - (uint64_t)&transfer_config_s.conf_magic);
@@ -35,6 +11,9 @@ diff --git a/plat/cv180x/bl2/bl2_main.c b/plat/cv180x/bl2/bl2_main.c
 -	transfer_config_s.encode_img_size = CVIMMAP_H26X_BITSTREAM_SIZE;
 -	transfer_config_s.encode_buf_addr = CVIMMAP_H26X_ENC_BUFF_ADDR;
 -	transfer_config_s.encode_buf_size = CVIMMAP_H26X_ENC_BUFF_SIZE;
+-	transfer_config_s.dump_print_enable = RTOS_DUMP_PRINT_ENABLE;
+-	transfer_config_s.dump_print_size_idx = RTOS_DUMP_PRINT_SZ_IDX;
+-	transfer_config_s.image_type = RTOS_FAST_IMAGE_TYPE;
 +	/*
 +	 * 这块板子不让 RTOS 做 fast-image / 编码：所有 DMA 缓冲显式置 0，而不是照抄
 +	 * CVIMMAP_*（那些区域要么长度为 0，要么另有主人）。RTOS 只在 size 非 0 时才用它，
@@ -50,37 +29,25 @@ diff --git a/plat/cv180x/bl2/bl2_main.c b/plat/cv180x/bl2/bl2_main.c
 +	transfer_config_s.encode_img_size = 0;
 +	transfer_config_s.encode_buf_addr = 0;
 +	transfer_config_s.encode_buf_size = 0;
- 	transfer_config_s.dump_print_enable = RTOS_DUMP_PRINT_ENABLE;
- 	transfer_config_s.dump_print_size_idx = RTOS_DUMP_PRINT_SZ_IDX;
- 	transfer_config_s.image_type = RTOS_FAST_IMAGE_TYPE;
++	transfer_config_s.dump_print_enable = 1; /* RTOS 的 RT: 打印环：保留可见性 */
++	transfer_config_s.dump_print_size_idx = 0; /* 打印环大小索引：最小档 */
++	transfer_config_s.image_type = 0; /* 0 = 不做 fast image */
+ 	transfer_config_s.mcu_status = MCU_STATUS_NONOS_DONE;
+ 	for (int i = 0; i < transfer_config_s.conf_size; i++) {
+ 		checksum += ptr[i];
+ 	}
+ 
+ 	transfer_config_s.checksum = checksum;
++	/* 串口上留一行：既证明这段代码真的被编译进来，也把写进去的校验值露出来，
++	 * 对照 RTOS 的 "checksum fail (x, y)" 一眼就能看出差在哪。 */
++	NOTICE("RTOS cfg cksum 0x%x size %d.\n", checksum, transfer_config_s.conf_size);
+ 	memcpy(transfer_config, &transfer_config_s, sizeof(struct transfer_config_t));
+ 
+ 	return ret;
 diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
 --- a/plat/cv181x/bl2/bl2_main.c
 +++ b/plat/cv181x/bl2/bl2_main.c
-@@ -7,6 +7,23 @@
- #include <rom_api.h>
- #include <cpu.h>
- enum CHIP_CLK_MODE chip_clk_mode = CLK_ND;
-+/*
-+ * 厂商 RTOS 的配置头不在 FSBL 构建里，这三个宏原本来自它。它们只影响 RTOS 自己的打印环
-+ * 开关与 fast-image 类型；checksum 由结构体内容自身算出，因此任何自洽取值都能通过校验。
-+ * The vendor RTOS config header is not part of the FSBL build.  These three values only
-+ * select the RTOS's own print ring and fast-image mode; the checksum is derived from the
-+ * struct itself, so any self-consistent choice validates.
-+ */
-+#ifndef RTOS_FAST_IMAGE_TYPE
-+#define RTOS_FAST_IMAGE_TYPE 0
-+#endif
-+#ifndef RTOS_DUMP_PRINT_ENABLE
-+#define RTOS_DUMP_PRINT_ENABLE 1
-+#endif
-+#ifndef RTOS_DUMP_PRINT_SZ_IDX
-+#define RTOS_DUMP_PRINT_SZ_IDX 0
-+#endif
-+
- #ifdef RTOS_ENABLE_FREERTOS
- int init_comm_info(int ret)
- {
-@@ -19,12 +36,21 @@
+@@ -19,21 +19,33 @@
  	 */
  	transfer_config_s.conf_magic = RTOS_MAGIC_HEADER;
  	transfer_config_s.conf_size = ((uint64_t)&transfer_config_s.checksum - (uint64_t)&transfer_config_s.conf_magic);
@@ -90,6 +57,9 @@ diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
 -	transfer_config_s.encode_img_size = CVIMMAP_H26X_BITSTREAM_SIZE;
 -	transfer_config_s.encode_buf_addr = CVIMMAP_H26X_ENC_BUFF_ADDR;
 -	transfer_config_s.encode_buf_size = CVIMMAP_H26X_ENC_BUFF_SIZE;
+-	transfer_config_s.dump_print_enable = RTOS_DUMP_PRINT_ENABLE;
+-	transfer_config_s.dump_print_size_idx = RTOS_DUMP_PRINT_SZ_IDX;
+-	transfer_config_s.image_type = RTOS_FAST_IMAGE_TYPE;
 +	/*
 +	 * 这块板子不让 RTOS 做 fast-image / 编码：所有 DMA 缓冲显式置 0，而不是照抄
 +	 * CVIMMAP_*（那些区域要么长度为 0，要么另有主人）。RTOS 只在 size 非 0 时才用它，
@@ -105,9 +75,21 @@ diff --git a/plat/cv181x/bl2/bl2_main.c b/plat/cv181x/bl2/bl2_main.c
 +	transfer_config_s.encode_img_size = 0;
 +	transfer_config_s.encode_buf_addr = 0;
 +	transfer_config_s.encode_buf_size = 0;
- 	transfer_config_s.dump_print_enable = RTOS_DUMP_PRINT_ENABLE;
- 	transfer_config_s.dump_print_size_idx = RTOS_DUMP_PRINT_SZ_IDX;
- 	transfer_config_s.image_type = RTOS_FAST_IMAGE_TYPE;
++	transfer_config_s.dump_print_enable = 1; /* RTOS 的 RT: 打印环：保留可见性 */
++	transfer_config_s.dump_print_size_idx = 0; /* 打印环大小索引：最小档 */
++	transfer_config_s.image_type = 0; /* 0 = 不做 fast image */
+ 	transfer_config_s.mcu_status = MCU_STATUS_NONOS_DONE;
+ 	for (int i = 0; i < transfer_config_s.conf_size; i++) {
+ 		checksum += ptr[i];
+ 	}
+ 
+ 	transfer_config_s.checksum = checksum;
++	/* 串口上留一行：既证明这段代码真的被编译进来，也把写进去的校验值露出来，
++	 * 对照 RTOS 的 "checksum fail (x, y)" 一眼就能看出差在哪。 */
++	NOTICE("RTOS cfg cksum 0x%x size %d.\n", checksum, transfer_config_s.conf_size);
+ 	memcpy(transfer_config, &transfer_config_s, sizeof(struct transfer_config_t));
+ 
+ 	return ret;
 diff --git a/plat/cv180x/bl2/bl2_opt.c b/plat/cv180x/bl2/bl2_opt.c
 --- a/plat/cv180x/bl2/bl2_opt.c
 +++ b/plat/cv180x/bl2/bl2_opt.c
