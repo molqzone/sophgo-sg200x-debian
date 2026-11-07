@@ -36,5 +36,13 @@ matrix:
 sync:
 	@python3 scripts/ci/dev_sync.py $(ARGS)
 
+# 在线时把 pin 的所有仓库做成离线镜像：以后 clean 掉了检出也能离线重建。见 scripts/ci/mirror-sources.sh。
+# Populate the offline source mirrors while the network works; then a deleted checkout is
+# recoverable without it.
+cache-mirror:
+	@bash scripts/ci/mirror-sources.sh $(ARGS)
+
+.PHONY: cache-mirror
+
 clean-output:
 	@find "$(OUTPUT_DIR)" -mindepth 1 -maxdepth 1 -type f -delete

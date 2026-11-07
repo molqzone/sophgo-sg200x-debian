@@ -81,7 +81,15 @@ if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 		source_output_args=(--source-output "/workspace/$relative_output")
 	fi
 	mkdir -p "$output_host"
-	exec docker run --rm --privileged \
+
+# 构建容器用 host 网络：宿主机上的代理（Clash 等）只监听 127.0.0.1，容器自己的 loopback
+# 里没有它，而 --add-host 映射到 docker 网关也没有用（那里同样没人监听）。host 网络让
+# HTTP_PROXY=http://127.0.0.1:7890 原样生效，容器本来就是 --privileged 的，没有额外代价。
+# The build container uses host networking: a proxy on the host listens on 127.0.0.1 only,
+# and neither the container's own loopback nor the docker gateway has a listener there.  The
+# container is already --privileged, so host networking costs nothing and makes the proxy
+# variables work as written.
+exec docker run --rm --privileged --network host \
 		-e IN_CONTAINER=1 \
 		-e CCACHE_DIR=/ccache \
 		-e OFFLINE="$offline" \
