@@ -69,3 +69,31 @@ mode, and which changes need a power cycle.
   密码默认 `rv`，可用 `BOARD_PASSWORD=` 覆盖。
 - 卡模式：`--root` 指向**挂载好的** rootfs（`udisksctl mount -b /dev/mmcblk0p2`），写
   `/usr` 下的文件需要 root（用 `sudo make sync …`）。
+
+## 危险：不要对着带未回放 journal 的 ext4 用 `debugfs`
+
+2026-11-07 在这个上浪费了一个多小时，值得写下来。没有 root、又要把 root 所属的文件
+（`/lib/firmware/c906-mcu.elf`）写进卡里时，`debugfs -w` 是唯一能用的工具；但**它绕
+过 ext4 的 journal**。板子掉电后，卡上的 ext4 通常带着一笔未回放的 journal：
+
+- `debugfs` 看到的是**旧的**位图，于是把某个 inode（实测 286）当成空闲分配出去；
+- 之后主机或板子挂载时回放 journal，那个 inode 又变成了 journal 文件本身；
+- 结果 `system.journal` 和 `c906-mcu.elf` 变成**同一个 inode 的两个硬链接**，
+  文件系统在板子上挂载失败——**内核起不来，没有 journald、没有 bootlog、没有网络**，
+  看起来就像"固件把大核打死了"或"设备树写坏了"。
+
+安全顺序只有一条：
+
+```sh
+udisksctl mount   -b /dev/sdX2      # 1. 挂载一次，让内核回放 journal
+udisksctl unmount -b /dev/sdX2      # 2. 干净卸载，此时 fs 是一致的
+debugfs -w -R "rm   usr/lib/firmware/c906-mcu.elf" /dev/sdX2
+debugfs -w -R "write build/firmware/c906-mcu.elf usr/lib/firmware/c906-mcu.elf" /dev/sdX2
+debugfs -w -R "sif usr/lib/firmware/c906-mcu.elf mode 0100644" /dev/sdX2   # uid/gid 0 同理
+e2fsck -fn /dev/sdX2                # 3. 必须干净
+udisksctl mount -b /dev/sdX2 && sha256sum …/usr/lib/firmware/c906-mcu.elf   # 4. 逐字节核对
+```
+
+还有两条同源的经验：**写路径要用真实路径 `usr/lib/...`，不要用 `/lib` 这个符号链接**；
+**读写卡的全过程中不要把卡拔掉**——设备消失时 `ls`/`sha256sum` 会给出"文件 2 MiB、
+属组 systemd-oom、位图校验不匹配"这类完全误导的读数，我据此误判过一次"卡坏了"。
