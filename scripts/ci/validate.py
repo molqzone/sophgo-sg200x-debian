@@ -322,6 +322,44 @@ def check_maixcam_dma_partition(dts_text: str, memmap_text: str) -> None:
         )
 
 
+def check_maixcam_pwm_ownership(dts_text: str, rootfs_text: str) -> None:
+    """Every PWM controller belongs to the C906L, and the console must stay off UART0.
+
+    The firmware drives channels in all four controllers (surfaces PWM1/2 on pwm0,
+    PWM4/5 on pwm1, heater PWM10 on pwm2, screen PWM14/15 on pwm3), and they all share
+    `CV181X_CLK_PWM`.  A kernel-side probe of any of them claims that gate and writes
+    registers the firmware is using, so the device tree states the ownership instead.
+
+    The second half of the invariant is the console.  PWM4/5 are the UART0 pads, so the
+    console has to live on UART1: leaving `console=ttyS0` and enabling the surface pads
+    at the same time is exactly the combination that made the serial console go dark
+    while the board kept running, and no test caught it for two days.
+
+    四个 PWM 控制器都归小核；同时控制台不能再挂回 UART0——这两件事是同一个不变式：
+    PWM4/5 就是 UART0 的两个焊盘。
+    """
+    dts_text = strip_dts_comments(dts_text)
+    for index in range(4):
+        match = re.search(r"&pwm%d\s*\{(?P<body>[^}]*)\}" % index, dts_text, re.DOTALL)
+        if not match:
+            fail(
+                "maixcam: the DTS has no &pwm%d override; the C906L drives channels in "
+                "every PWM controller, so Linux must be told to leave them alone" % index
+            )
+        if not re.search(r'status\s*=\s*"disabled"', match.group("body")):
+            fail(
+                "maixcam: &pwm%d must stay disabled: the firmware drives channels in that "
+                "controller and all four share CV181X_CLK_PWM, so a kernel probe claims the "
+                "gate and writes registers the firmware is using" % index
+            )
+    if re.search(r"console=ttyS0", rootfs_text):
+        fail(
+            "maixcam: the kernel console must not be on ttyS0 while the firmware claims "
+            "the UART0 pads for PWM4/5; put it on ttyS1 (and move earlycon to "
+            "0x04150000 with it), or turn TAIL_PWM_CLAIMS_UART0_PADS off in the firmware"
+        )
+
+
 def validate_bootlog_ring() -> None:
     check_bootlog_ring(
         (REPO_ROOT / BOOTLOG_DAEMON).read_text(encoding="utf-8"),
@@ -610,6 +648,11 @@ def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None
                 "\n".join(path.read_text(encoding="utf-8")
                            for path in sorted(dts_directory.glob("*.dts"))),
                 (REPO_ROOT / "configs/maixcam/memmap.py").read_text(encoding="utf-8"),
+            )
+            check_maixcam_pwm_ownership(
+                "\n".join(path.read_text(encoding="utf-8")
+                           for path in sorted(dts_directory.glob("*.dts"))),
+                (REPO_ROOT / "scripts/setup_rootfs.sh").read_text(encoding="utf-8"),
             )
         resolved = {relative: resolve_file(config_root, board, relative) for relative in REQUIRED_BOARD_FILES}
         validate_uboot_defconfig(board, resolved["u-boot/defconfig"])

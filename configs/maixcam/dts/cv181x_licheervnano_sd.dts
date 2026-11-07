@@ -65,6 +65,39 @@
         status = "okay";
 };
 
+/*
+ * 四个 PWM 控制器全归 C906L。这块板子上 Linux 没有任何 PWM 消费者（背光、风扇、
+ * 触摸屏都已经 disabled），而固件在四个控制器上都用到通道：
+ *   pwm0 → 舵面 PWM1/2（`GPIO_RTX`/`GPIO_ZQ`）
+ *   pwm1 → 舵面 PWM4/5（`UART0_TX`/`UART0_RX`，控制台已经搬到 UART1）
+ *   pwm2 → 加热 PWM10
+ *   pwm3 → 屏幕 PWM14/15
+ * 让内核 probe 这些控制器只会带来两件事：把共享的 `CV181X_CLK_PWM` 门当成自己的，
+ * 以及往固件正在用的寄存器里写。所以一个都不留给它。
+ *
+ * All four PWM controllers belong to the C906L.  Linux has no PWM consumer on this
+ * board (backlight, fan and touchscreen are all disabled), while the firmware uses
+ * channels in every controller: pwm0 for surfaces PWM1/2, pwm1 for PWM4/5 (the console
+ * has moved to UART1, so the UART0 pads are free), pwm2 for the heater PWM10, and pwm3
+ * for the screen's PWM14/15.  Letting the kernel probe them only claims the shared
+ * `CV181X_CLK_PWM` gate and writes registers the firmware is using.
+ */
+&pwm0 {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
+};
+
+&pwm2 {
+	status = "disabled";
+};
+
+&pwm3 {
+	status = "disabled";
+};
+
 &mipi_tx {
 	status = "disabled";
 };

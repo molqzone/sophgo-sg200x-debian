@@ -108,10 +108,19 @@ cp ${lib_dir}/cvitek/*.dtb /boot/fdt/${kernel_image}/
 
 cat /boot/extlinux/extlinux.conf
 
+# 控制台只在 UART1 上：UART0 的两个焊盘交给 C906L 做舵面 PWM4/5（见固件里
+# `TAIL_PWM_CLAIMS_UART0_PADS` 的说明）。从前两个口都开，是因为 UART0 曾是唯一引出到
+# 排针的调试口；现在板子靠 NCM/ssh 就能进，UART0 让给 PWM 更划算。
+# 注意 earlycon 必须跟着控制台走：留在 0x04140000 就会由 UART0 打印，而那条线归固件。
+# The console lives on UART1 only: UART0's two pads go to the C906L for the surface
+# PWM4/5 (see `TAIL_PWM_CLAIMS_UART0_PADS` in the firmware).  Both ports used to be
+# listed because UART0 was the only debug header; the board is reachable over NCM/ssh
+# now, so UART0 is worth more as a PWM.  earlycon must follow the console: leaving it
+# on 0x04140000 would print through the UART that belongs to the firmware.
 if [ "$STORAGETYPE" = "sd" ]; then
-sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS0,115200 console=ttyS1,115200 earlycon=uart8250,mmio32,0x04140000,115200 root=/dev/mmcblk0p2 rootwait rw"|' /etc/default/u-boot
+sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS1,115200 earlycon=uart8250,mmio32,0x04150000,115200 root=/dev/mmcblk0p2 rootwait rw"|' /etc/default/u-boot
 else
-sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS0,115200 console=ttyS1,115200 earlycon=uart8250,mmio32,0x04140000,115200 root=/dev/mmcblk0p1 rootwait rw"|' /etc/default/u-boot
+sed -i -i 's|#U_BOOT_PARAMETERS=".*"|U_BOOT_PARAMETERS="console=ttyS1,115200 earlycon=uart8250,mmio32,0x04150000,115200 root=/dev/mmcblk0p1 rootwait rw"|' /etc/default/u-boot
 fi
 
 sed -i -e 's|#U_BOOT_SYNC_DTBS=".*"|U_BOOT_SYNC_DTBS="true"|' /etc/default/u-boot
