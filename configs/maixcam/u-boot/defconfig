@@ -81,3 +81,8 @@ CONFIG_LZ4=y
 CONFIG_LZMA=y
 CONFIG_TARGET_CVITEK_CV181X=y
 # CONFIG_TOOLS_LIBCRYPTO is not set
+
+# 交棒前把两个舵面焊盘从 UART0 切到 PWM4/PWM5（见 cvi_board_init.c 的 misc_init_r）
+# Needed for cvi_board_init.c's misc_init_r to run at all: without it u-boot's
+# --gc-sections drops the function and the pads stay on UART0 until Linux.
+CONFIG_MISC_INIT_R=y
