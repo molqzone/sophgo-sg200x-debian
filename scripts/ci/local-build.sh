@@ -131,13 +131,20 @@ if [[ ${IN_CONTAINER:-0} == 1 ]]; then
 	# insteadOf 要同时覆盖带 .git 和不带 .git 两种写法，否则会拼出 foo.git.git。
 	# Route every clone, submodules included, through the offline mirrors: media_server clones
 	# scpcom/* from its .gitmodules, which versions.env cannot redirect.
+	# `git config --global` needs a writable HOME; inside the build container there may be
+	# none, and the failure is silent -- which is why the rewrites below did nothing at first.
+	export GIT_CONFIG_GLOBAL=/tmp/offline-gitconfig
+	: > "$GIT_CONFIG_GLOBAL"
 	if [[ -d /offline-cache/git ]]; then
 		for mirror in /offline-cache/git/*.git; do
 			[[ -e $mirror ]] || continue
 			name=$(basename "$mirror" .git)
+			# file://, not a bare path: cloning from a local path makes git hardlink the
+			# objects, which fails on a read-only bind mount and leaves a repo that cannot
+			# read its own trees ("unable to read tree <sha>").
 			for org in sophgo scpcom sipeed; do
-				git config --global url."$mirror".insteadOf "https://github.com/$org/$name" || true
-				git config --global url."$mirror".insteadOf "https://github.com/$org/$name.git" || true
+				git config --global url."file://$mirror".insteadOf "https://github.com/$org/$name" || true
+				git config --global url."file://$mirror".insteadOf "https://github.com/$org/$name.git" || true
 			done
 		done
 	fi

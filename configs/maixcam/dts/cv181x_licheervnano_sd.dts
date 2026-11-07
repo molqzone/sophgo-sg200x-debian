@@ -25,12 +25,22 @@
 
 &dmac {
 	/*
-	 * The C906L owns this DesignWare AXI DMAC (SPI/IMU and the remote core's only
-	 * DMA). Linux must not probe it: writing the controller's global registers from
-	 * two cores races the AXI fabric and has hung the SoC on a remoteproc restart.
-	 * Its Linux clients on this board (spinand, i2s0..3) are not populated.
+	 * 这颗 DesignWare AXI DMAC 由两颗核共享（共 8 个通道），固件侧早已声明分区：
+	 * 0–3 归 Linux，4–7 归 C906L（sg200x_dma.hpp 的 OWNED_CHANNEL_MASK = 0xF0，
+	 * 它自己写请求线重映射、并把 4–7 的完成中断路由到 CPU2）。
+	 *
+	 * 所以 Linux 只声明 0–3：dw_dma_filter() 不认通道号，驱动按空闲顺序发通道，
+	 * dma-channels=8 时相机/音频随时会拿到固件正在用的 4–7，那次双核 AXI 竞争
+	 * 就是这么把 SoC 挂死的。声明 4 之后驱动连 4–7 的寄存器都不会碰。
+	 *
+	 * 曾经的做法是把整个控制器 status = "disabled"：它确实躲开了竞争，代价是相机
+	 * 的 DMA 通道也一起没了。分区比关掉更准确。
+	 * The DMAC is shared: channels 0-3 belong to Linux, 4-7 to the C906L (declared by the
+	 * firmware as OWNED_CHANNEL_MASK = 0xF0).  Declaring four channels here keeps the
+	 * driver from ever touching 4-7, while leaving DMA available to the camera path.
 	 */
-	status = "disabled";
+	dma-channels = /bits/ 8 <4>;
+	status = "okay";
 };
 
 /*

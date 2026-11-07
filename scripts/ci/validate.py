@@ -263,6 +263,62 @@ def validate_entropy_seed() -> None:
         fail("setup_rootfs.sh must persist the journal (a hang must leave evidence)")
 
 
+def strip_dts_comments(text: str) -> str:
+    """Drop comments so property checks cannot match the prose that explains them.
+
+    这条检查被自己的注释绊过一次：说明文字里写着 `status = "disabled"`，于是"节点是否
+    关掉"的判断命中了注释。注释是给人读的，不该参与属性判定。
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
+
+
+def check_maixcam_dma_partition(dts_text: str, memmap_text: str) -> None:
+    """The SDMA is shared: Linux may only declare the channels the firmware does not own.
+
+    `dw_dma_filter()` in the vendor driver ignores channel ids, so a client gets whatever
+    channel the dmaengine core hands out next -- declaring all eight channels means the
+    camera/audio path can be given one the C906L is using, which is exactly how two cores
+    came to fight over the same DMA.  The firmware declares `OWNED_CHANNEL_MASK = 0xF0`
+    (channels 4-7); the device tree must therefore declare four channels, and the number
+    must agree with memmap.py, the image side's single source for hardware facts.
+
+    共享的 SDMA 上，Linux 只能声明固件没有的那几个通道；声明 8 个就等于让相机去抢 4–7。
+    """
+    dts_text = strip_dts_comments(dts_text)
+    match = re.search(r"&dmac\s*\{(?P<body>[^}]*)\}", dts_text, re.DOTALL)
+    if not match:
+        fail("maixcam: the DTS has no &dmac override")
+    body = match.group("body")
+    if re.search(r'status\s*=\s*"disabled"', body):
+        fail(
+            "maixcam: &dmac is disabled, which takes DMA away from the camera too; declare "
+            "the channel partition instead (dma-channels = <DMA_CHANNELS_LINUX>)"
+        )
+    channels = re.search(r"dma-channels\s*=\s*/bits/\s*8\s*<(?P<count>\d+)>", body)
+    if not channels:
+        fail("maixcam: &dmac must declare dma-channels explicitly")
+    declared = int(channels.group("count"))
+    mask = re.search(r"^\s*DMA_CHANNEL_MASK_C906L\s*=\s*(?P<mask>0x[0-9A-Fa-f]+)", memmap_text,
+                     re.MULTILINE)
+    total = re.search(r"^\s*DMA_CHANNELS_TOTAL\s*=\s*(?P<total>\d+)", memmap_text,
+                      re.MULTILINE)
+    if not mask or not total:
+        fail("memmap.py must declare DMA_CHANNELS_TOTAL and DMA_CHANNEL_MASK_C906L")
+    owned = int(mask.group("mask"), 16)
+    expected = int(total.group("total")) - bin(owned).count("1")
+    if declared != expected:
+        fail(
+            "maixcam: dma-channels=%d but memmap.py says Linux may use %d of %d channels "
+            "(the C906L owns mask 0x%02x)" % (declared, expected, int(total.group("total")), owned)
+        )
+    if not re.search(r"&spi2\s*\{[^}]*status\s*=\s*\"disabled\"", dts_text, re.DOTALL):
+        fail(
+            "maixcam: SPI2 must stay disabled on the Linux side: the C906L owns that "
+            "controller, and probing it takes its reset and clock away from the firmware"
+        )
+
+
 def validate_bootlog_ring() -> None:
     check_bootlog_ring(
         (REPO_ROOT / BOOTLOG_DAEMON).read_text(encoding="utf-8"),
@@ -542,6 +598,11 @@ def validate_boards(config_root: Path, entries: list[dict[str, object]]) -> None
         dts_directory = resolve_directory(config_root, board, "dts")
         if is_board_or_descendant(config_root, board, "maixcam"):
             validate_maixcam_remoteproc_dts(dts_directory)
+            check_maixcam_dma_partition(
+                "\n".join(path.read_text(encoding="utf-8")
+                           for path in sorted(dts_directory.glob("*.dts"))),
+                (REPO_ROOT / "configs/maixcam/memmap.py").read_text(encoding="utf-8"),
+            )
             check_maixcam_reserved_map(
                 "\n".join(path.read_text(encoding="utf-8")
                            for path in sorted(dts_directory.glob("*.dts"))),
