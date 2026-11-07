@@ -1,0 +1,21 @@
+[Unit]
+Description=Re-assert the LED and UART1 pads the SD probe takes back
+Documentation=file:/usr/local/sbin/maixcam-late-pinmux
+# 必须排在本地文件系统之后：SD 卡（也就是根文件系统）的 MMC 初始化发生在更早的启动器阶段，
+# 那次探测会按 PINMUX_SDIO0 把 SD0_PWR_EN 焊盘设回 SD 电源使能功能，而那个焊盘正是用户
+# LED（GPIOA14）。不补这一步，gpio-leds 的 heartbeat 写电平到不了引脚，sysfs 里却一切正常。
+# After local-fs on purpose: the SD card *is* the root filesystem, and the probe that runs
+# earlier in the boot chain sets SD0_PWR_EN back to the SD power-enable function -- that pad
+# is the user LED (GPIOA14).  Without this the heartbeat's writes never reach the pin while
+# sysfs still looks perfectly healthy.
+DefaultDependencies=no
+After=local-fs.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/maixcam-late-pinmux
+
+[Install]
+WantedBy=multi-user.target

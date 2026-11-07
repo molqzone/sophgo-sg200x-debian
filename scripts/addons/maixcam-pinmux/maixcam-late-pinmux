@@ -1,0 +1,12 @@
+#!/bin/sh
+# 内核起来之后补一次焊盘：u-boot 的 cvi_board_init() 设过，但它随后从 SD 卡读内核，
+# 那次 MMC 初始化会按 PINMUX_SDIO0 把 SD0_PWR_EN（用户 LED 所在焊盘）设回 SD 电源
+# 使能功能，于是 gpio-leds 的 heartbeat 写电平到不了引脚，而 sysfs 里一切看着正常。
+# Re-assert two pads the MMC probe takes back:
+#   0x03001038 SD0_PWR_EN -> GPIOA14 (3)   用户 LED / heartbeat
+#   0x03001070 GPIOA28    -> UART1 TX (1)   console=ttyS1
+#   0x03001074 GPIOA29    -> UART1 RX (1)
+set -eu
+devmem 0x03001038 32 3
+devmem 0x03001070 32 1
+devmem 0x03001074 32 1
