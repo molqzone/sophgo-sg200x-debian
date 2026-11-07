@@ -162,6 +162,32 @@ int init_comm_info(int ret)
 - 继续输出、只是门铃不回 → 协议问题（查 cmdqu/seq）；
 - 直接静默 → 配置里的某个地址仍被用于 DMA，逐项置 0 重试（先 `isp_buffer`，再 `encode_*`）。
 
+### 3.7 第三层（已实现，未上板验证）：固件的 DMA 边界断言
+
+`bsp-guidance-action`（提交 `b7b8be6`）：
+
+- `Core/sg200x_memmap.hpp` 新增固件自己的 DMA 域（`OWNED_DDR_PHYS/BYTES` = 2 MiB `fast_image`），
+  并用 `static_assert` 钉住"域尾就是 DRAM 尾"；
+- `driver/sg200x_dma.hpp` 在**碰任何寄存器之前**检查：内存侧必须在自己的域内，外设侧必须是
+  DRAM 以下的 MMIO；否则返回 `ARG_ERR`，不使能通道。
+
+判定逻辑有宿主侧单元测试（起点/终点/两侧各越界一字节/跨边界/空指针/零长度/SPI 与 DMAC 寄存器地址）。
+
+**未完成的是那次构建**：固件构建需要 `SG200X_SDK_DIR` 指向一个完整的 SDK 源码树，而
+`build/sdk-worktree/freertos` 目前没有 HEAD（`git rev-parse HEAD` 失败：
+`fatal: ambiguous argument 'HEAD'`），所以 `scripts/sg200x-sdk/build.sh` 起不来。
+下一步先 `bash scripts/sg200x-sdk/prepare.sh <worktree>` 重建工作树，再：
+
+```sh
+SG200X_SDK_DIR=$PWD/build/sdk-worktree \
+SG200X_CROSS_COMPILE=/home/keruth/Development/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf- \
+SG200X_GUIDANCE_PAGE_BASE=0x8FFDC000 \
+  bash scripts/sg200x-sdk/build.sh
+```
+
+预期：如果 IMU 初始化时那条 DMA 的地址在域外，串口/固件就会拒绝它而不是挂总线；如果它
+照样挂死，说明非法之处不在地址上（那就查通道/请求线配置）。
+
 ## 五、环境与工具（明天直接用）
 
 ### 5.1 串口（**最重要的工具**）
