@@ -61,6 +61,10 @@ class Recorder:
         self._fps = fps
         self._width = 640
         self._height = 312
+        # Both halves of the mp4 writer are optional state: start() calls stop()
+        # before it creates them (that is what makes a restart clean), so they
+        # have to exist as None or the very first start() raises AttributeError.
+        self._container = None
         self._stream = None
         self._pts = 0
         self._file = None
