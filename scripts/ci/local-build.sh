@@ -142,11 +142,20 @@ if [[ ${IN_CONTAINER:-0} == 1 ]]; then
 			# file://, not a bare path: cloning from a local path makes git hardlink the
 			# objects, which fails on a read-only bind mount and leaves a repo that cannot
 			# read its own trees ("unable to read tree <sha>").
+			# --add, not a plain set: the loop writes the same key three times (one per
+			# owner), and `git config key value` replaces the previous value -- so a plain
+			# set kept only `sipeed`, and every `sophgo/...` clone still went to GitHub.
+			# The failure surfaced as a GitHub TLS error deep in the FSBL checkout.
 			for org in sophgo scpcom sipeed; do
-				git config --global url."file://$mirror".insteadOf "https://github.com/$org/$name" || true
-				git config --global url."file://$mirror".insteadOf "https://github.com/$org/$name.git" || true
+				git config --global --add url."file://$mirror".insteadOf "https://github.com/$org/$name" || true
+				git config --global --add url."file://$mirror".insteadOf "https://github.com/$org/$name.git" || true
 			done
 		done
+		# Submodules are cloned with `protocol.file.allow=user` since git 2.38, so the
+		# file:// rewrites above are rejected for them ("transport 'file' not allowed").
+		# The mirrors are local and read-only, which is exactly what the default guards
+		# against, so allow it here.
+		git config --global protocol.file.allow always || true
 	fi
 	mkdir -p /proc/sys/fs/binfmt_misc
 	mountpoint -q /proc/sys/fs/binfmt_misc || \
