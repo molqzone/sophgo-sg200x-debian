@@ -35,9 +35,17 @@ FORMAT_OPTIONS = {
 
 
 def configure_decoder(stream: av.VideoStream) -> None:
+    """Prepare the H.264 decoder for a live RTSP feed.
+
+    `flags |= low_delay` used to be set here as well, on top of the container's
+    own low-latency options.  That flag tells the decoder the stream has no
+    reordered frames, and the vendor encoder does not promise that: when it
+    emits one, `avcodec_send_packet()` fails with "Invalid data found" and the
+    viewer died on the first bad packet.  The container already asks for low
+    latency; the decoder is better off tolerating what actually arrives.
+    """
     stream.codec_context.thread_count = 1
     stream.codec_context.thread_type = av.codec.context.ThreadType.SLICE
-    stream.codec_context.flags |= av.codec.context.Flags.low_delay
 
 
 class Recorder:
@@ -184,6 +192,7 @@ class StreamWorker(QtCore.QThread):
         super().__init__()
         self._source = source
         self._options = options
+        self._decode_errors = 0
         self._timeout = timeout
         self._recorder = recorder
         self._lock = threading.Lock()
@@ -222,7 +231,19 @@ class StreamWorker(QtCore.QThread):
                     if self._recorder.active:
                         if self._recorder.mode == "h264":
                             self._recorder.write(packet)
-                    for frame in packet.decode():
+                    try:
+                        frames = packet.decode()
+                    except Exception as error:  # noqa: BLE001 - one bad packet is not a crash
+                        # A live feed can start mid-GOP, drop a packet under load,
+                        # or contain a picture the decoder cannot use yet.  Report
+                        # the first one and keep going: a preview that freezes on
+                        # packet N is worse than one that skipped it.
+                        if self._decode_errors == 0:
+                            print(f"decode: skipping undecodable packets ({error})",
+                                  flush=True)
+                        self._decode_errors += 1
+                        continue
+                    for frame in frames:
                         if self._recorder.active and self._recorder.mode == "mp4":
                             self._recorder.write_frame(frame)
                         now = time.perf_counter()
