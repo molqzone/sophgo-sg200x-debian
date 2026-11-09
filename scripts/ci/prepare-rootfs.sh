@@ -24,6 +24,7 @@ cache_dir=
 packages=
 mirror=https://deb.debian.org/debian
 vendor_apt=0
+vendor_key=
 apt_http_proxy=
 apt_https_proxy=
 use_cache=1
@@ -38,6 +39,7 @@ while [ $# -gt 0 ]; do
 		--packages) packages=$2; shift 2 ;;
 		--mirror) mirror=$2; shift 2 ;;
 		--vendor-apt) vendor_apt=$2; shift 2 ;;
+		--vendor-key) vendor_key=$2; shift 2 ;;
 		--apt-http-proxy) apt_http_proxy=$2; shift 2 ;;
 		--apt-https-proxy) apt_https_proxy=$2; shift 2 ;;
 		--no-cache) use_cache=0; shift ;;
@@ -60,23 +62,17 @@ key() {
 		| sha256sum | cut -d' ' -f1
 }
 
-# The vendor repo is signed by a key that does not come from the mirror, so it is
-# downloaded here and copied into the chroot by the Makefile.  Fetch it *before* the
-# cache check: a cache hit skips bootstrap, and the Makefile's copy then failed with
-# "cannot stat .../public-key.asc" for every board with USE_VENDOR_APT=1.
-fetch_vendor_key() {
-	[ "$vendor_apt" = 1 ] || return 0
-	echo "prepare-rootfs: fetching the vendor apt key"
-	curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors \
-		--connect-timeout 20 https://sophgo.my-ho.st/public-key.asc \
-		-o "$cache_dir/public-key.asc"
-}
-
+# The vendor repo is signed by a key that does not come from the mirror, so it has to be
+# downloaded -- but not here.  The Makefile owns it (`--vendor-key`) because the same file
+# is also copied into the chroot by image-customize-stamp, and a warm rootfs cache skips
+# this script entirely: a fetch that only happened here left that copy with nothing to
+# copy, for every board with the vendor repo enabled.  It is checked before the cache
+# check for the same reason -- a cache hit must not be the thing that hides a missing key.
 bootstrap() {
 	local sources=("deb $mirror sid main")
 	echo "prepare-rootfs: bootstrapping $board/$storage (780 packages, the slow path)"
 	if [ "$vendor_apt" = 1 ]; then
-		sources+=("deb [signed-by=$cache_dir/public-key.asc] https://sophgo.my-ho.st:8443/ debian sophgo")
+		sources+=("deb [signed-by=$vendor_key] https://sophgo.my-ho.st:8443/ debian sophgo")
 	fi
 	env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy \
 		http_proxy="$apt_http_proxy" https_proxy="$apt_https_proxy" \
@@ -102,7 +98,16 @@ restore_cache() {
 }
 
 mkdir -p "$rootfs" "$cache_dir"
-fetch_vendor_key
+if [ "$vendor_apt" = 1 ]; then
+	[ -n "$vendor_key" ] || {
+		echo "prepare-rootfs: --vendor-key is required with --vendor-apt 1" >&2
+		exit 2
+	}
+	[ -s "$vendor_key" ] || {
+		echo "prepare-rootfs: vendor apt key is missing or empty: $vendor_key" >&2
+		exit 1
+	}
+fi
 
 if [ "$use_cache" = 1 ] && [ -s "$cache_tar" ] \
 		&& [ "$(cat "$cache_key_file" 2>/dev/null || true)" = "$(key)" ]; then
