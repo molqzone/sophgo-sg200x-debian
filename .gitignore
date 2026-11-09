@@ -7,3 +7,6 @@ offline-cache/
 # Local-only working state: agent scratch trees and host package caches.
 /.codex-build-lf/
 /.codex-htop-riscv64/
+
+# Camera test clips: 2.9 GB of captures, kept outside the repository.
+tools/maixcam-camera/recordings/
