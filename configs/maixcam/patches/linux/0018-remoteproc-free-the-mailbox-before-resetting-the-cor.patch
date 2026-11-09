@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: keruth <keruth@local>
+Date: Sun, 9 Nov 2026 08:40:00 +0800
+Subject: [PATCH] remoteproc: cvitek: free the mailbox before resetting the core
+
+`cvitek_rproc_stop()` reset the C906L and gated its clock while the mailbox
+channels were still registered.  Those channels are what lets this side take
+the CVITEK mailbox spinlock, and that spinlock is shared with the remote core:
+a firmware gated in the middle of the critical section leaves it held, so the
+next host access spins forever.  The symptom on the bench is a board that stops
+answering entirely -- no panic, no USB, nothing in the log after the stop.
+
+Free the channels first, so no host path can wait on the remote core, and only
+then reset and gate it.  Combined with a page protocol that publishes through a
+seqlock (`write_state`/`seq`), a core stopped at an arbitrary instruction is a
+recoverable event instead of a hang.
+---
+ drivers/remoteproc/cvitek_remoteproc.c | 25 +++++++++++++++++--------
+ 1 file changed, 17 insertions(+), 8 deletions(-)
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -666,12 +666,17 @@
+ 
+ 	dev_dbg(&rproc->dev, "Stopping\n");
+ 
+-	sw_err = cvitek_rproc_set_reset(rproc, true);
+-	if (sw_err)
+-		dev_err(&rproc->dev, "Failed to reset C906L\n");
+-
+-	clk_disable(ddata->clk);
+-
++	/*
++	 * Detach the mailbox channels before the core is reset.
++	 *
++	 * While a channel is registered this side can still take the shared
++	 * CVITEK mailbox spinlock to post or read a message.  A remote core gated
++	 * in the middle of that critical section leaves the lock held, and the
++	 * next host access spins forever -- the symptom is a board that stops
++	 * answering with no panic.  Freeing the channels first removes every
++	 * host path that can wait on the remote core, so the reset below is safe
++	 * whatever the firmware was doing.
++	 */
+ 	if (ddata->mbox_chan[MBOX_RX]) {
+ 		mbox_free_channel(ddata->mbox_chan[MBOX_RX]);
+ 		ddata->mbox_chan[MBOX_RX] = NULL;
+@@ -682,6 +687,12 @@
+ 	}
+ 
+ 
++	sw_err = cvitek_rproc_set_reset(rproc, true);
++	if (sw_err)
++		dev_err(&rproc->dev, "Failed to reset C906L\n");
++
++	clk_disable(ddata->clk);
++
+ 	return sw_err;
+ }
+ 
