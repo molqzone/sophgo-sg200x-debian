@@ -64,6 +64,31 @@ include $(BOARD_SETTINGS)
 
 FSBL_CHIP ?= $(CHIP)
 
+# The vendor apt key signs the sophgo repo: prepare-rootfs.sh hands it to mmdebstrap as
+# `signed-by`, and image-customize-stamp copies the very same file into the chroot for
+# setup_rootfs.sh to install as /etc/apt/keyrings/sophgo.asc.  It is a target of its own
+# because neither consumer can be relied on to run: a warm rootfs cache restores a
+# tarball and skips prepare-rootfs.sh entirely, and an existing image-prepare-stamp skips
+# it too.  When only that script fetched the key, both cases ended in `cp: cannot stat
+# .../public-key.asc` -- four CI boards failed at once, with the downloaded key sitting
+# unused in the cache directory it had been written to.  Declared here, after the board
+# settings, because USE_VENDOR_APT is one of them.
+# vendor key 给 sophgo 源签名：prepare-rootfs.sh 把它作为 signed-by 传给 mmdebstrap，
+# image-customize-stamp 又把同一个文件拷进 chroot，由 setup_rootfs.sh 装成
+# /etc/apt/keyrings/sophgo.asc。它必须是独立的目标：两个使用方都不能保证会跑——rootfs
+# 缓存命中时 prepare-rootfs.sh 整个被跳过，image-prepare-stamp 已存在时也一样。key 只由
+# 该脚本下载时，这两种情况都以 `cp: cannot stat .../public-key.asc` 收场（CI 里一次挂四个
+# 板子，而 key 明明已经下到缓存目录里了）。放在板子设置之后，因为 USE_VENDOR_APT 就是其中
+# 一项。
+ROOTFS_CACHE_DIR ?= $(BUILDDIR)/rootfs-cache
+ifeq ($(OFFLINE),1)
+VENDOR_APT_KEY ?= $(OFFLINE_CACHE)/downloads/public-key.asc
+else
+VENDOR_APT_KEY ?= $(ROOTFS_CACHE_DIR)/public-key.asc
+endif
+# maixcam turns the vendor repo off and never needs the key at all.
+VENDOR_APT_KEY_TARGET := $(if $(filter 1,$(USE_VENDOR_APT)),$(VENDOR_APT_KEY))
+
 resolve-board-file = $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) resolve --board $(BOARD) --path $(1))
 board-patches = $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) patches --board $(BOARD) --component $(1))
 
@@ -630,7 +655,24 @@ $(BUILDDIR)/cvi-pinmux-package-stamp:
 	@touch $@
 
 
-$(BUILDDIR)/image-prepare-stamp: 
+# An offline build has no network, so the key must already be staged under the offline
+# cache (next to pinmux.tar.gz) and the target only checks that it is there; an online
+# build downloads it once, on demand.  Deleting the file re-downloads it, which is how a
+# key rotated upstream reaches the image.
+# 离线构建没有网络，key 必须预先放在 offline-cache 里（和 pinmux.tar.gz 放在一起），这个
+# 目标就只检查它在不在；在线构建按需下载一次。删掉文件就会重新下载——上游轮换 key 时，
+# 这就是让它进到镜像里的办法。
+$(VENDOR_APT_KEY):
+	@mkdir -p $(dir $@)
+	@if [ "$(OFFLINE)" = 1 ]; then \
+		test -s "$@" || { echo "offline vendor apt key missing: $@; stage it next to $(OFFLINE_CACHE)/downloads/pinmux.tar.gz" >&2; exit 1; }; \
+	else \
+		curl --fail --location --retry 5 --retry-delay 3 --retry-all-errors \
+			--connect-timeout 20 https://sophgo.my-ho.st/public-key.asc -o "$@" \
+			&& test -s "$@" || { echo "vendor apt key download failed: $@" >&2; exit 1; }; \
+	fi
+
+$(BUILDDIR)/image-prepare-stamp: $(VENDOR_APT_KEY_TARGET)
 	@echo "$(COLOUR_GREEN)Preparing Image for $(BOARD)$(END_COLOUR)"
 	@if [ "$(OFFLINE)" = 1 ] && [ ! -d "$(ROOTFS)" ] && [ ! -s "$(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" ]; then echo "offline rootfs cache missing: $(ROOTFS) or $(OFFLINE_CACHE)/rootfs/$(BOARD)-$(STORAGE_TYPE).tar" >&2; exit 1; fi
 	@-mkdir $(BUILDDIR)
@@ -651,9 +693,10 @@ $(BUILDDIR)/image-prepare-stamp:
 	@if [ "$(OFFLINE)" = 1 ]; then :; else \
 		bash /builder/ci/prepare-rootfs.sh \
 			--board "$(BOARD)" --storage "$(STORAGE_TYPE)" \
-			--rootfs "$(ROOTFS)" --cache-dir "$(BUILDDIR)/rootfs-cache" \
+			--rootfs "$(ROOTFS)" --cache-dir "$(ROOTFS_CACHE_DIR)" \
 			--packages "$(_PACKAGES)" --mirror "$(DEBIAN_MIRROR)" \
 			--vendor-apt "$(USE_VENDOR_APT)" \
+			$(if $(filter 1,$(USE_VENDOR_APT)),--vendor-key "$(VENDOR_APT_KEY)") \
 			--apt-http-proxy "$(APT_HTTP_PROXY)" \
 			--apt-https-proxy "$(APT_HTTPS_PROXY)" \
 			$(if $(filter 1,$(ROOTFS_CACHE)),,--no-cache); fi
@@ -687,7 +730,7 @@ endif
 	@touch $@
 
 
-$(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/fsbl-package-stamp
+$(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/linux-compile-stamp $(BUILDDIR)/fsbl-package-stamp $(VENDOR_APT_KEY_TARGET)
 	@echo "$(COLOUR_GREEN)Customizing Image for $(BOARD)$(END_COLOUR)"
 	@mkdir -p $(ROOTFS)/tmp/install/
 	@echo $(BOARD) > $(ROOTFS)/tmp/install/hostname
@@ -699,7 +742,7 @@ $(BUILDDIR)/image-customize-stamp: $(BUILDDIR)/image-addons-stamp $(BUILDDIR)/li
 	@cp -v /builder/setup_rootfs.sh $(ROOTFS)/tmp/install/
 
 ifeq ($(USE_VENDOR_APT),1)
-	@cp -v $(BUILDDIR)/public-key.asc $(ROOTFS)/tmp/install/
+	@cp -v $(VENDOR_APT_KEY) $(ROOTFS)/tmp/install/
 
 endif
 	@chroot $(ROOTFS) /tmp/install/qemu-riscv64-static /bin/sh /tmp/install/setup_rootfs.sh
