@@ -13,6 +13,7 @@ to quit.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 import time
@@ -198,10 +199,39 @@ class StreamWorker(QtCore.QThread):
         self._lock = threading.Lock()
         self._image: QtGui.QImage | None = None
         self._fps = 0.0
+        # 最新一帧的检测框（源图坐标）+ 源图尺寸，由 metadata 轨（payload 98）给出。
+        # The newest detection box (source pixels) plus the source size, from the
+        # metadata track (payload type 98).
+        self._box: dict | None = None
 
     def latest(self) -> QtGui.QImage | None:
         with self._lock:
             return self._image
+
+    def box(self) -> dict | None:
+        with self._lock:
+            return self._box
+
+    def _on_metadata(self, packet: av.Packet) -> None:
+        """把 metadata 轨的一条 JSON 变成"最新检测框"。非 JSON 的包直接忽略。"""
+        if not packet.size:
+            return
+        try:
+            payload = json.loads(bytes(packet).decode("utf-8", errors="replace"))
+        except Exception:  # noqa: BLE001 - 播放器不该因为一条坏 metadata 停下
+            return
+        if not isinstance(payload, dict):
+            return
+        with self._lock:
+            self._box = {
+                "found": bool(payload.get("f", 0)),
+                "x": int(payload.get("x", 0)),
+                "y": int(payload.get("y", 0)),
+                "w": int(payload.get("w", 0)),
+                "h": int(payload.get("h", 0)),
+                "sw": int(payload.get("sw", 0)) or None,
+                "sh": int(payload.get("sh", 0)) or None,
+            }
 
     def fps(self) -> float:
         with self._lock:
@@ -225,9 +255,12 @@ class StreamWorker(QtCore.QThread):
             self.opened.emit(stream.codec_context.width, stream.codec_context.height)
             previous = time.perf_counter()
             try:
-                for packet in container.demux(stream):
+                for packet in container.demux():
                     if self.isInterruptionRequested():
                         break
+                    if packet.stream.type != "video":
+                        self._on_metadata(packet)
+                        continue
                     if self._recorder.active:
                         if self._recorder.mode == "h264":
                             self._recorder.write(packet)
@@ -313,6 +346,26 @@ class Viewer(QtWidgets.QWidget):
         target.moveCenter(self.rect().center())
         painter.setRenderHint(QtGui.QPainter.RenderHint.SmoothPixmapTransform, True)
         painter.drawImage(target, image)
+
+        # 检测框在本地画：板上只把角点放进 metadata 轨，画面不被逐帧改写。
+        # The box is drawn locally: the board only puts the corners into the metadata
+        # track, so the picture itself is never rewritten per frame.
+        box = self._worker.box()
+        if box is not None and box["found"] and box["w"] > 0 and box["h"] > 0:
+            src_w = box["sw"] or image.width()
+            src_h = box["sh"] or image.height()
+            scale_x = target.width() / src_w
+            scale_y = target.height() / src_h
+            rect = QtCore.QRect(
+                target.left() + int(box["x"] * scale_x),
+                target.top() + int(box["y"] * scale_y),
+                max(2, int(box["w"] * scale_x)),
+                max(2, int(box["h"] * scale_y)),
+            )
+            pen = QtGui.QPen(QtGui.QColor(0, 255, 0))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(rect)
 
         font = painter.font()
         font.setPointSize(12)
