@@ -127,6 +127,17 @@ class PlanTests(unittest.TestCase):
             affected = plan.affected_matrix(self.config, "base", "head")
         self.assertEqual([entry["board"] for entry in affected], ["child"])
 
+    def test_rootfs_inputs_rebuild_all_boards(self) -> None:
+        # Both scripts that produce the rootfs are shared by every board, so a change to
+        # either one has to rebuild all of them.  Leaving prepare-rootfs.sh out of the
+        # global set shipped such a change with no board build behind it.
+        for path in ("scripts/ci/prepare-rootfs.sh", "scripts/setup_rootfs.sh"):
+            with self.subTest(path=path), mock.patch.object(
+                plan, "changed_files", return_value=[path]
+            ):
+                affected = plan.affected_matrix(self.config, "base", "head")
+                self.assertEqual([entry["board"] for entry in affected], ["child"])
+
     def test_matrix_validation(self) -> None:
         entries = plan.validate(self.config)
         self.assertEqual(entries[0]["format"], "img")

@@ -89,9 +89,17 @@ an empty container build tree:
 
 ```text
 ci.yml       host tests -> C906L -> Linux tools -> affected clean board builds
-images.yml   full clean matrix -> format-aware packaging -> optional release
+images.yml   matrix clean build -> format-aware packaging -> optional release
 toolchain.yml immutable toolchain image, only on toolchain input changes
 ```
 
 `configs/build-matrix.json` is the only list of supported board/storage/output
 combinations. Both workflows consume JSON emitted by `plan.py`.
+
+The matrix is the product baseline, not the list of boards the tree can build:
+it holds the one board that ships (`maixcam-sc035hgs`), so `ci.yml` builds a
+board only when a change reaches it and `images.yml` builds just that board for
+a release.  The other configurations under `configs/` still build locally
+(`make image BOARD=duos`); they are simply not what CI spends runners on.  To
+put one back into CI, add its entry to the matrix — never a board-name
+conditional to a workflow.

@@ -1,0 +1,58 @@
+--- a/plat/cv181x/include/platform_def.h
++++ b/plat/cv181x/include/platform_def.h
+@@ -261,6 +261,7 @@
+ #define HSPERI_BASE 0x04000000
+ #define SPINAND_BASE (HSPERI_BASE + 0x00060000)
+ #define UART0_BASE (HSPERI_BASE + 0x00140000)
++#define UART1_BASE (HSPERI_BASE + 0x00150000)
+ #define UART2_BASE (HSPERI_BASE + 0x00160000)
+ #define USB_BASE (HSPERI_BASE + 0x00340000)
+ #define EMMC_BASE (HSPERI_BASE + 0x00300000)
+@@ -357,8 +358,15 @@
+ /*
+  * UART definitions
+  */
++/*
++ * MaixCAM 的调试串口在 UART1 上——焊盘就是 JTAG 的 TDI/TDO（IIC0_SCL/SDA）；
++ * UART0 的两个焊盘归 C906L 的 PWM4/5。端口是编译期常量，所以改这里。
++ * The console is UART1 on the JTAG TDI/TDO pads (IIC0_SCL/SDA); UART0's pads
++ * belong to the C906L's PWM4/5.  The port is a compile-time constant, so it
++ * has to be changed here.
++ */
+ #if ROM_LOCATION == ROM_LOCATION_HSPERI_ROM
+-#define PLAT_BOOT_UART_BASE UART0_BASE
++#define PLAT_BOOT_UART_BASE UART1_BASE
+ #elif ROM_LOCATION == ROM_LOCATION_SPINOR1
+ #define PLAT_BOOT_UART_BASE UART2_BASE
+ #else
+--- a/plat/cv181x/bl2/bl2_main.c
++++ b/plat/cv181x/bl2/bl2_main.c
+@@ -63,9 +63,25 @@
+ {
+ 	uint32_t v = p_rom_api_get_boot_src();
+ 
+-	if (v == BOOT_SRC_UART) {
+-		console_init(0, PLAT_UART_CLK_IN_HZ, UART_DL_BAUDRATE);
+-	}
++	/*
++	 * 控制台在 UART1 上，焊盘就是 JTAG 的 TDI/TDO（IIC0_SCL/SDA）。必须在这里做：
++	 * OpenSBI 和 U-Boot 都跑在 U-Boot 的 cvi_board_init() 之前，那之前这两个焊盘
++	 * 还是 JTAG/IIC0 功能，它们最前面的几行会没有落点。
++	 * The console is UART1 on the JTAG TDI/TDO pads (IIC0_SCL/SDA).  It has to be
++	 * set up here: OpenSBI and U-Boot run before U-Boot's cvi_board_init() muxes
++	 * anything, so their first lines would have no pad to go out on.
++	 */
++	mmio_write_32(0x03001070, 1); /* IIC0_SCL -> UART1_TX (func 1) */
++	mmio_write_32(0x03001074, 1); /* IIC0_SDA -> UART1_RX (func 1) */
++
++	/*
++	 * 正常启动时没人配过 UART1 的分频（ROM 只配 UART0），所以显式初始化；
++	 * UART 下载模式沿用原来的 1.5 Mbaud。
++	 * Nothing has programmed this UART's divisor on a normal boot (the ROM only
++	 * sets up UART0), so initialise it; keep the download rate for UART download.
++	 */
++	console_init(0, PLAT_UART_CLK_IN_HZ,
++		     v == BOOT_SRC_UART ? UART_DL_BAUDRATE : 115200);
+ 
+ 	ATF_STATE = ATF_STATE_BL2_MAIN;
+ 	time_records->fsbl_start = read_time_ms();

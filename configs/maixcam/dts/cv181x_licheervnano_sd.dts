@@ -66,6 +66,24 @@
 };
 
 /*
+ * 控制台跟着 UART1 走：UART1 的两个焊盘就是 JTAG 的 TDI/TDO（IIC0_SCL/SDA，见板级
+ * cvi_board_init 把 0x03001070/74 写成 func 1），UART0 的两个焊盘归 C906L 的 PWM4/5。
+ * OpenSBI 用的就是这张 DT（`FW_FDT_PATH=u-boot.dtb`），继承来的 stdout-path="serial0"
+ * 会让它在 U-Boot 之前把字打到归固件的那两个脚上，所以这里要覆盖它。内核另由 cmdline
+ * 的 console=ttyS1 指定，两者必须指向同一个口（validate.py 查这个）。
+ * The console follows UART1, whose pads are the JTAG TDI/TDO pair (IIC0_SCL/SDA; the
+ * board's cvi_board_init muxes 0x03001070/74 to func 1).  UART0's pads belong to the
+ * C906L's PWM4/5.  OpenSBI consumes this same DT as its FW_FDT, so the inherited
+ * stdout-path="serial0" would make it print on the firmware's pads before U-Boot runs;
+ * override it here.  The kernel's console=ttyS1 in the cmdline must name the same port.
+ */
+/ {
+	chosen {
+		stdout-path = "serial1";
+	};
+};
+
+/*
  * 四个 PWM 控制器全归 C906L。这块板子上 Linux 没有任何 PWM 消费者（背光、风扇、
  * 触摸屏都已经 disabled），而固件在四个控制器上都用到通道：
  *   pwm0 → 舵面 PWM1/2（`GPIO_RTX`/`GPIO_ZQ`）

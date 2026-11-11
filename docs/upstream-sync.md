@@ -26,6 +26,13 @@ bash scripts/ci/validate.sh
 python3 scripts/ci/plan.py matrix
 ```
 
-Then dispatch the full image workflow. Acceptance requires all original four
-matrix entries and MaixCAM to build from the same checkout. Confirm DuoS eMMC
-uploads a ZIP and every SD entry uploads an IMG-derived artifact.
+Then dispatch the image workflow. Acceptance requires every matrix entry to
+build from the same checkout — currently `maixcam-sc035hgs`, so that is the one
+board that has to come through — and each entry to upload an artifact in its
+declared format (SD is an IMG that gets lz4-compressed, eMMC is a ZIP copied
+as-is; `scripts/ci/tests/test_package.sh` covers both shapes).
+
+CI only builds the boards listed in the matrix. An upstream merge that breaks
+`duos`, `duo256` or `licheervnano` therefore goes unnoticed here: when the merge
+touches one of those configurations, build it locally first
+(`make image BOARD=duos`) before merging.

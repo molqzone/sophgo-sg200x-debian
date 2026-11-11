@@ -52,6 +52,22 @@ inside the image build.  The image is tagged with the name
 `scripts/ci/toolchain-ref.sh` derives, so `local-build.sh` picks it up
 unchanged.  Pass `--skip-image` when an image built earlier is still present.
 
+Two artifacts an offline build cannot fetch at all, and therefore has to find
+in the cache:
+
+| path | used by |
+|---|---|
+| `offline-cache/downloads/pinmux.tar.gz` | the `cvi-pinmux-cv181x` package |
+| `offline-cache/downloads/public-key.asc` | the sophgo apt repo, for every board except maixcam |
+
+`public-key.asc` is the vendor repo's signing key: the Makefile normally
+downloads it on demand, but with `OFFLINE=1` there is no network, so a board
+that keeps `USE_VENDOR_APT=1` (the default; only maixcam turns it off) needs it
+staged.  Fetch it once from `https://sophgo.my-ho.st/public-key.asc` — the same
+URL an online build uses.  The build matrix only carries `maixcam-sc035hgs`,
+which inherits `USE_VENDOR_APT=0`, so this matters for the boards you build
+locally rather than for anything CI runs.
+
 ## Running the build
 
 `OFFLINE=1` makes `scripts/Makefile` clone from `offline-cache/git` instead of

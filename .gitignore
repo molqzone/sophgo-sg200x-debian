@@ -10,3 +10,4 @@ offline-cache/
 
 # Camera test clips: 2.9 GB of captures, kept outside the repository.
 tools/maixcam-camera/recordings/
+.tmp-flash/

@@ -47,7 +47,7 @@ application or protocol       make test; make firmware
 Linux IPC library/OSdrv       make modules
 camera/ISP middleware         make middleware BOARD=maixcam-sc035hgs
 kernel, DTS, or memory map    make image BOARD=maixcam
-release candidate             make verify, then full GitHub image matrix
+release candidate             make verify, then the GitHub image workflow
 ```
 
 PowerShell uses `scripts/ci/local-build.ps1` with the corresponding target.
