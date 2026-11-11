@@ -1,0 +1,28 @@
+--- a/include/configs/cv181x-asic.h
++++ b/include/configs/cv181x-asic.h
+@@ -71,7 +71,15 @@
+ #define SYS_COUNTER_FREQ_IN_SECOND 25000000
+ 
+ /* 16550 Serial Configuration */
+-#define CONFIG_SYS_NS16550_COM1		0x04140000
++/*
++ * MaixCAM 的控制台在 UART1 上——焊盘就是 JTAG 的 TDI/TDO（IIC0_SCL/SDA）；
++ * UART0 的两个焊盘归 C906L 的 PWM4/5。非 DM 的 ns16550 只认这个编译期基址，
++ * DT 里的 stdout-path 对它无效。
++ * The console is UART1 on the JTAG TDI/TDO pads (IIC0_SCL/SDA); UART0's pads
++ * belong to the C906L's PWM4/5.  The non-DM ns16550 uses this compile-time
++ * base only -- stdout-path in the DT has no effect on it.
++ */
++#define CONFIG_SYS_NS16550_COM1		0x04150000
+ #define CONFIG_SYS_NS16550_SERIAL
+ #define CONFIG_SYS_NS16550_REG_SIZE	(-4)
+ #define CONFIG_SYS_NS16550_MEM32
+@@ -226,7 +234,7 @@
+ 	#define PARTS  PART_LAYOUT
+ 
+ 	/* config uart */
+-	#define CONSOLEDEV "ttyS0\0"
++	#define CONSOLEDEV "ttyS1\0"
+ 
+ 	/* config loglevel */
+ 	#ifdef RELEASE

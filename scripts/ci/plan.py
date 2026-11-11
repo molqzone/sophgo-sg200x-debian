@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -211,6 +212,7 @@ def affected_matrix(config_root: Path, base: str, head: str) -> list[dict[str, o
         "scripts/ci/package-board.sh",
         "scripts/ci/plan.py",
         "scripts/ci/prepare-ccache-toolchains.sh",
+        "scripts/ci/prepare-rootfs.sh",
         "scripts/ci/toolchain-ref.sh",
         "scripts/ci/validate.py",
         "scripts/genimage_emmc.cfg",
@@ -258,7 +260,14 @@ def print_json_matrix(entries: list[dict[str, object]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config-root", type=Path, default=DEFAULT_CONFIG_ROOT)
+    # An explicit --config-root always wins; this only fills in the default, so a caller
+    # can point every board lookup at a fixture tree without threading the flag through
+    # each script that shells out to plan.py.  The Makefile passes --config-root itself.
+    parser.add_argument(
+        "--config-root",
+        type=Path,
+        default=Path(os.environ.get("PLAN_CONFIG_ROOT") or DEFAULT_CONFIG_ROOT),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("validate")

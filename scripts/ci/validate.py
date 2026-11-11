@@ -335,8 +335,16 @@ def check_maixcam_pwm_ownership(dts_text: str, rootfs_text: str) -> None:
     at the same time is exactly the combination that made the serial console go dark
     while the board kept running, and no test caught it for two days.
 
+    One console means one port in *every* stage, not just the kernel.  The port shows up
+    three times -- `console=ttySN` and the `earlycon` MMIO base in setup_rootfs.sh, and
+    `/chosen/stdout-path` in the DTS that OpenSBI consumes as its FW_FDT -- so the three
+    are checked against each other.  A console on ttyS1 with an inherited stdout-path of
+    serial0 is precisely the state where OpenSBI prints on the firmware's pads and
+    everything after it looks like a board that died.
+
     四个 PWM 控制器都归小核；同时控制台不能再挂回 UART0——这两件事是同一个不变式：
-    PWM4/5 就是 UART0 的两个焊盘。
+    PWM4/5 就是 UART0 的两个焊盘。控制台只算"一个"，所以 cmdline、earlycon 和
+    OpenSBI 用的 `/chosen/stdout-path` 必须指向同一个口。
     """
     dts_text = strip_dts_comments(dts_text)
     for index in range(4):
@@ -352,11 +360,44 @@ def check_maixcam_pwm_ownership(dts_text: str, rootfs_text: str) -> None:
                 "controller and all four share CV181X_CLK_PWM, so a kernel probe claims the "
                 "gate and writes registers the firmware is using" % index
             )
-    if re.search(r"console=ttyS0", rootfs_text):
+    console = re.search(r"console=ttyS(\d+)", rootfs_text)
+    if not console:
+        fail(
+            "maixcam: setup_rootfs.sh must pin the console to UART1 "
+            "(console=ttyS1, earlycon at 0x04150000); the inherited default is ttyS0"
+        )
+    port = int(console.group(1))
+    if port == 0:
         fail(
             "maixcam: the kernel console must not be on ttyS0 while the firmware claims "
             "the UART0 pads for PWM4/5; put it on ttyS1 (and move earlycon to "
             "0x04150000 with it), or turn TAIL_PWM_CLAIMS_UART0_PADS off in the firmware"
+        )
+    stdout_path = re.findall(r'stdout-path\s*=\s*"serial(\d+)"', dts_text)
+    if not stdout_path:
+        fail(
+            "maixcam: the DTS must override /chosen/stdout-path to match the console: "
+            "OpenSBI consumes this DT as its FW_FDT, so the inherited serial0 sends its "
+            "output to the UART0 pads the firmware uses for PWM4/5"
+        )
+    if int(stdout_path[-1]) != port:
+        fail(
+            "maixcam: console=ttyS%d but /chosen/stdout-path=serial%s: OpenSBI would print "
+            "on a different port than the kernel -- that mismatch is what looks like a "
+            "dead board right after U-Boot" % (port, stdout_path[-1])
+        )
+    earlycon = re.search(r"earlycon=uart8250,mmio32,(0x[0-9a-fA-F]+)", rootfs_text)
+    expected_base = 0x04140000 + port * 0x10000
+    if not earlycon:
+        fail(
+            "maixcam: the console needs earlycon=uart8250,mmio32,0x%08x or nothing prints "
+            "before the 8250 driver probes" % expected_base
+        )
+    if int(earlycon.group(1), 16) != expected_base:
+        fail(
+            "maixcam: earlycon points at %s but console=ttyS%d lives at 0x%08x; the early "
+            "console and the real one must be the same UART"
+            % (earlycon.group(1), port, expected_base)
         )
 
 
@@ -1052,6 +1093,18 @@ def validate_fixed_sensor_output(board: str, output: Path, settings: dict[str, s
                 fail(f"{board}: libmaix_mmf.a has no SC035HGS application route")
 
 
+def baseline_entry(config_root: Path) -> dict[str, object]:
+    """What `validate.py` checks when no board is named: the product baseline.
+
+    The matrix is that baseline -- it lists the boards CI builds -- so the default
+    follows it instead of naming a board that may since have left the matrix.
+    """
+    entries = validate(config_root)
+    if not entries:
+        raise PlanError("matrix is empty")
+    return entries[0]
+
+
 def validate_output(
     entries: list[dict[str, object]],
     board: str,
@@ -1082,9 +1135,15 @@ def validate_output(
 
 
 def main() -> int:
+    config_root = REPO_ROOT / "configs"
+    try:
+        baseline = baseline_entry(config_root)
+    except (OSError, PlanError) as exc:
+        print(f"validate.py: {exc}", file=sys.stderr)
+        return 2
     parser = argparse.ArgumentParser()
-    parser.add_argument("--board", default="maixcam")
-    parser.add_argument("--storage", default="sd")
+    parser.add_argument("--board", default=str(baseline["board"]))
+    parser.add_argument("--storage", default=str(baseline["storage"]))
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "output")
     parser.add_argument("--exclude-path", type=Path, action="append", default=[])
     parser.add_argument("--allow-missing-image", action="store_true")
@@ -1099,7 +1158,6 @@ def main() -> int:
         print(f"compiled-dtb=PASS path={args.compiled_dtb}")
         return 0
     try:
-        config_root = REPO_ROOT / "configs"
         entries = validate(config_root)
         validate_boards(config_root, entries)
         validate_addons(config_root, entries)
