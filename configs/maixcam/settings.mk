@@ -56,4 +56,4 @@ PACKAGES_DEV="binutils file tree vim rsync git gcc g++ wget zip unzip make gdb c
  libopencv-core-dev libopencv-imgproc-dev libopencv-imgcodecs-dev libopencv-videoio-dev \
  libopencv-highgui-dev"
 
-IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko guidance-fw sysctl-compat journald-compact systemd-lean wifi-connect time-sync network-services bootlog entropy maixcam-pinmux"
+IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko guidance-fw sysctl-compat journald-compact systemd-lean wifi-connect time-sync network-services bootlog entropy maixcam-pinmux guidance-autostart"

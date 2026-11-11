@@ -1,0 +1,10 @@
+[Unit]
+Description=Delay the C906L start until the big core has settled
+
+[Timer]
+OnBootSec=20s
+AccuracySec=1s
+Unit=guidance-core.service
+
+[Install]
+WantedBy=timers.target
