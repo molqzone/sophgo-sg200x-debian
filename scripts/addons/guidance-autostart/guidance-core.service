@@ -1,0 +1,15 @@
+[Unit]
+Description=Start the C906L once the big core has settled
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 脱离 systemd 作业队列：`rtos-mode` 内部会调用 `/etc/init.d/load-systemko.sh start`，
+# 那是"从单元里再指挥 systemd"的调用链；用 `systemd-run --no-block` 提交成独立事务，
+# 本单元立刻返回，避免自依赖。
+# Leave systemd's job queue: `rtos-mode` calls `/etc/init.d/load-systemko.sh start`,
+# i.e. a unit that drives systemd again.  `systemd-run --no-block` submits it as its own
+# transaction so this unit returns immediately instead of waiting on itself.
+ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode remoteproc
+TimeoutStartSec=30

@@ -1,0 +1,26 @@
+[Unit]
+Description=Guidance vision app (camera + detector + RTSP)
+After=guidance-core.service
+Wants=guidance-core.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp
+Environment=LD_LIBRARY_PATH=/mnt/system/usr/lib
+Environment=GUIDANCE_RTSP=1
+# 就绪判据是**遥测 head 在前进**，不是页面 magic：magic 会残留在 DDR 里（上一轮
+# 的页面），只看 magic 会让应用在小核还没起来时就启动。head 连续变化才说明小核
+# 真的在格式化页面并发布遥测。
+# Readiness is the telemetry head *advancing*, not the page magic: the magic survives
+# in DDR from the previous boot, so checking it alone starts the app before the core
+# exists.  Two consecutive changes prove the little core is formatting and publishing.
+ExecStartPre=/bin/sh -c 'a=""; n=0; for i in $(seq 1 300); do b=$(/usr/bin/devmem 0x8FFDCEC0 2>/dev/null); if [ -n "$b" ] && [ "$b" != "$a" ]; then n=$((n+1)); [ "$n" -ge 3 ] && exit 0; fi; a=$b; sleep 0.4; done; echo "telemetry head never advanced"; exit 1'
+ExecStartPre=/bin/sh -c '/usr/local/bin/loadmedia.sh || true'
+ExecStart=/usr/local/bin/guidance_vision_app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
