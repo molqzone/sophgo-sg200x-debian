@@ -1,15 +1,21 @@
 [Unit]
-Description=Start the C906L (guarded: skipped if a previous attempt did not finish booting)
+Description=Release the C906L once the big core has settled
 After=network.target
+Before=guidance-vision.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# 失败回退：如果上一次放核后系统没有走到 `guidance-health`（即没写下 boot-ok），
-# 说明放核把大核带死了；本次开机把尝试标记保留下来并**跳过**放核，保证系统可启动。
-# Rollback: if the previous attempt never reached `guidance-health` (no boot-ok written),
-# releasing the core took the big core down.  Keep the attempt marker and skip the core
-# this boot, so the system always boots.
-ExecStartPre=/usr/local/bin/guidance-core-guard.sh
+# 脱离 systemd 作业队列：`rtos-mode` 内部会调用 `/etc/init.d/load-systemko.sh start`，
+# 那是"从单元里再指挥 systemd"的调用链；`systemd-run --no-block` 把它提交成独立事务，
+# 本单元立刻返回，避免作业自依赖（实测过一次：`multi-user.target` 永远走不完）。
+# Leave systemd's job queue: `rtos-mode` calls `/etc/init.d/load-systemko.sh start`, i.e.
+# a unit that drives systemd again.  `systemd-run --no-block` submits it as its own
+# transaction so this unit returns immediately instead of waiting on itself (measured: the
+# boot never reached multi-user when it waited).
 ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode remoteproc
-TimeoutStartSec=30
+# 等核真的处于 running 再返回：视觉单元排在它之后，不能靠 sleep 猜。
+# Wait until the core really is running: the vision unit is ordered after this one and
+# must not guess with a sleep.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 150); do for d in /sys/class/remoteproc/*/; do [ "$(cat $d/name 2>/dev/null)" = cv181x-c906_1 ] && [ "$(cat $d/state 2>/dev/null)" = running ] && exit 0; done; sleep 0.2; done; echo "C906L did not reach running"; exit 1'
+TimeoutStartSec=60
