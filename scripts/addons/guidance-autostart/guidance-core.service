@@ -1,15 +1,15 @@
 [Unit]
-Description=Start the C906L once the big core has settled
+Description=Start the C906L (guarded: skipped if a previous attempt did not finish booting)
 After=network.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# 脱离 systemd 作业队列：`rtos-mode` 内部会调用 `/etc/init.d/load-systemko.sh start`，
-# 那是"从单元里再指挥 systemd"的调用链；用 `systemd-run --no-block` 提交成独立事务，
-# 本单元立刻返回，避免自依赖。
-# Leave systemd's job queue: `rtos-mode` calls `/etc/init.d/load-systemko.sh start`,
-# i.e. a unit that drives systemd again.  `systemd-run --no-block` submits it as its own
-# transaction so this unit returns immediately instead of waiting on itself.
+# 失败回退：如果上一次放核后系统没有走到 `guidance-health`（即没写下 boot-ok），
+# 说明放核把大核带死了；本次开机把尝试标记保留下来并**跳过**放核，保证系统可启动。
+# Rollback: if the previous attempt never reached `guidance-health` (no boot-ok written),
+# releasing the core took the big core down.  Keep the attempt marker and skip the core
+# this boot, so the system always boots.
+ExecStartPre=/usr/local/bin/guidance-core-guard.sh
 ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode remoteproc
 TimeoutStartSec=30
