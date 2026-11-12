@@ -47,3 +47,29 @@ on the board; the measurements are in the tag message of the respective reposito
    modules are reloaded after the core starts.
 3. The clock gate for `clk_timer4` is opened in the bring-up (step ⑤, after the SPI reset
    and pads).  Without it every write to the DW timer vanished into an unclocked slave.
+
+## 自启链路（`guidance-autostart` addon）
+
+镜像自带下面全部内容，**刷写后不需要任何手工注入**：
+
+| 文件 | 作用 |
+|---|---|
+| `/usr/local/bin/guidance_vision_app` | 视觉应用（相机 / 检测 / RTSP / 录制） |
+| `/lib/firmware/c906-mcu.elf` | 小核 DW-timer 固件 |
+| `/mnt/data/sensor_cfg.ini` | `SMS_SC035HGS_MIPI_480P_180FPS_10BIT` |
+| `/mnt/system/usr/lib/libsns_{sc035hgs,full}.so` | 厂商分区缺的 SC035HGS 传感器库 |
+| `/usr/local/bin/loadmedia.sh` | 相机内核模块加载 |
+| `/usr/local/bin/guidance-core-{guard,health}.sh` | 放核守卫与健康标记 |
+| `/etc/systemd/system/guidance-{core,vision,health}.*` | 三个单元 |
+| `/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf` | 把厂商放核变成空操作 |
+
+放核顺序与安全网：
+
+1. `guidance-core.timer`（+20 s）→ `guidance-core-guard.sh` → `systemd-run --no-block rtos-mode remoteproc`
+2. 守卫在上一轮"放核后没走到 90 秒健康检查"时**跳过放核**并写 `/var/lib/guidance/no-auto-core`
+3. `guidance-health.timer`（+90 s）写 `boot-ok`，守卫下一轮才放行
+
+实测（同一张卡、连续 3 次上电）：`remoteproc0 = running`、`guidance-core` 与
+`guidance-vision` 均 active、相机 180 fps、`[page-telemetry] up`、命令
+`accepted 20 / refused 0`、RTSP 解出帧、`/home/debian/guidance-capture.h264` 持续增长
+（约 5 MB/100 s），`boot-ok` 与当次 `boot_id` 一致。
