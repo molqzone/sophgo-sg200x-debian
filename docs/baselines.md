@@ -63,11 +63,15 @@ on the board; the measurements are in the tag message of the respective reposito
 | `/etc/systemd/system/guidance-{core,vision,health}.*` | 三个单元 |
 | `/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf` | 把厂商放核变成空操作 |
 
-放核顺序与安全网：
+放核顺序（**只有一个放核入口，且发生在相机启动之前**）：
 
-1. `guidance-core.timer`（+20 s）→ `guidance-core-guard.sh` → `systemd-run --no-block rtos-mode remoteproc`
-2. 守卫在上一轮"放核后没走到 90 秒健康检查"时**跳过放核**并写 `/var/lib/guidance/no-auto-core`
-3. `guidance-health.timer`（+90 s）写 `boot-ok`，守卫下一轮才放行
+1. `guidance-core.timer`（+20 s）→ `guidance-core.service`
+2. `systemd-run --no-block rtos-mode remoteproc`（脱离 systemd 作业队列，避免自依赖）
+3. `ExecStartPost` 等 `remoteproc` 真的 `running` 才返回
+4. `guidance-vision.service` 排在它之后启动（`After=` + `Requires=`），此时
+   `rtos-mode` 的 `stop_media_chain` 面对的是**空闲的**相机链——在应用推流时卸载
+   相机驱动是唯一能把大核带死的路径，用顺序彻底消掉，不靠兜底。
+5. 厂商的 `load-systemko` 被 `50-` drop-in 变成空操作，所以不存在"两个入口各放一次核"。
 
 实测（同一张卡、连续 3 次上电）：`remoteproc0 = running`、`guidance-core` 与
 `guidance-vision` 均 active、相机 180 fps、`[page-telemetry] up`、命令
