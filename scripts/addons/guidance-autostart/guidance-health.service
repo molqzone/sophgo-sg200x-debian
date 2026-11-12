@@ -1,7 +1,0 @@
-[Unit]
-Description=Mark this boot as healthy (the core release did not break the big core)
-After=multi-user.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/guidance-core-health.sh

@@ -1,17 +1,16 @@
 # Boot the C906L and the vision app from a power cycle, and ship every binary the board
 # needs so a reflash reproduces the working system with no manual injection.
 #
-# The core release is guarded: `guidance-core-guard.sh` refuses to release the core if the
-# previous boot that released it never reached `guidance-health` (90 s in).  That is what
-# keeps a bad release from turning the board into a brick -- the boot after a failed one
-# comes up with the core left off and a marker explaining how to retry.
+# One release path only, and it happens before the camera starts:
+#   guidance-core.service  -> systemd-run --no-block rtos-mode remoteproc
+#   guidance-vision.service -> ordered After= it, loads the media modules, starts the app
+# `load-systemko` is neutralised with a drop-in (see load-systemko-none.conf) so the vendor
+# firmware is never released as well, and `rtos-mode`'s stop_media_chain therefore always
+# runs on an idle camera chain.
 $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.service \
                                       addons/guidance-autostart/guidance-core.timer \
                                       addons/guidance-autostart/guidance-vision.service \
-                                      addons/guidance-autostart/guidance-health.service \
-                                      addons/guidance-autostart/guidance-health.timer \
-                                      addons/guidance-autostart/guidance-core-guard.sh \
-                                      addons/guidance-autostart/guidance-core-health.sh \
+                                      addons/guidance-autostart/load-systemko-none.conf \
                                       addons/guidance-autostart/loadmedia.sh \
                                       addons/guidance-autostart/files/c906-mcu.elf \
                                       addons/guidance-autostart/files/guidance_vision_app \
@@ -19,40 +18,28 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
                                       addons/guidance-autostart/files/libsns_sc035hgs.so \
                                       addons/guidance-autostart/files/libsns_full.so
 	@echo "$(COLOUR_GREEN)Installing guidance-autostart for $(BOARD)$(END_COLOUR)"
-	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/ /rootfs/var/lib/guidance/
+	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/
 	@cp -a addons/guidance-autostart/guidance-core.service \
 	         addons/guidance-autostart/guidance-core.timer \
-	         addons/guidance-autostart/guidance-vision.service \
-	         addons/guidance-autostart/guidance-health.service \
-	         addons/guidance-autostart/guidance-health.timer /rootfs/etc/systemd/system/
-	@chmod 0644 /rootfs/etc/systemd/system/guidance-*.service /rootfs/etc/systemd/system/guidance-*.timer
+	         addons/guidance-autostart/guidance-vision.service /rootfs/etc/systemd/system/
+	@chmod 0644 /rootfs/etc/systemd/system/guidance-core.service \
+	             /rootfs/etc/systemd/system/guidance-core.timer \
+	             /rootfs/etc/systemd/system/guidance-vision.service
 	@install -m0755 addons/guidance-autostart/loadmedia.sh /rootfs/usr/local/bin/loadmedia.sh
-	@install -m0755 addons/guidance-autostart/guidance-core-guard.sh /rootfs/usr/local/bin/guidance-core-guard.sh
-	@install -m0755 addons/guidance-autostart/guidance-core-health.sh /rootfs/usr/local/bin/guidance-core-health.sh
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
 	@install -m0644 addons/guidance-autostart/files/c906-mcu.elf /rootfs/lib/firmware/c906-mcu.elf
 	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini
-	# 厂商分区里缺 SC035HGS 的传感器库：镜像自带的只有 gc4653/lt6911/os04a10，
-	# VI 初始化会以 `fail to find pstSnsObj` 失败，相机完全不出帧。这两只库来自**同一份
-	# middleware 构建**，与镜像里的其它厂商库和我们的应用一致。
-	# The vendor partition ships sensor libraries for gc4653/lt6911/os04a10 but not for the
-	# SC035HGS, so VI init fails with `fail to find pstSnsObj` and the camera never
-	# delivers a frame.  Both libraries come from the **same middleware build** as the
-	# image's other vendor libraries and as our application.
+	# 厂商分区缺 SC035HGS 的传感器库：缺了 VI 初始化会以 `fail to find pstSnsObj` 失败。
+	# The vendor partition lacks the SC035HGS sensor libraries; without them VI init fails
+	# with "fail to find pstSnsObj" and the camera never delivers a frame.
 	@install -D -m0644 addons/guidance-autostart/files/libsns_sc035hgs.so /rootfs/mnt/system/usr/lib/libsns_sc035hgs.so
 	@install -D -m0644 addons/guidance-autostart/files/libsns_full.so /rootfs/mnt/system/usr/lib/libsns_full.so
-	# 不放 /dev/null 掩码：镜像的 `image-customize` 还会 `systemctl enable
-	# load-systemko`，掩码会让那一步直接失败（实测 `Failed to enable unit: ... is
-	# masked`）。放核顺序是"厂商固件（load-systemko 开机）→ 我们的固件（本 timer
-	# +20 秒替换）"，真正的安全网是守卫：一次失败的放核会把自动放核关掉。
-	# No /dev/null mask: the image's `image-customize` still runs `systemctl enable
-	# load-systemko`, and a mask makes that step fail (measured).  The release order is
-	# vendor firmware (load-systemko at boot) followed by ours (this timer at +20 s); the
-	# safety net is the guard, which disables automatic releases after a failed one.
-	# 厂商放核入口的空操作 drop-in（编号 50 覆盖 guidance-fw 的 20-）。
-	# The no-op drop-in for the vendor release hook (50- overrides guidance-fw's 20-).
+	# 厂商放核入口的空操作 drop-in（50- 覆盖 guidance-fw 的 20-）：保留单元可 enable，
+	# 但不再放厂商固件。
+	# No-op drop-in for the vendor release hook (50- overrides guidance-fw's 20-): the unit
+	# stays enable-able but releases nothing.
 	@install -D -m0644 addons/guidance-autostart/load-systemko-none.conf \
 	        /rootfs/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf
 	@mkdir -p /rootfs/tmp/install/
-	@echo " guidance-core.timer guidance-vision.service guidance-health.timer" >> /rootfs/tmp/install/systemd-enable
+	@echo " guidance-core.timer guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@
