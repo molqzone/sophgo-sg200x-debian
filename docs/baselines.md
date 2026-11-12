@@ -77,3 +77,17 @@ on the board; the measurements are in the tag message of the respective reposito
 `guidance-vision` 均 active、相机 180 fps、`[page-telemetry] up`、命令
 `accepted 20 / refused 0`、RTSP 解出帧、`/home/debian/guidance-capture.h264` 持续增长
 （约 5 MB/100 s），`boot-ok` 与当次 `boot_id` 一致。
+
+## 镜像的两个内核级坑（都不是我们的单元造成的）
+
+1. **在线扩 ext4 会 oops**：`resize2fs` 崩在 `ext4_flex_group_add -> ext4_resize_fs`，
+   `fallocate` 崩在 `ext4_mb_find_by_goal`。所以镜像的根分区做成**固定 4 GB**，
+   `finalize-image` 的扩容/`fallocate` 步骤用 `50-` drop-in 全部清掉，swapfile 也去掉。
+2. **首次开机/重启的 SD 写会撞上放核**：`rtos-mode` 放核时小核初始化 DMAC 会写
+   `GLOBAL.CFG`，而 SD 卡（内核 MMC）用的是同一颗 DMAC 的 0–3 通道；改全局中断使能位
+   会让内核正在等的 SD 传输永远完不成，表现为"放核即挂死大核"（bootlog 停在 +20 秒、
+   无 oops）。固件已改成只在控制器未使能时才写，正常情况那次写完全消失。
+
+实测（同一张卡，连续 3 次上电，其中两次是在**录制正在写 SD** 的情况下重启）：
+`remoteproc0 = running`、两单元 active、`[page-telemetry] up`、命令 `accepted 10/0`、
+相机 179.4 fps、RTSP 解码、录制 20 593 帧 / 49.3 MB / 仅 1 帧丢弃。
