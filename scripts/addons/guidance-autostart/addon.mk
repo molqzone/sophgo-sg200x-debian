@@ -15,7 +15,9 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
                                       addons/guidance-autostart/loadmedia.sh \
                                       addons/guidance-autostart/files/c906-mcu.elf \
                                       addons/guidance-autostart/files/guidance_vision_app \
-                                      addons/guidance-autostart/files/sensor_cfg.ini
+                                      addons/guidance-autostart/files/sensor_cfg.ini \
+                                      addons/guidance-autostart/files/libsns_sc035hgs.so \
+                                      addons/guidance-autostart/files/libsns_full.so
 	@echo "$(COLOUR_GREEN)Installing guidance-autostart for $(BOARD)$(END_COLOUR)"
 	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/ /rootfs/var/lib/guidance/
 	@cp -a addons/guidance-autostart/guidance-core.service \
@@ -30,6 +32,15 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
 	@install -m0644 addons/guidance-autostart/files/c906-mcu.elf /rootfs/lib/firmware/c906-mcu.elf
 	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini
+	# 厂商分区里缺 SC035HGS 的传感器库：镜像自带的只有 gc4653/lt6911/os04a10，
+	# VI 初始化会以 `fail to find pstSnsObj` 失败，相机完全不出帧。这两只库来自**同一份
+	# middleware 构建**，与镜像里的其它厂商库和我们的应用一致。
+	# The vendor partition ships sensor libraries for gc4653/lt6911/os04a10 but not for the
+	# SC035HGS, so VI init fails with `fail to find pstSnsObj` and the camera never
+	# delivers a frame.  Both libraries come from the **same middleware build** as the
+	# image's other vendor libraries and as our application.
+	@install -D -m0644 addons/guidance-autostart/files/libsns_sc035hgs.so /rootfs/mnt/system/usr/lib/libsns_sc035hgs.so
+	@install -D -m0644 addons/guidance-autostart/files/libsns_full.so /rootfs/mnt/system/usr/lib/libsns_full.so
 	# 不放 /dev/null 掩码：镜像的 `image-customize` 还会 `systemctl enable
 	# load-systemko`，掩码会让那一步直接失败（实测 `Failed to enable unit: ... is
 	# masked`）。放核顺序是"厂商固件（load-systemko 开机）→ 我们的固件（本 timer
