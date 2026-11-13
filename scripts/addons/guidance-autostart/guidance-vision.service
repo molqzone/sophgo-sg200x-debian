@@ -6,11 +6,8 @@ Description=Guidance vision app (camera + detector + RTSP + recording)
 # Ordered after the release: `rtos-mode` unloads the whole camera chain (stop_media_chain),
 # and doing that while the app is streaming releases driver state under active DMA -- the
 # one remaining way to hang the big core.  Ordering removes it without a fallback.
-After=guidance-core.service guidance-board-init.service
+After=guidance-core.service
 Requires=guidance-core.service
-# 等板级初始化把时钟门和焊盘配好再起相机（顺序见 guidance-board-init.service 的说明）。
-# Wait for the board init to configure the clocks and pads before starting the camera.  The
-# ordering is explained in guidance-board-init.service.
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
