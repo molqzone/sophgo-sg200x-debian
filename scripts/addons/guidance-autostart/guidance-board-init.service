@@ -1,0 +1,17 @@
+[Unit]
+Description=Configure the C906L's clock gates and pads from the big core
+# 必须在**放核之后**：`rtos-mode` 内部的 `load-systemko.sh start` 会重新加载媒体链，把
+# SPI2 的时钟门又关掉。实测：放核后立刻跑这个脚本，IMU 回到 999 Hz；放核前跑则无效。
+# Must run **after** the release: `rtos-mode` calls `load-systemko.sh start`, which reloads
+# the media chain and closes the SPI2 gate again.  Measured: running this right after the
+# release brings the IMU back to 999 Hz, running it before the release has no effect.
+After=c906-core-run.service guidance-core.service
+Before=guidance-vision.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/guidance-board-init.sh
+
+[Install]
+WantedBy=multi-user.target

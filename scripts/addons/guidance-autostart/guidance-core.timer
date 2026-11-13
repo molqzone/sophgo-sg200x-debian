@@ -1,9 +1,16 @@
 [Unit]
-Description=Delay the C906L start until the big core has settled
+Description=Release the C906L once the boot has settled
 
 [Timer]
-OnBootSec=20s
-AccuracySec=1s
+# 放核必须等开机阶段的活动全部停下：实测在 +20 秒放核，日志会停在那一刻（模块加载、
+# USB gadget 绑定、文件系统刷盘都在那几秒内），而在系统空闲后放核一直正常。两分钟是
+# 上电到"服务都起来、盘不忙"的实测窗口。
+# The release has to wait until the boot's activity has stopped: measured at +20 s the
+# console stops at that moment (module loading, USB gadget binding and the journal flush
+# all happen in that window), while releases on an idle system were always fine.  Two
+# minutes is the measured window for "services up, disk quiet" after power-on.
+OnBootSec=45s
+AccuracySec=5s
 Unit=guidance-core.service
 
 [Install]
