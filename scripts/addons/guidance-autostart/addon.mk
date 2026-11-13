@@ -11,9 +11,6 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
                                       addons/guidance-autostart/guidance-core.timer \
                                       addons/guidance-autostart/guidance-vision.service \
                                       addons/guidance-autostart/load-systemko-none.conf \
-                                      addons/guidance-autostart/guidance-board-init.sh \
-                                      addons/guidance-autostart/guidance-board-init.service \
-                                      addons/guidance-autostart/finalize-image-none.conf \
                                       addons/guidance-autostart/loadmedia.sh \
                                       addons/guidance-autostart/files/c906-mcu.elf \
                                       addons/guidance-autostart/files/guidance_vision_app \
@@ -24,14 +21,11 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
 	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/
 	@cp -a addons/guidance-autostart/guidance-core.service \
 	         addons/guidance-autostart/guidance-core.timer \
-	         addons/guidance-autostart/guidance-vision.service \
-	         addons/guidance-autostart/guidance-board-init.service /rootfs/etc/systemd/system/
+	         addons/guidance-autostart/guidance-vision.service /rootfs/etc/systemd/system/
 	@chmod 0644 /rootfs/etc/systemd/system/guidance-core.service \
 	             /rootfs/etc/systemd/system/guidance-core.timer \
-	             /rootfs/etc/systemd/system/guidance-vision.service \
-	             /rootfs/etc/systemd/system/guidance-board-init.service
+	             /rootfs/etc/systemd/system/guidance-vision.service
 	@install -m0755 addons/guidance-autostart/loadmedia.sh /rootfs/usr/local/bin/loadmedia.sh
-	@install -m0755 addons/guidance-autostart/guidance-board-init.sh /rootfs/usr/local/bin/guidance-board-init.sh
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
 	@install -m0644 addons/guidance-autostart/files/c906-mcu.elf /rootfs/lib/firmware/c906-mcu.elf
 	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini
@@ -46,10 +40,6 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
 	# stays enable-able but releases nothing.
 	@install -D -m0644 addons/guidance-autostart/load-systemko-none.conf \
 	        /rootfs/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf
-	# 关掉首次开机扩容（见 finalize-image-none.conf 的说明）。
-	# Disable first-boot growth (see the note in finalize-image-none.conf).
-	@install -D -m0644 addons/guidance-autostart/finalize-image-none.conf \
-	        /rootfs/etc/systemd/system/finalize-image.service.d/50-guidance-autostart.conf
 	@mkdir -p /rootfs/tmp/install/
-	@echo " guidance-core.timer guidance-board-init.service guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
+	@echo " guidance-core.timer guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@
