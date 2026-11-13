@@ -1,14 +1,15 @@
 # Boot the C906L and the vision app from a power cycle, and ship every binary the board
 # needs so a reflash reproduces the working system with no manual injection.
 #
-# One release path only, and it happens before the camera starts:
-#   guidance-core.service  -> systemd-run --no-block rtos-mode remoteproc
-#   guidance-vision.service -> ordered After= it, loads the media modules, starts the app
+# One release path only, and it is triggered by a condition rather than a timer:
+#   guidance-release.service, After=multi-user.target, WantedBy=graphical.target
+#     -> systemd-run --no-block rtos-mode remoteproc, then waits for `running`
+#   guidance-vision.service, After=guidance-release.service
+#     -> loads the media modules and starts the camera
 # `load-systemko` is neutralised with a drop-in (see load-systemko-none.conf) so the vendor
 # firmware is never released as well, and `rtos-mode`'s stop_media_chain therefore always
 # runs on an idle camera chain.
-$(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.service \
-                                      addons/guidance-autostart/guidance-core.timer \
+$(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release.service \
                                       addons/guidance-autostart/guidance-vision.service \
                                       addons/guidance-autostart/load-systemko-none.conf \
                                       addons/guidance-autostart/loadmedia.sh \
@@ -19,11 +20,9 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
                                       addons/guidance-autostart/files/libsns_full.so
 	@echo "$(COLOUR_GREEN)Installing guidance-autostart for $(BOARD)$(END_COLOUR)"
 	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/
-	@cp -a addons/guidance-autostart/guidance-core.service \
-	         addons/guidance-autostart/guidance-core.timer \
+	@cp -a addons/guidance-autostart/guidance-release.service \
 	         addons/guidance-autostart/guidance-vision.service /rootfs/etc/systemd/system/
-	@chmod 0644 /rootfs/etc/systemd/system/guidance-core.service \
-	             /rootfs/etc/systemd/system/guidance-core.timer \
+	@chmod 0644 /rootfs/etc/systemd/system/guidance-release.service \
 	             /rootfs/etc/systemd/system/guidance-vision.service
 	@install -m0755 addons/guidance-autostart/loadmedia.sh /rootfs/usr/local/bin/loadmedia.sh
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
@@ -41,5 +40,5 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-core.se
 	@install -D -m0644 addons/guidance-autostart/load-systemko-none.conf \
 	        /rootfs/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf
 	@mkdir -p /rootfs/tmp/install/
-	@echo " guidance-core.timer guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
+	@echo " guidance-release.service guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@

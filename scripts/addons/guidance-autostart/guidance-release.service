@@ -1,0 +1,30 @@
+[Unit]
+Description=Release the C906L once the boot has finished
+# **条件触发**，不是定时：`multi-user.target` 到达 = 所有启动服务都跑完（模块加载、USB
+# gadget、文件系统刷盘都在它之前）。`WantedBy=graphical.target` 让本单元被拉起，而
+# `After=multi-user.target` 保证它在目标达成**之后**才跑——graphical 在 multi-user 之后，
+# 所以这条排序不成环（以前的环是"视觉单元属于 multi-user、又排在 core 之后"造成的）。
+# **Triggered by a condition**, not a timer: reaching `multi-user.target` means every boot
+# service has finished (module loading, the USB gadget, the filesystem flush all precede it).
+# `WantedBy=graphical.target` pulls this unit in while `After=multi-user.target` runs it only
+# after that target is reached -- graphical comes after multi-user, so the ordering is
+# acyclic (the old cycle came from the vision unit belonging to multi-user AND being ordered
+# after core).
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 脱离 systemd 作业队列：`rtos-mode` 内部会调用 `/etc/init.d/load-systemko.sh start`，
+# 那是"从单元里再指挥 systemd"的调用链；`systemd-run --no-block` 把它提交成独立事务，
+# 本单元立刻返回，避免作业自依赖。
+# Leave systemd's job queue: `rtos-mode` calls `/etc/init.d/load-systemko.sh start`, a unit
+# driving systemd again.  `systemd-run --no-block` submits it as its own transaction so this
+# unit returns immediately instead of waiting on itself.
+ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode remoteproc
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 150); do for d in /sys/class/remoteproc/*/; do [ "$(cat $d/name 2>/dev/null)" = cv181x-c906_1 ] && [ "$(cat $d/state 2>/dev/null)" = running ] && exit 0; done; sleep 0.2; done; echo "C906L did not reach running"; exit 1'
+TimeoutStartSec=60
+
+[Install]
+WantedBy=graphical.target
