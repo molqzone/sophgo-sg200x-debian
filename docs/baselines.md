@@ -91,3 +91,27 @@ on the board; the measurements are in the tag message of the respective reposito
 实测（同一张卡，连续 3 次上电，其中两次是在**录制正在写 SD** 的情况下重启）：
 `remoteproc0 = running`、两单元 active、`[page-telemetry] up`、命令 `accepted 10/0`、
 相机 179.4 fps、RTSP 解码、录制 20 593 帧 / 49.3 MB / 仅 1 帧丢弃。
+
+## 放核挂死大核：已定位并修掉的那一条
+
+`BoardMsp::Init()` 曾用整字读-改-写清 `TOP->SD1_SELECT` 的 MIPI 位。那是**SD 卡的焊盘
+路由**，内核正挂着根文件系统在读它；小核没有 MMU、这段在 SYSMAP 里可缓存，一次 RMW 会把
+整条 64 字节缓存行读进来，之后行驱逐时**整行**写回，把邻居寄存器里已过期的值一起覆盖到
+硬件上。内核的 MMC 于是等 I/O 等到死——控制台停在放核那一刻、**没有任何 oops**，且只在
+开机阶段发作（系统空闲时放核一直正常）。删掉这一步（属于引导链职责）之后，冷启动与重启
+都能自己起来。
+
+## 还没解决的一类隐患
+
+小核仍在运行期对 **CLKGEN 时钟门**和 **PINMUX 引脚复用**做整字读-改-写，机制同上。
+试过把这两步搬到大核（shell 脚本 + `devmem`），**不可行**：`PreparePeripheral` 不只开
+门，还把 SPI2 的时钟路径（mux + 分频）配到 187.5 MHz；只写门位会让总线跑在错误频率上，
+BMI088 直接没有响应（实测 `imu=0` 且**无** `BMI088 wait timeout`，说明 worker 卡在传输
+里）。要真正搬走，得在大核复刻完整时钟计划，或写一个内核驱动——不是几条 `devmem`。
+
+## 镜像构建环境的注意点
+
+本机的 `binfmt_misc` 里没有 riscv64 注册项（`/proc/sys/fs/binfmt_misc` 只有 register/
+status），`make image` 会在 `image-customize` 崩在 `setup_rootfs.sh: cat: Exec format
+error`。这需要 root 注册 qemu-riscv64 的 binfmt，或者换一台能做 chroot 的机器；卡上那份
+已验证的镜像不受影响。
