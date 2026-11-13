@@ -1,13 +1,9 @@
 [Unit]
 Description=Guidance vision app (camera + detector + RTSP + recording)
-# 必须排在放核之后：`rtos-mode` 会卸载整条相机链（stop_media_chain），如果应用已经
-# 在推流时被卸载，内核会在 DMA 活动中释放驱动——这是唯一剩下的挂死风险，用顺序消掉，
-# 不用兜底。
-# Ordered after the release: `rtos-mode` unloads the whole camera chain (stop_media_chain),
-# and doing that while the app is streaming releases driver state under active DMA -- the
-# one remaining way to hang the big core.  Ordering removes it without a fallback.
-After=guidance-core.service
-Requires=guidance-core.service
+# 排在放核之后（放核由 `guidance-release.service` 在 multi-user 达成后触发）。
+# Ordered after the release, which `guidance-release.service` triggers once multi-user is up.
+After=guidance-release.service
+Wants=guidance-release.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -22,4 +18,4 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
