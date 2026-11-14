@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: keruth <keruth@local>
+Date: Sat, 14 Nov 2026 22:40:00 +0800
+Subject: [PATCH] isp: always define SENSOR_SMS_SC035HGS
+
+This board's only sensor is the SC035HGS. Its case in
+`SAMPLE_COMM_SNS_GetSnsObj()` is wrapped in `#if defined(SENSOR_SMS_SC035HGS)`,
+and the macro only appears when the middleware's `CONFIG_SENSOR_SMS_SC035HGS`
+is set. It is not, so the case is preprocessed away and the lookup returns
+NULL: `SAMPLE_COMM_ISP_PatchSnsObj(): fail to find pstSnsObj`.
+
+Define it unconditionally in the sensor Kbuild: the driver is present at
+`component/isp/sensor/sg200x/sms_sc035hgs/` and this board builds for that
+sensor alone.
+---
+diff --git a/component/isp/common/Kbuild b/component/isp/common/Kbuild
+--- a/component/isp/common/Kbuild
++++ b/component/isp/common/Kbuild
+@@ -492,3 +492,8 @@
+ ifeq ($(CONFIG_SENSOR_LONTIUM_LT7911), y)
+     KBUILD_DEFINES += -DSENSOR_LONTIUM_LT7911
+ endif
++
++# 这块板只跑 SC035HGS；没有这个宏，`SAMPLE_COMM_SNS_GetSnsObj()` 里的对应 case
++# 会被预处理掉，查表返回 NULL（"fail to find pstSnsObj"）。
++# The board runs the SC035HGS only; without this define the case in
++# `SAMPLE_COMM_SNS_GetSnsObj()` is compiled out and the lookup returns NULL.
++KBUILD_DEFINES += -DSENSOR_SMS_SC035HGS
