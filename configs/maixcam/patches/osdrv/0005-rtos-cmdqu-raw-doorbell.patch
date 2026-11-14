@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: keruth <keruth@local>
-Date: Sat, 14 Nov 2026 15:30:00 +0800
+Date: Sat, 14 Nov 2026 17:40:00 +0800
 Subject: [PATCH] osdrv/rtos_cmdqu: add a raw doorbell for a resident firmware
 
 The vendor command ids are a closed set: the driver rejects anything else with
@@ -8,12 +8,11 @@ The vendor command ids are a closed set: the driver rejects anything else with
 reads the context slots directly -- could never be reached from Linux.
 
 Add RTOS_CMDQU_RAW_SEND: write an 8-byte context into a mailbox slot and ring
-the target bank with the same sequence rtos_cmdqu_send() uses.  The struct and
-the ioctl number are defined here when the header does not carry them yet.
+the target bank with the same sequence rtos_cmdqu_send() uses.
 ---
---- a/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 15:26:10.224678593 +0800
-+++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 15:26:16.101950704 +0800
-@@ -247,6 +247,43 @@
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 17:32:43.351731977 +0800
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 17:32:43.369138985 +0800
+@@ -279,6 +279,44 @@
  	return ret;
  }
  
@@ -54,13 +53,14 @@ the ioctl number are defined here when the header does not carry them yet.
 +	return 0;
 +}
 +
++
  int rtos_cmdqu_send(cmdqu_t *cmdq)
  {
  	int ret = 0;
-@@ -415,6 +452,15 @@
- 				sizeof(struct cmdqu_t));
- 			ret = rtos_cmdqu_send(&cmdq);
- 			break;
+@@ -492,6 +530,15 @@
+ 
+ 	pr_debug("%s dev=%p\n", __func__, dev);
+ 	switch (cmd) {
 +		case RTOS_CMDQU_RAW_SEND: {
 +			struct rtos_cmdqu_raw raw;
 +
@@ -70,6 +70,6 @@ the ioctl number are defined here when the header does not carry them yet.
 +			ret = rtos_cmdqu_raw_send(&raw);
 +			break;
 +		}
- 		case RTOS_CMDQU_SEND_WAKEUP:
- 			pr_debug("RTOS_CMDQU_SEND_WAKEUP\n");
- 			copy_from_user(&cmdq,
+ 		case RTOS_CMDQU_SEND:
+ 			pr_debug("RTOS_CMDQU_SEND\n");
+ 			ret = copy_from_user(&cmdq,
