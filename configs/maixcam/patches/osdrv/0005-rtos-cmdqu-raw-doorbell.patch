@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: keruth <keruth@local>
+Date: Sat, 14 Nov 2026 15:00:00 +0800
+Subject: [PATCH] osdrv/rtos_cmdqu: add a raw doorbell for a resident firmware
+
+The vendor command ids are a closed set: the driver rejects anything else with
+`invalid-id`, so the c906l firmware -- which owns its own mailbox protocol and
+reads the context slots directly -- could never be reached from Linux.
+
+Add RTOS_CMDQU_RAW_SEND: it writes an 8-byte context into a mailbox slot and
+rings the target bank with the same sequence rtos_cmdqu_send() uses.
+---
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.h	2026-11-14 14:59:18.047703896 +0800
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.h	2026-11-14 14:59:29.567652770 +0800
+@@ -69,6 +69,7 @@
+ 	CMDQU_REQUEST_FREE,
+ 	CMDQU_SEND_WAIT,
+ 	CMDQU_SEND_WAKEUP,
++	CMDQU_RAW_SEND,
+ 	CMDQU_SYSTEM_LIMIT = NR_SYSTEM_CMD,
+ };
+ 
+@@ -79,6 +80,20 @@
+ #define RTOS_CMDQU_SEND_WAIT                    _IOW('r', CMDQU_SEND_WAIT, unsigned long)
+ #define RTOS_CMDQU_SEND_WAKEUP                  _IOW('r', CMDQU_SEND_WAKEUP, unsigned long)
+ 
++/*
++ * Raw doorbell: hand the mailbox an 8-byte context verbatim and ring the target
++ * bank.  The vendor command ids are a closed set (`invalid-id` rejects anything
++ * else), so a resident firmware that owns its own mailbox protocol -- the c906l
++ * here -- cannot be reached through `RTOS_CMDQU_SEND` at all.  This bypasses the
++ * id table on purpose: the caller owns the payload and the id semantics.
++ */
++struct rtos_cmdqu_raw {
++	unsigned int slot;
++	unsigned int word[2];
++};
++
++#define RTOS_CMDQU_RAW_SEND                     _IOW('r', CMDQU_RAW_SEND, unsigned long)
++
+ int rtos_cmdqu_send(cmdqu_t *cmdq);
+ int rtos_cmdqu_send_wait(cmdqu_t *cmdq, int wait_cmd_id);
+ int request_rtos_irq(unsigned char ip_id, void *handler, const char *devname, void *dev_id);
+--- a/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 14:59:18.045809243 +0800
++++ b/interdrv/rtos_cmdqu/rtos_cmdqu.c	2026-11-14 14:59:29.567901387 +0800
+@@ -303,6 +303,34 @@
+ 	return ret;
+ }
+ 
++/*
++ * Ring the target bank with a caller-supplied context.
++ *
++ * This is the only path that bypasses the vendor command-id table: the c906l runs
++ * our firmware and reads the mailbox slots directly, so the vendor command ids do
++ * not apply to it.  The sequence mirrors `rtos_cmdqu_send()`: write the 8-byte
++ * context, clear the target bit, arm it, ring.
++ */
++int rtos_cmdqu_raw_send(const struct rtos_cmdqu_raw *raw)
++{
++	unsigned long flags;
++	void *slot_addr;
++
++	if (raw->slot >= MAILBOX_MAX_NUM) {
++		pr_err("raw_send: slot %u out of range\n", raw->slot);
++		return -EINVAL;
++	}
++
++	spin_lock_irqsave(&mailbox_queue_lock, flags);
++	slot_addr = (void *)((char *)mailbox_context + raw->slot * sizeof(cmdqu_t));
++	memcpy(slot_addr, raw->word, sizeof(raw->word));
++	mbox_reg->cpu_mbox_set[SEND_TO_CPU].cpu_mbox_int_clr.mbox_int_clr = (1 << raw->slot);
++	mbox_reg->cpu_mbox_en[SEND_TO_CPU].mbox_info |= (1 << raw->slot);
++	mbox_reg->mbox_set.mbox_set = (1 << raw->slot);
++	spin_unlock_irqrestore(&mailbox_queue_lock, flags);
++	return 0;
++}
++
+ int rtos_cmdqu_send(cmdqu_t *cmdq)
+ {
+ 	int ret = 0;
+@@ -471,6 +499,15 @@
+ 				sizeof(struct cmdqu_t));
+ 			ret = rtos_cmdqu_send(&cmdq);
+ 			break;
++		case RTOS_CMDQU_RAW_SEND: {
++			struct rtos_cmdqu_raw raw;
++
++			if (copy_from_user(&raw, (struct rtos_cmdqu_raw __user *)arg,
++					   sizeof(struct rtos_cmdqu_raw)))
++				return -EFAULT;
++			ret = rtos_cmdqu_raw_send(&raw);
++			break;
++		}
+ 		case RTOS_CMDQU_SEND_WAKEUP:
+ 			pr_debug("RTOS_CMDQU_SEND_WAKEUP\n");
+ 			copy_from_user(&cmdq,
