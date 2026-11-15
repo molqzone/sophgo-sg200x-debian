@@ -28,6 +28,16 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
 	@install -m0644 addons/guidance-autostart/files/c906-mcu.elf /rootfs/lib/firmware/c906-mcu.elf
 	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini
+	# 开机时 `maixcam-sensor-config` 会用 `SENSOR_CONFIG_DEFAULT`（就是下面这个 `.SC035HGS`
+	# 文件）**覆盖** `/mnt/data/sensor_cfg.ini`，所以我们的 profile 必须写在这个路径上，
+	# 否则每次上电都会被换回镜像自带的档位，VI 按 120 fps 配置、传感器实际 30 fps，
+	# `CVI_VPSS_SetChnAttr` 直接失败，相机起不来。
+	# At boot `maixcam-sensor-config` **overwrites** `/mnt/data/sensor_cfg.ini` from
+	# `SENSOR_CONFIG_DEFAULT` (this very `.SC035HGS` file), so our profile has to live at
+	# that path; otherwise every power cycle restores the image's own profile, VI asks for
+	# 120 fps while the sensor runs 30, `CVI_VPSS_SetChnAttr` fails and the camera never
+	# comes up.
+	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini.SC035HGS
 	# 厂商分区缺 SC035HGS 的传感器库：缺了 VI 初始化会以 `fail to find pstSnsObj` 失败。
 	# The vendor partition lacks the SC035HGS sensor libraries; without them VI init fails
 	# with "fail to find pstSnsObj" and the camera never delivers a frame.
