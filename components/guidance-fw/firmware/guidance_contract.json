@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "source": "User/guidance_contract.hpp",
+  "source": "Modules/verdancy-org/GuidanceContract/GuidanceContract.hpp",
   "page": {
     "phys": 2415771648,
     "bytes": 4096,
