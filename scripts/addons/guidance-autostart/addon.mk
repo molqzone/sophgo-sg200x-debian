@@ -49,6 +49,25 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release
 	# stays enable-able but releases nothing.
 	@install -D -m0644 addons/guidance-autostart/load-systemko-none.conf \
 	        /rootfs/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf
+	# 这块板只走 USB NCM（`ifup@usb0` 静态 10.42.0.1 + dnsmasq），NetworkManager 与
+	# wpa_supplicant 对产品路径没有贡献，却卡在 `multi-user.target` 前面：实测 NM 占
+	# 6.2 s、wpa 4.7 s，导致放核从 15 s 被拖到 23 s、相机从 25 s 拖到 32 s。镜像里那个
+	# `network-services-disable.service` 本意就是关掉它们，但它在单元里调
+	# `systemctl disable --now` 必然失败（自依赖），所以这层改为构建期 mask；那个单元
+	# 本身被镜像的 enable 列表引用，不能一起 mask（`systemctl enable` 会直接报错）。
+	# This board only uses USB NCM (`ifup@usb0` static 10.42.0.1 plus dnsmasq);
+	# NetworkManager and wpa_supplicant add nothing to the product path yet sit in front
+	# of `multi-user.target`: measured, NM costs 6.2 s and wpa 4.7 s, pushing the release
+	# from 15 s to 23 s and the camera from 25 s to 32 s.  The image's own
+	# `network-services-disable.service` intends exactly this but cannot work (it calls
+	# `systemctl disable --now` from inside a unit), so mask them at build time instead.
+	# That unit itself is in the image's enable list, so it must stay unmasked.
+	@for unit in NetworkManager.service NetworkManager-wait-online.service \
+	             wpa_supplicant.service; do \
+	        ln -sf /dev/null "/rootfs/etc/systemd/system/$$unit"; \
+	        rm -f "/rootfs/etc/systemd/system/multi-user.target.wants/$$unit"; \
+	        rm -f "/rootfs/etc/systemd/system/graphical.target.wants/$$unit"; \
+	done
 	@mkdir -p /rootfs/tmp/install/
 	@echo " guidance-release.service guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@
