@@ -21,6 +21,27 @@ trap cleanup EXIT HUP INT TERM
 # its unit and enable link.  Retire both here, and put a board that was
 # already flipped back on its network gadget.
 retire_legacy_acm_fallback() {
+  # 全新镜像里没有这些遗留单元。先判断再动手：否则每次启动都要付出一串
+  # `systemctl` 往返（实测 5.6 s，而它带着 `Before=ssh.service`，直接把
+  # ssh → multi-user → 放核 → 相机全拖后）。
+  # A fresh image has none of these legacy units.  Check first: otherwise every
+  # boot pays for a series of `systemctl` round trips (measured 5.6 s) and, since
+  # this unit is `Before=ssh.service`, that pushes ssh -> multi-user -> release ->
+  # camera back by the same amount.
+  # 判据是"有没有被 enable"，不是"单元文件在不在"：`usb-gadget-acm.service` 这类
+  # 单元在任何镜像里都存在，只有 enable 链接才说明这张卡是旧镜像写出来的。
+  # The criterion is "is it enabled", not "does the file exist": units such as
+  # `usb-gadget-acm.service` are always present, only an enable link proves the
+  # card was written by an old image.
+  if [ ! -e "$systemd_dir/usb-mode-autorevert.timer" ] &&
+     [ ! -e "$systemd_dir/timers.target.wants/usb-mode-autorevert.timer" ] &&
+     [ ! -e "$systemd_dir/multi-user.target.wants/usb-shell.service" ] &&
+     [ ! -e "$systemd_dir/multi-user.target.wants/usb-gadget-acm.service" ] &&
+     [ ! -e "$systemd_dir/multi-user.target.wants/usb-gadget-rndis.service" ] &&
+     [ ! -e "$systemd_dir/multi-user.target.wants/usb-gadget-rndis-usb0.service" ]; then
+    return 0
+  fi
+
   systemctl disable --now usb-mode-autorevert.timer 2>/dev/null || true
   rm -f "$systemd_dir/usb-mode-autorevert.timer" \
         "$systemd_dir/usb-mode-autorevert.service" \
