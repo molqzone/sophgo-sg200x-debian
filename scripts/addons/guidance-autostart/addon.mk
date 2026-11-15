@@ -68,19 +68,6 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release
 	        rm -f "/rootfs/etc/systemd/system/multi-user.target.wants/$$unit"; \
 	        rm -f "/rootfs/etc/systemd/system/graphical.target.wants/$$unit"; \
 	done
-	# `maixcam-ssh-authorize` 自己实测要 5.7 s（14.6 → 20.3 s，脚本内部耗时，不是等设备），
-	# 而它 `Before=ssh.service`，于是 ssh → multi-user → 放核 → 相机全排在它后面。它做的事
-	# （导入 boot 分区的公钥、退役旧的 usb-mode-autorevert 定时器）对全新刷写的卡都是空操作，
-	# 却占着关键路径。这里只清掉那条排序，单元照常运行、只是不再挡住启动。
-	# `maixcam-ssh-authorize` takes 5.7 s measured (14.6 -> 20.3 s, inside the script,
-	# not waiting on anything) and is `Before=ssh.service`, so ssh -> multi-user ->
-	# release -> camera all queue behind it.  What it does (import keys from the boot
-	# partition, retire the legacy usb-mode-autorevert timer) is a no-op on a freshly
-	# written card, so only the ordering goes away: the unit still runs, it just no
-	# longer gates the boot.
-	@mkdir -p /rootfs/etc/systemd/system/maixcam-ssh-authorize.service.d
-	@printf '[Unit]\nBefore=\n' > \
-	        /rootfs/etc/systemd/system/maixcam-ssh-authorize.service.d/50-guidance-autostart.conf
 	@mkdir -p /rootfs/tmp/install/
 	@echo " guidance-release.service guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@
