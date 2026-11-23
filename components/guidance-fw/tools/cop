@@ -19,7 +19,7 @@ generic-uio device, `/sys/class/uio/.../maps/mapN/name` carries the `reg-names`
 (`console`, `shared`), and the addresses come from `maps/mapN/addr`.  So `cop`
 never hardcodes a map index.
 
-The page header is **self-describing** (magic / abi / page size / slot count /
+The page header is **self-describing** (magic / page size / slot count /
 slot size / payload size / region offset / wire tag), so `status`, `dump` and
 `watch` need no contract at all.  A contract JSON (`--contract`) adds only what
 the header cannot carry: the frame layout, checksum, channel names and the
@@ -49,7 +49,7 @@ import time
 
 # Page header magic and layout of the self-describing header.
 PAGE_MAGIC = 0x31506461
-HEADER = struct.Struct("<8I")
+HEADER = struct.Struct("<9I")
 HEADER_BYTES = HEADER.size
 CACHE_LINE = 64
 
@@ -203,8 +203,8 @@ def load_contract(path):
 def parse_header(page):
     fields = HEADER.unpack(page.read(0, HEADER_BYTES))
     return dict(zip(
-        ("magic", "abi", "page_size", "slot_count", "slot_bytes", "payload_bytes",
-         "region_offset", "tag"), fields))
+        ("magic", "page_size", "slot_count", "slot_bytes", "payload_bytes",
+         "region_offset", "tag", "command_magic", "header_bytes"), fields))
 
 
 def geometry(header):
@@ -259,8 +259,8 @@ def cmd_status(args):
     print("mapping   : %s" % page.origin)
     print("page      : %s magic=0x%08x" % (state_name(header), header["magic"]))
     if state_name(header) == "FORMATTED":
-        print("geometry  : abi=%u size=%u slots=%u slot=%u payload=%u region=%u tag=%u"
-              % (header["abi"], header["page_size"], header["slot_count"],
+        print("geometry  : size=%u slots=%u slot=%u payload=%u region=%u tag=%u"
+              % (header["page_size"], header["slot_count"],
                  header["slot_bytes"], header["payload_bytes"],
                  header["region_offset"], header["tag"]))
         print("layout    : ring=%d head=%d write_state=%d channels=%d"
@@ -280,10 +280,10 @@ def cmd_status(args):
     if contract is None:
         return 0
     page_c = contract["page"]
-    expect = (page_c["abi_version"], page_c["bytes"], contract["telemetry"]["slot_count"],
+    expect = (page_c["bytes"], contract["telemetry"]["slot_count"],
               contract["telemetry"]["slot_bytes"], contract["region"]["payload_bytes"],
               contract["region"]["offset"], page_c["wire_tag"])
-    actual = (header["abi"], header["page_size"], header["slot_count"],
+    actual = (header["page_size"], header["slot_count"],
               header["slot_bytes"], header["payload_bytes"], header["region_offset"],
               header["tag"])
     print("contract  : %s" % args.contract)

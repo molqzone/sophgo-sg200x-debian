@@ -150,7 +150,11 @@ class DropinGenerationTests(unittest.TestCase):
         # 都不该再出现一条停机命令。
         contract = json.loads(
             (COMPONENT / "firmware/guidance_contract.json").read_text(encoding="utf-8"))
-        self.assertEqual(sorted(contract["command"]), ["led", "magic", "ping", "rejected"])
+        # The command set belongs to the firmware's contract (it moved from the test
+        # commands led/ping to the product's vision command); what this test pins is
+        # that no stop/park command survives, not the exact vocabulary.
+        self.assertNotIn("park", contract["command"])
+        self.assertIn("magic", contract["command"])
         self.assertFalse((COMPONENT / "tools/guidance-cmd.py").exists())
 
     def test_template_is_the_committed_artifact(self) -> None:

@@ -1,3 +1,5 @@
-repo=https://github.com/molqzone/cop
-commit=d06433aee595d39776da49c22c92242d14561951
-sha256=57efdaaa714134dd0274b2d749602977f19cf11b5d6d710fd2a749cc942176d8
+# Local fork of molqzone/cop: the page header no longer carries an abi word.
+# Upstream: https://github.com/molqzone/cop
+repo=local
+commit=worktree
+sha256=1b63e305b3022150f180755fbfdc37c2f316fb3fca163cf0ad66b6dd49308264

@@ -38,7 +38,6 @@ from __future__ import annotations
 import errno
 import fcntl
 import glob
-import json
 import mmap
 import os
 import struct
@@ -46,6 +45,10 @@ import subprocess
 import sys
 import time
 import zlib
+
+# The console page descriptor: magic "CLOG", version 1, index 0, ring at 64.
+CONSOLE_MAGIC = 0x474F4C43
+CONSOLE_VERSION = 1
 
 RING_PATH = "/boot/bootlog.bin"
 # boot-time.service leaves this in /run; it belongs in exactly one record.
@@ -184,13 +187,13 @@ def mmc_errors(dmesg: str) -> str:
 def console_ring() -> str:
     """The C906L console page through uio, if this board has one.
 
-    Offsets and capacity come from the firmware-published contract rather than a copy
-    kept here: reading this ring is the only way to see the coprocessor once it has
-    frozen, because the freeze signature *is* this counter stopping.
+    The page describes itself: a descriptor in the first cache line carries the magic,
+    version and ring offsets, so this reader needs no side file and cannot drift from
+    the firmware that wrote the page.  Reading this ring is the only way to see the
+    coprocessor once it has frozen, because the freeze signature *is* this counter
+    stopping.
     """
     try:
-        with open("/lib/firmware/guidance_contract.json") as handle:
-            console = json.load(handle)["console"]
         path = None
         for entry in sorted(glob.glob("/sys/class/uio/uio*")):
             try:
@@ -204,12 +207,29 @@ def console_ring() -> str:
             return "guidance-pages uio device not found"
         fd = os.open(path, os.O_RDWR)
         try:
-            view = mmap.mmap(fd, console["bytes"], offset=0)  # map 0 = console page
+            view = mmap.mmap(fd, 4096, offset=0)  # map 0 = console page
             try:
-                index = struct.unpack_from("<I", view, console["index_offset"])[0]
-                ring = console["ring_bytes"]
-                start = index % ring
-                data = bytes(view[console["ring_offset"]:console["ring_offset"] + ring])
+                magic = struct.unpack_from("<I", view, 4)[0]
+                if magic != CONSOLE_MAGIC:
+                    return ("console page not published (magic=0x%08x, "
+                            "expected 0x%08x)" % (magic, CONSOLE_MAGIC))
+                version = struct.unpack_from("<H", view, 8)[0]
+                if version != CONSOLE_VERSION:
+                    return "console page version %d; this bootlogd knows %d" % (
+                        version, CONSOLE_VERSION)
+                header_bytes = struct.unpack_from("<H", view, 10)[0]
+                if header_bytes < 24:
+                    return "console descriptor claims %d bytes" % header_bytes
+                index_offset, ring_offset, ring_bytes = struct.unpack_from("<III", view, 12)
+                page_bytes = struct.unpack_from("<I", view, 24)[0]
+                if page_bytes < 64 or page_bytes > 4096:
+                    return "console page claims %d bytes" % page_bytes
+                if ring_offset + ring_bytes > page_bytes:
+                    return "console page claims a ring past the page (%d+%d>%d)" % (
+                        ring_offset, ring_bytes, page_bytes)
+                index = struct.unpack_from("<I", view, index_offset)[0]
+                start = index % ring_bytes
+                data = bytes(view[ring_offset:ring_offset + ring_bytes])
             finally:
                 view.close()
         finally:
@@ -220,7 +240,6 @@ def console_ring() -> str:
         return "\n".join(lines)
     except Exception as error:  # noqa: BLE001 - a snapshot must never take the boot down
         return "unreadable (%s: %s)" % (type(error).__name__, error)
-
 
 def section(title: str, body: str) -> str:
     """One titled block, or nothing at all when there is nothing to say."""

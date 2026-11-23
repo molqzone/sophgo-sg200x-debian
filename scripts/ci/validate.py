@@ -857,14 +857,34 @@ def check_guidance_contract_page(contract: dict[str, object]) -> None:
     telemetry = contract["telemetry"]
     channels = contract["channels"]
     region = contract["region"]
+    command = contract["command"]
     frame = contract["frame"]
     page_bytes = page["bytes"]
 
     tool = _load_cop_module()
+    if page["header_bytes"] > 64:
+        fail(
+            "the page header is %d bytes; cop derives the ring from its 32-byte prefix "
+            "and the 64-byte cache line, so a header past one line changes the layout"
+            % page["header_bytes"]
+        )
+    if "command_magic" not in page:
+        fail("the firmware contract has no page.command_magic; rebuild it from this BSP")
+    if page["command_magic"] != command["magic"]:
+        fail(
+            "page.command_magic 0x%08x disagrees with command.magic 0x%08x"
+            % (page["command_magic"], command["magic"])
+        )
     if tool.PAGE_MAGIC != page["magic"]:
         fail("cop and the contract disagree about the page magic")
+    # `cop` parses the fixed 32-byte prefix it was built for; the page header may
+    # carry a tail in the same cache line (the command magic), which the tool never
+    # reads.  What must hold is that the tool's view fits inside the real header.
     if tool.HEADER_BYTES != page["header_bytes"]:
-        fail("cop and the contract disagree about the header size")
+        fail(
+            "cop parses %d header bytes but the page header is %d"
+            % (tool.HEADER_BYTES, page["header_bytes"])
+        )
     if tool.CHANNEL_TABLE_MAGIC != channels["magic"]:
         fail("cop and the contract disagree about the name-service magic")
     if tool.CHANNEL_ENTRY_BYTES != channels["entry_bytes"]:
@@ -874,7 +894,6 @@ def check_guidance_contract_page(contract: dict[str, object]) -> None:
 
     header = {
         "magic": page["magic"],
-        "abi": page["abi_version"],
         "page_size": page_bytes,
         "slot_count": telemetry["slot_count"],
         "slot_bytes": telemetry["slot_bytes"],

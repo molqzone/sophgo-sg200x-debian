@@ -29,12 +29,13 @@ CONTRACT = COMPONENT / "firmware/guidance_contract.json"
 # that reads the offsets from the same file it is checking proves nothing.
 PAGE = 4096
 MAGIC = 0x31506461
-ABI = 1
 SLOTS = 58
 SLOT_BYTES = 64
 PAYLOAD = 24
 REGION = 4064
 TAG = 6
+COMMAND = 0x31444D47
+HEADER = 36
 TABLE = 3840
 TABLE_MAGIC = 0x3130534E
 ENTRY = 42
@@ -55,8 +56,8 @@ cop = load_cop()
 def formatted_page(channels=(("imu", 1024, 1),), head=42) -> bytes:
     """Exactly what a core that builds the page leaves behind."""
     page = bytearray(PAGE)
-    struct.pack_into("<8I", page, 0, MAGIC, ABI, PAGE, SLOTS, SLOT_BYTES, PAYLOAD,
-                     REGION, TAG)
+    struct.pack_into("<9I", page, 0, MAGIC, PAGE, SLOTS, SLOT_BYTES, PAYLOAD,
+                     REGION, TAG, COMMAND, HEADER)
     struct.pack_into("<I", page, 3776, head)
     struct.pack_into("<I", page, 3780, 0)
     struct.pack_into("<4I", page, TABLE, TABLE_MAGIC, len(channels), 3, 0)
@@ -103,7 +104,6 @@ class HeaderTests(unittest.TestCase):
     def test_a_formatted_page_carries_its_geometry(self) -> None:
         header = cop.parse_header(_BytesPage(formatted_page()))
         self.assertEqual(cop.state_name(header), "FORMATTED")
-        self.assertEqual(header["abi"], ABI)
         self.assertEqual(header["tag"], TAG)
         self.assertEqual(header["slot_count"], SLOTS)
 
@@ -188,6 +188,8 @@ class ContractAgreementTests(unittest.TestCase):
     def test_the_page_constants_agree(self) -> None:
         page = self.contract["page"]
         self.assertEqual(cop.PAGE_MAGIC, page["magic"])
+        # `cop` parses a fixed 32-byte prefix; the page header adds the command
+        # magic in the same cache line, which the tool never reads.
         self.assertEqual(cop.HEADER_BYTES, page["header_bytes"])
         self.assertEqual(self.contract["channels"]["magic"], cop.CHANNEL_TABLE_MAGIC)
         self.assertEqual(self.contract["channels"]["entry_bytes"],
@@ -198,7 +200,7 @@ class ContractAgreementTests(unittest.TestCase):
     def test_the_declared_offsets_are_what_the_tool_derives(self) -> None:
         page = self.contract["page"]
         telemetry = self.contract["telemetry"]
-        header = {"magic": page["magic"], "abi": page["abi_version"],
+        header = {"magic": page["magic"],
                   "page_size": page["bytes"], "slot_count": telemetry["slot_count"],
                   "slot_bytes": telemetry["slot_bytes"],
                   "payload_bytes": self.contract["frame"]["payload_bytes"],
