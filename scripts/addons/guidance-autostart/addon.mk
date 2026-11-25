@@ -1,32 +1,18 @@
-# Boot the C906L and the vision app from a power cycle, and ship every binary the board
-# needs so a reflash reproduces the working system with no manual injection.
-#
-# One release path only, and it is triggered by a condition rather than a timer:
-#   guidance-release.service, After=multi-user.target, WantedBy=graphical.target
-#     -> systemd-run --no-block rtos-mode remoteproc, then waits for `running`
-#   guidance-vision.service, After=guidance-release.service
-#     -> loads the media modules and starts the camera
-# `load-systemko` is neutralised with a drop-in (see load-systemko-none.conf) so the vendor
-# firmware is never released as well, and `rtos-mode`'s stop_media_chain therefore always
-# runs on an idle camera chain.
-$(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release.service \
-                                      addons/guidance-autostart/guidance-vision.service \
-                                      addons/guidance-autostart/load-systemko-none.conf \
+# Vision application and camera setup.  The C906L itself is released by
+# guidance-fw's load-systemko drop-in; this addon must not install a second ELF,
+# a second release unit, or a competing load-systemko drop-in.
+$(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-vision.service \
                                       addons/guidance-autostart/loadmedia.sh \
-                                      addons/guidance-autostart/files/c906-mcu.elf \
                                       addons/guidance-autostart/files/guidance_vision_app \
                                       addons/guidance-autostart/files/sensor_cfg.ini \
                                       addons/guidance-autostart/files/libsns_sc035hgs.so \
                                       addons/guidance-autostart/files/libsns_full.so
 	@echo "$(COLOUR_GREEN)Installing guidance-autostart for $(BOARD)$(END_COLOUR)"
 	@mkdir -pv /rootfs/etc/systemd/system/ /rootfs/usr/local/bin/ /rootfs/lib/firmware/
-	@cp -a addons/guidance-autostart/guidance-release.service \
-	         addons/guidance-autostart/guidance-vision.service /rootfs/etc/systemd/system/
-	@chmod 0644 /rootfs/etc/systemd/system/guidance-release.service \
-	             /rootfs/etc/systemd/system/guidance-vision.service
+	@install -D -m0644 addons/guidance-autostart/guidance-vision.service \
+	        /rootfs/etc/systemd/system/guidance-vision.service
 	@install -m0755 addons/guidance-autostart/loadmedia.sh /rootfs/usr/local/bin/loadmedia.sh
 	@install -m0755 addons/guidance-autostart/files/guidance_vision_app /rootfs/usr/local/bin/guidance_vision_app
-	@install -m0644 addons/guidance-autostart/files/c906-mcu.elf /rootfs/lib/firmware/c906-mcu.elf
 	@install -D -m0644 addons/guidance-autostart/files/sensor_cfg.ini /rootfs/mnt/data/sensor_cfg.ini
 	# 开机时 `maixcam-sensor-config` 会用 `SENSOR_CONFIG_DEFAULT`（就是下面这个 `.SC035HGS`
 	# 文件）**覆盖** `/mnt/data/sensor_cfg.ini`，所以我们的 profile 必须写在这个路径上，
@@ -43,12 +29,9 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release
 	# with "fail to find pstSnsObj" and the camera never delivers a frame.
 	@install -D -m0644 addons/guidance-autostart/files/libsns_sc035hgs.so /rootfs/mnt/system/usr/lib/libsns_sc035hgs.so
 	@install -D -m0644 addons/guidance-autostart/files/libsns_full.so /rootfs/mnt/system/usr/lib/libsns_full.so
-	# 厂商放核入口的空操作 drop-in（50- 覆盖 guidance-fw 的 20-）：保留单元可 enable，
-	# 但不再放厂商固件。
-	# No-op drop-in for the vendor release hook (50- overrides guidance-fw's 20-): the unit
-	# stays enable-able but releases nothing.
-	@install -D -m0644 addons/guidance-autostart/load-systemko-none.conf \
-	        /rootfs/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf
+	# 放核归 guidance-fw 的 load-systemko drop-in；这里只起视觉应用。
+	# Release belongs to guidance-fw's load-systemko drop-in; this addon only starts
+	# the vision application.
 	# 这块板只走 USB NCM（`ifup@usb0` 静态 10.42.0.1 + dnsmasq），NetworkManager 与
 	# wpa_supplicant 对产品路径没有贡献，却卡在 `multi-user.target` 前面：实测 NM 占
 	# 6.2 s、wpa 4.7 s，导致放核从 15 s 被拖到 23 s、相机从 25 s 拖到 32 s。镜像里那个
@@ -69,5 +52,5 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-release
 	        rm -f "/rootfs/etc/systemd/system/graphical.target.wants/$$unit"; \
 	done
 	@mkdir -p /rootfs/tmp/install/
-	@echo " guidance-release.service guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
+	@echo " guidance-vision.service" >> /rootfs/tmp/install/systemd-enable
 	@touch $@

@@ -1,9 +1,9 @@
 GUIDANCE_FW_COMPONENT := $(COMPONENTS_ROOT)/guidance-fw
+GUIDANCE_FW_DROPIN_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
 GUIDANCE_FW_FIRMWARE_DIR := $(GUIDANCE_FW_COMPONENT)/firmware
 GUIDANCE_FW_FIRMWARE_ELF := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.elf
 GUIDANCE_FW_FIRMWARE_BIN := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.bin
 GUIDANCE_FW_CONTRACT := $(GUIDANCE_FW_FIRMWARE_DIR)/guidance_contract.json
-GUIDANCE_FW_DROPIN_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
 # 由 scripts/Makefile 的启动策略决定；单独使用本文件时退回默认值。
 # Set by scripts/Makefile's boot policy; a default keeps this file usable on its own.
 # load 与 attach 是策略的取值，不是 rtos-mode 的子命令。映射放在这里，只有一个地方。
@@ -29,6 +29,8 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 		"$(ROOTFS)/usr/bin/"
 	@install -m 0644 "$(GUIDANCE_FW_CONTRACT)" \
 		"$(ROOTFS)/lib/firmware/guidance_contract.json"
+	# 唯一的放核路径：load-systemko 的 ExecStart 被这个 drop-in 换成 rtos-mode。
+	# The single release path: this drop-in replaces load-systemko's ExecStart with rtos-mode.
 	@install -D -m 0644 "$(GUIDANCE_FW_DROPIN_IN)" \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
 	@sed -i 's/@GUIDANCE_FW_RPROC_COMMAND@/$(GUIDANCE_FW_RPROC_COMMAND)/' \

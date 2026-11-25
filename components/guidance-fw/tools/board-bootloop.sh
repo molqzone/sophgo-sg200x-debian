@@ -2,7 +2,7 @@
 # Autonomous M2 cold-boot stress.  Runs once per Linux boot, reads the crash
 # page, and reboots until 100 boots or the first crash record.
 set -u
-# Give guidance-release / remoteproc time to bring the C906L up.
+# Give load-systemko / remoteproc time to bring the C906L up.
 sleep 30
 COUNT_FILE=/root/bootloop.count
 LOG_FILE=/root/bootloop.log

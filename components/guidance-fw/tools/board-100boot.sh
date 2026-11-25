@@ -27,7 +27,7 @@ wait_rproc() {
     # The board's multi-user target can stay in "starting"; bring the core up
     # explicitly when the automatic release has not run yet.
     if [ "$attempt" -eq 6 ]; then
-      # The image's guidance-release/c906-core-run job can stay queued behind
+      # The image's load-systemko job can stay queued behind
       # the graphical target.  Start the core directly; the test only needs the
       # C906L running, not the vision application.
       "${SSH[@]}" "echo $PASS | sudo -S sh -c 'sync; nohup /usr/bin/rtos-mode remoteproc >/tmp/rtos-direct.log 2>&1 &'" >/dev/null 2>&1 || true

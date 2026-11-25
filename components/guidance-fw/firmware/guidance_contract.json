@@ -45,8 +45,6 @@
   },
   "command": {
     "magic": 826559815,
-    "ping": 1,
-    "led": 2,
     "vision": 4,
     "rejected": 4294967295
   },
