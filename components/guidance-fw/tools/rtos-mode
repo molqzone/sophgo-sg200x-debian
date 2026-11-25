@@ -59,6 +59,14 @@ wait_firmware_console() {
 	return 1
 }
 
+wipe_shared_page() {
+	# The C906L may reuse a page whose magic is still valid even if a previous
+	# Linux writer corrupted its geometry.  A reboot does not clear DRAM; wipe the
+	# page before releasing the core so the firmware's Format() always starts from
+	# a cold page.  The UIO map exists from the DTS, before the core runs.
+	python3 -c 'import mmap,os; f=os.open("/dev/uio0", os.O_RDWR|os.O_SYNC); m=mmap.mmap(f,4096,offset=4096); m[:]=b"\0"*4096; m.flush(); m.close(); os.close(f)' 2>/dev/null || true
+}
+
 start_remoteproc() {
 	stop_media_chain
 	# Explicit insmod does not need to remove the blacklist. Keep it in
@@ -70,6 +78,7 @@ start_remoteproc() {
 		echo "Missing /lib/firmware/c906-mcu.elf" >&2
 		exit 1
 	}
+	wipe_shared_page
 	insmod "$KO_DIR/cvitek-mailbox.ko"
 	insmod "$KO_DIR/cvitek_remoteproc.ko"
 	modprobe virtio_rpmsg_bus 2>/dev/null || true
