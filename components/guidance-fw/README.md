@@ -190,8 +190,12 @@ through `/dev/uioN`.
 services are up), calls `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
-media chain without stopping the remote processor.  The vendor `load-systemko`
-hook is installed as a no-op so it cannot release a second time.  It does
+media chain without stopping the remote processor.  Before that media load it
+waits for the firmware console descriptor (magic from
+`guidance_contract.json`): `remoteproc running` is not "firmware ready", and
+loading `cv181x_base` while the S-mode bring-up is still configuring clocks can
+wedge the SoC.  The vendor `load-systemko` hook is installed as a no-op so it
+cannot release a second time.  It does
 **not** format the page: the core that writes the page builds it at bring-up,
 and `cop status` reports the state instead of inventing one.
 
