@@ -63,7 +63,7 @@ clean without it.
 
 这台板子上没有第二个人会 drain（`park` 已删），所以镜像里**没有任何** `stop`：
 `load-systemko` 的 drop-in 没有 `ExecStop`，`rtos-mode` 没有 `stop` 动词，
-`deploy_rtos_fw.sh` 拒绝在核运行时停核并要求断电换固件。要恢复 partial reset，就得先把
+`components/guidance-fw/tools/deploy_rtos_fw.sh` 拒绝在核运行时停核并要求断电换固件。要恢复 partial reset，就得先把
 drain 拿回来——放在固件里（按大核存活自停）或放在工具里（从 Linux 写 DMAC 的 CHEN/CHABORT
 再等通道停稳），而不是加一句 `echo stop`。
 

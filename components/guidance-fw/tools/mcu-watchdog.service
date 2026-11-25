@@ -1,0 +1,19 @@
+[Unit]
+Description=Ping the little core over its doorbell and restart it if it stops answering
+After=local-fs.target
+
+[Service]
+Type=simple
+# 启动后先静一会儿，让从核有机会起来；真正动手前脚本还要求"先见到过一次回执"。
+# Sit still for a while so the core has a chance to come up; the script additionally requires
+# "seen at least one reply" before it will act.
+ExecStartPre=/bin/sleep 30
+Environment=MCU_WATCHDOG_FAILS=3
+Environment=MCU_WATCHDOG_PERIOD=2
+Environment=MCU_WATCHDOG_RECOVER=0
+ExecStart=/usr/local/sbin/mcu-watchdog.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -55,6 +55,12 @@ ports/osdrv/patches/        0001-cmdqu-allow-user-commands.patch (doorbell)
                             0002-cmdqu-notify-event.patch (notification wait)
 tools/rtos-mode              board tool: start the C906L remoteproc at boot
 tools/cop                    board tool: page status/dump/log/format, typed commands
+tools/deploy_rtos_fw.sh      board tool: install an ELF and reboot into it
+tools/deploy.conf            board ownership applied before the core starts
+tools/mcu-watchdog.{sh,service}, install-mcu-watchdog.sh
+                             board-side core watchdog
+tools/board-100boot.sh, board-bootloop.{sh,service}
+                             whole-board cold-boot stress
 linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
                              boot drop-in template: start the rproc in the mode
                              the board's boot policy picks

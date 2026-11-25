@@ -1,0 +1,8 @@
+[Unit]
+Description=M2 cold-boot crash-record stress
+[Service]
+Type=oneshot
+ExecStart=/root/bootloop.sh
+
+[Install]
+WantedBy=multi-user.target
