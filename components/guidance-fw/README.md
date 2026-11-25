@@ -186,8 +186,8 @@ through `/dev/uioN`.
 
 ## Boot order
 
-`guidance-release.service` runs after `multi-user.target` (all mounts and
-services are up), calls `rtos-mode remoteproc`, which loads
+`guidance-release.service` runs synchronously after `multi-user.target` (all mounts
+and services are up), calls `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
 media chain without stopping the remote processor.  Before that media load it

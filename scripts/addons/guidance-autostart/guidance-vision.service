@@ -10,7 +10,7 @@ After=guidance-release.service
 # or two and the camera then fails in `CVI_SYS_Init` (measured: 1 module at boot, 13 when run
 # by hand).  `RequiresMountsFor` makes systemd prepare the mount first.
 RequiresMountsFor=/mnt/system
-Wants=guidance-release.service
+Requires=guidance-release.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

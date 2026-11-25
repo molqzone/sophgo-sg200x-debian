@@ -48,11 +48,11 @@ wait_firmware_console() {
 	# published the console descriptor before loading modules that reprogram clocks.
 	# The magic/address come from the image-installed contract, not a second copy.
 	contract=/lib/firmware/guidance_contract.json
-	magic=$(python3 -c 'import json,sys; print(hex(json.load(open(sys.argv[1]))["console"]["magic"]))' "$contract" 2>/dev/null || echo 0x474F4C43)
+	magic=$(python3 -c 'import json,sys; print("0x%08X" % json.load(open(sys.argv[1]))["console"]["magic"])' "$contract" 2>/dev/null || echo 0x474F4C43)
 	addr=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(hex(c["console"]["phys"] + c["console"]["descriptor_offset"]))' "$contract" 2>/dev/null || echo 0x8FFDB004)
 	for _ in $(seq 1 300); do
-		value=$(busybox devmem "$addr" 32 2>/dev/null || true)
-		[ "$value" = "$magic" ] && return 0
+		value=$(busybox devmem "$addr" 32 2>/dev/null | tr 'a-f' 'A-F' || true)
+		[ "$value" = "$(printf '%s' "$magic" | tr 'a-f' 'A-F')" ] && return 0
 		sleep 0.1
 	done
 	echo "C906L console page did not appear" >&2
