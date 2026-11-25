@@ -53,9 +53,11 @@ tools/mcu-watchdog.{sh,service}, install-mcu-watchdog.sh
 tools/board-100boot.sh, board-bootloop.{sh,service}
                              whole-board cold-boot stress
 tools/acceptance.sh          delivery acceptance: rate/guidance/doorbell x 4 boots
-linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
-                             policy template kept for validate.py; the image does
-                             not install it (release runs after multi-user)
+linux/systemd/guidance-release.service.in
+                             the only release unit; after multi-user, rendered
+                             from GUIDANCE_FW_LOADER
+linux/systemd/load-systemko-none.conf
+                             the only load-systemko override: ExecStart=/bin/true
 linux/modprobe.d/guidance-uio.conf   uio_pdrv_genirq of_id=generic-uio
 linux/modules-load.d/guidance-uio.conf  load that module at boot
 ```
@@ -74,8 +76,9 @@ the vendor reference implementation.
 
 `firmware/` is the product firmware, not an inert sample: it builds the page,
 publishes telemetry and answers the doorbell.  `guidance-fw` owns the artifact,
-contract, `cop` and `rtos-mode`; `guidance-autostart` owns the single release
-unit (`guidance-release.service`, after multi-user) and the vision application.
+contract, `cop`, `rtos-mode`, the single release unit
+(`guidance-release.service`, after multi-user) and the load-systemko no-op;
+`guidance-autostart` owns only the vision application.
 
 The page base is the one fact the two sides hand over: build the firmware with the
 same value this image declares in `configs/maixcam/memmap.py`, and the ELF, the

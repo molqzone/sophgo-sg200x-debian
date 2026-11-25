@@ -61,7 +61,7 @@ on the board; the measurements are in the tag message of the respective reposito
 | `/usr/local/bin/loadmedia.sh` | 相机内核模块加载 |
 | `/usr/local/bin/guidance-core-{guard,health}.sh` | 放核守卫与健康标记 |
 | `/etc/systemd/system/guidance-{core,vision,health}.*` | 三个单元 |
-| `/etc/systemd/system/load-systemko.service.d/50-guidance-autostart.conf` | 把厂商放核变成空操作 |
+| `/etc/systemd/system/load-systemko.service.d/50-guidance-fw.conf` | 把厂商放核变成空操作（归 guidance-fw） |
 
 放核顺序（**只有一个放核入口，且发生在相机启动之前**）：
 

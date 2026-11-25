@@ -22,7 +22,7 @@ RemainAfterExit=yes
 # Leave systemd's job queue: `rtos-mode` calls `/etc/init.d/load-systemko.sh start`, a unit
 # driving systemd again.  `systemd-run --no-block` submits it as its own transaction so this
 # unit returns immediately instead of waiting on itself.
-ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode remoteproc
+ExecStart=/usr/bin/systemd-run --no-block --unit=c906-core-run /usr/bin/rtos-mode @GUIDANCE_FW_RPROC_COMMAND@
 ExecStartPost=/bin/sh -c 'for i in $(seq 1 150); do for d in /sys/class/remoteproc/*/; do [ "$(cat $d/name 2>/dev/null)" = cv181x-c906_1 ] && [ "$(cat $d/state 2>/dev/null)" = running ] && exit 0; done; sleep 0.2; done; echo "C906L did not reach running"; exit 1'
 TimeoutStartSec=60
 

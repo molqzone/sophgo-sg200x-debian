@@ -33,7 +33,7 @@ ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
 # 按目标路径找，别按下标：manifest 会增删条目，下标会让测试悄悄测错文件。
 # Look up by destination, never by index: the manifest grows, and an index would make
 # these tests quietly check the wrong file.
-DROPIN = next(target for target in dev_sync.TARGETS if target.render)
+RELEASE = next(target for target in dev_sync.TARGETS if target.render)
 SCRIPTS = REPO_ROOT / "scripts"
 
 
@@ -63,15 +63,14 @@ class ManifestTests(unittest.TestCase):
                 self.assertNotEqual(target.restart, "load-systemko.service")
 
     def test_only_what_needs_a_power_cycle_says_so(self) -> None:
-        # ELF 与 drop-in 只在放核时被读，而这个镜像没有 stop 路径 → 只能下次上电生效。
+        # ELF 与 release unit 只在放核时被读，而这个镜像没有 stop 路径 → 只能下次上电生效。
         # 契约 JSON 相反：cop/bootlogd 每次调用都重新读，改完立刻生效。
-        # The ELF and the drop-in are read when the core is released, and there is no stop
+        # The ELF and the release unit are read when the core is released, and there is no stop
         # path, so they need a power cycle; the contract JSON is read per invocation, so it
         # takes effect immediately.
         by_destination = {t.destination: t for t in dev_sync.TARGETS}
         for destination in ("/lib/firmware/c906-mcu.elf",
-                            "/etc/systemd/system/load-systemko.service.d/"
-                            "20-guidance-fw.conf"):
+                            "/etc/systemd/system/guidance-release.service"):
             with self.subTest(destination=destination):
                 self.assertIn("power cycle", by_destination[destination].note)
         self.assertIn("already in effect",
@@ -80,18 +79,18 @@ class ManifestTests(unittest.TestCase):
 
 class RenderTests(unittest.TestCase):
     def test_load_renders_remoteproc(self) -> None:
-        text = dev_sync.render(DROPIN.source,
+        text = dev_sync.render(RELEASE.source,
                                {"GUIDANCE_FW_RPROC_MODE": "load"}).decode()
-        self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", text)
+        self.assertIn("rtos-mode remoteproc\n", text)
         self.assertNotIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
 
     def test_attach_renders_attach(self) -> None:
-        text = dev_sync.render(DROPIN.source,
+        text = dev_sync.render(RELEASE.source,
                                {"GUIDANCE_FW_RPROC_MODE": "attach"}).decode()
-        self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", text)
+        self.assertIn("rtos-mode attach\n", text)
 
     @unittest.skipIf(shutil.which("make") is None, "make is not available")
-    def test_the_rendered_drop_in_matches_what_the_image_builds(self) -> None:
+    def test_the_rendered_release_matches_what_the_image_builds(self) -> None:
         # 两条路（镜像与 dev sync）必须装出同一份文件，否则“快路径”会悄悄偏离“发布路径”。
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -113,9 +112,8 @@ class RenderTests(unittest.TestCase):
                  str(build / "guidance-fw-stamp")],
                 cwd=SCRIPTS, check=True, capture_output=True, text=True,
             )
-            installed = (rootfs / "etc/systemd/system/load-systemko.service.d/"
-                         "20-guidance-fw.conf").read_bytes()
-        rendered = dev_sync.render(DROPIN.source,
+            installed = (rootfs / "etc/systemd/system/guidance-release.service").read_bytes()
+        rendered = dev_sync.render(RELEASE.source,
                                    {"GUIDANCE_FW_RPROC_MODE": "load"})
         self.assertEqual(rendered, installed)
 
@@ -147,10 +145,10 @@ class CardRootTests(unittest.TestCase):
         self.assertTrue(tool.stat().st_mode & 0o111)
         contract = self.root / "lib/firmware/guidance_contract.json"
         self.assertTrue(contract.is_file())
-        dropin = (self.root / "etc/systemd/system/load-systemko.service.d/"
-                  "20-guidance-fw.conf")
-        self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n",
-                      dropin.read_text(encoding="utf-8"))
+        release = self.root / "etc/systemd/system/guidance-release.service"
+        self.assertIn("rtos-mode remoteproc\n", release.read_text(encoding="utf-8"))
+        self.assertFalse((self.root / "etc/systemd/system/load-systemko.service.d/"
+                          "20-guidance-fw.conf").exists())
 
     def test_a_new_unit_is_enabled_not_just_copied(self) -> None:
         # boot-time.service 只有被 enable 过才会在下次启动跑；把文件拷过去而不 enable，

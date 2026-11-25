@@ -29,7 +29,7 @@ from plan import PlanError  # noqa: E402
 
 ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
 TOOL = REPO_ROOT / "components/guidance-fw/tools/rtos-mode"
-TEMPLATE = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
+TEMPLATE = REPO_ROOT / validate.GUIDANCE_RELEASE_TEMPLATE
 SCRIPTS = REPO_ROOT / "scripts"
 
 
@@ -55,8 +55,8 @@ def render(loader: str) -> str:
              str(build / "guidance-fw-stamp")],
             cwd=SCRIPTS, check=True, capture_output=True, text=True,
         )
-        return (rootfs / "etc/systemd/system/load-systemko.service.d/"
-                "20-guidance-fw.conf").read_text(encoding="utf-8")
+        return (rootfs / "etc/systemd/system/guidance-release.service").read_text(
+            encoding="utf-8")
 
 
 def tool_arguments() -> set[str]:
@@ -72,10 +72,10 @@ def tool_arguments() -> set[str]:
 class DropinRenderingTests(unittest.TestCase):
     def test_load_renders_remoteproc(self) -> None:
         # 策略说“Linux 写固件并起核”，rtos-mode 里那条分支叫 remoteproc。
-        self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", render("load"))
+        self.assertIn("rtos-mode remoteproc\n", render("load"))
 
     def test_fsbl_renders_attach(self) -> None:
-        self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", render("fsbl"))
+        self.assertIn("rtos-mode attach\n", render("fsbl"))
 
     def test_nothing_is_left_unsubstituted(self) -> None:
         self.assertNotIn("@GUIDANCE_FW_RPROC_COMMAND@", render("load"))
@@ -85,7 +85,7 @@ class DropinRenderingTests(unittest.TestCase):
         self.assertNotIn("load", arms)
         for mode in ("remoteproc", "fsbl"):
             command = re.search(
-                r"^ExecStart=/usr/bin/rtos-mode (\S+)$", render(mode), re.MULTILINE
+                r"^ExecStart=.*rtos-mode (\S+)$", render(mode), re.MULTILINE
             )
             self.assertIsNotNone(command)
             self.assertIn(command.group(1), arms)

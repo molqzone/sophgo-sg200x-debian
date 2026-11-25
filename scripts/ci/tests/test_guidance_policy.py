@@ -28,8 +28,8 @@ def policy(**overrides: str) -> dict[str, str]:
     return settings
 
 
-def generate_dropin(loader: str) -> str:
-    """Run the real addon into a temp rootfs and return the installed drop-in."""
+def generate_release(loader: str) -> str:
+    """Run the real addon into a temp rootfs and return the release unit."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         build = root / "build"
@@ -50,8 +50,8 @@ def generate_dropin(loader: str) -> str:
              str(build / "guidance-fw-stamp")],
             check=True, capture_output=True, text=True,
         )
-        return (rootfs / "etc/systemd/system/load-systemko.service.d/"
-                "20-guidance-fw.conf").read_text(encoding="utf-8")
+        return (rootfs / "etc/systemd/system/guidance-release.service").read_text(
+            encoding="utf-8")
 
 
 class BootPolicyTests(unittest.TestCase):
@@ -101,49 +101,51 @@ class BootPolicyTests(unittest.TestCase):
             validate.check_guidance_boot_policy(PRODUCTION, text)
 
 
-class DropinGenerationTests(unittest.TestCase):
-    """The drop-in is generated from the policy, not committed with a baked-in mode."""
+class ReleaseUnitTests(unittest.TestCase):
+    """The release unit is generated from the policy, after multi-user."""
 
     def setUp(self) -> None:
         if shutil.which("make") is None:
             self.skipTest("make is not available")
 
     def test_remoteproc_policy_generates_remoteproc(self) -> None:
-        dropin = generate_dropin("remoteproc")
-        self.assertIn("ExecStart=/usr/bin/rtos-mode remoteproc\n", dropin)
-        self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", dropin)
+        release = generate_release("remoteproc")
+        self.assertIn("rtos-mode remoteproc\n", release)
+        self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", release)
+        self.assertIn("After=multi-user.target", release)
 
     def test_fsbl_loader_generates_attach(self) -> None:
-        dropin = generate_dropin("fsbl")
-        self.assertIn("ExecStart=/usr/bin/rtos-mode attach\n", dropin)
+        release = generate_release("fsbl")
+        self.assertIn("rtos-mode attach\n", release)
 
     def test_the_firmware_owns_the_page_format(self) -> None:
         # 页由固件在 bring-up 里建立（`Format()` 以 clean+invalidate 收尾）。Linux 不再
         # 格式化：那一步曾经是必需的，因为固件只校验、不建立非全零页。
-        dropin = generate_dropin("remoteproc")
-        self.assertNotIn("ExecStartPre=", dropin)
-        self.assertNotIn("cop format", dropin)
+        release = generate_release("remoteproc")
+        self.assertNotIn("ExecStartPre=", release)
+        self.assertNotIn("cop format", release)
 
     def test_core_has_no_stop_path(self) -> None:
         # 小核的生命周期由 SoC 复位兜底，镜像**不**写 `stop`：实测对正在跑 SPI 采样的
         # C906L 写 `stop` 会把整块板子挂死（只能断电），所以这里连“可以停一下”的
         # 接口都不留。见 docs/shutdown-behaviour.md。
-        dropin = generate_dropin("remoteproc")
-        self.assertNotIn("ExecStop=", dropin.split("ExecStopPost=")[0])
+        release = generate_release("remoteproc")
+        self.assertNotIn("ExecStop=", release.split("ExecStopPost=")[0])
         tool = (COMPONENT / "tools/rtos-mode").read_text(encoding="utf-8")
         self.assertNotIn("CHABORT", tool)
         self.assertNotIn("\tstop)\n", tool)
         self.assertNotIn("printf stop", tool)
 
     def test_the_core_is_not_gated_on_a_target_that_cycles(self) -> None:
-        # `After=network-online.target` 与清掉的 `Before=NetworkManager.service` 成环，
-        # systemd 会把 load-systemko 的 start 任务删掉——核永远不起来。
+        # Release is after multi-user; it must not gate network or rely on clearing
+        # a vendor unit's Before= (the empty assignment did not clear it in practice).
         directives = [
-            line for line in generate_dropin("remoteproc").splitlines()
+            line for line in generate_release("remoteproc").splitlines()
             if line and not line.startswith("#")
         ]
         self.assertNotIn("After=network-online.target", directives)
-        self.assertIn("Before=", directives)
+        self.assertNotIn("Before=network-pre.target", directives)
+        self.assertIn("After=multi-user.target", directives)
 
     def test_there_is_no_park_command_left(self) -> None:
         # 停机路径不需要固件配合（见 docs/shutdown-behaviour.md），所以契约与工具里
@@ -163,13 +165,15 @@ class DropinGenerationTests(unittest.TestCase):
         # The placeholder is the *command*: the policy's load/attach are not rtos-mode
         # subcommands, and substituting one produced `rtos-mode load` -- usage, exit 2,
         # core never released.
-        template = REPO_ROOT / validate.GUIDANCE_DROPIN_TEMPLATE
+        template = REPO_ROOT / validate.GUIDANCE_RELEASE_TEMPLATE
         self.assertTrue(template.is_file())
         text = template.read_text(encoding="utf-8")
         self.assertIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
         self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", text)
-        self.assertFalse(template.with_suffix("").exists(),
-                         "the baked-in drop-in must not come back")
+        self.assertFalse(
+            (REPO_ROOT / "components/guidance-fw/linux/systemd/"
+             "load-systemko.service.d/20-guidance-fw.conf.in").exists(),
+            "the early-release drop-in must not come back")
 
     def test_rtos_mode_implements_the_mode_the_policy_can_pick(self) -> None:
         tool = (COMPONENT / "tools/rtos-mode").read_text(encoding="utf-8")

@@ -1,5 +1,6 @@
 GUIDANCE_FW_COMPONENT := $(COMPONENTS_ROOT)/guidance-fw
-GUIDANCE_FW_DROPIN_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
+GUIDANCE_FW_RELEASE_IN := $(GUIDANCE_FW_COMPONENT)/linux/systemd/guidance-release.service.in
+GUIDANCE_FW_LOAD_SYSTEMKO_NOOP := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-systemko-none.conf
 GUIDANCE_FW_FIRMWARE_DIR := $(GUIDANCE_FW_COMPONENT)/firmware
 GUIDANCE_FW_FIRMWARE_ELF := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.elf
 GUIDANCE_FW_FIRMWARE_BIN := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.bin
@@ -21,7 +22,8 @@ $(BUILDDIR)/guidance-fw-build-stamp:
 
 $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 	@echo "$(COLOUR_GREEN)Installing guidance-fw firmware for $(BOARD)$(END_COLOUR)"
-	@install -d "$(ROOTFS)/lib/firmware" "$(ROOTFS)/usr/bin"
+	@install -d "$(ROOTFS)/lib/firmware" "$(ROOTFS)/usr/bin" \
+		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d"
 	@install -m 0644 "$(GUIDANCE_FW_FIRMWARE_ELF)" \
 		"$(ROOTFS)/lib/firmware/c906-mcu.elf"
 	@install -m 0755 "$(GUIDANCE_FW_COMPONENT)/tools/rtos-mode" \
@@ -29,20 +31,20 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 		"$(ROOTFS)/usr/bin/"
 	@install -m 0644 "$(GUIDANCE_FW_CONTRACT)" \
 		"$(ROOTFS)/lib/firmware/guidance_contract.json"
-	# 20- 是策略模板；guidance-autostart 的 50- 把它变成空操作，实际放核在
-	# multi-user 之后的 guidance-release。保留 20- 只为让 boot-policy 测试仍能
-	# 对着模板检查 rtos-mode 参数。
-	# 20- is the policy template; guidance-autostart's 50- neutralises it and the
-	# actual release runs in guidance-release after multi-user.
-	@install -D -m 0644 "$(GUIDANCE_FW_DROPIN_IN)" \
-		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
-	@sed -i 's/@GUIDANCE_FW_RPROC_COMMAND@/$(GUIDANCE_FW_RPROC_COMMAND)/' \
-		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
-	@grep -q "^ExecStart=/usr/bin/rtos-mode $(GUIDANCE_FW_RPROC_COMMAND)$$" \
-		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
+	# 唯一的放核单元：after multi-user，参数由 GUIDANCE_FW_LOADER 映射；
+	# 厂商 load-systemko 由 50- 空操作，避免第二次放核。
+	# The single release unit: after multi-user, with the rtos-mode argument mapped
+	# from GUIDANCE_FW_LOADER.  The vendor load-systemko is neutralised by 50-.
+	@sed 's|@GUIDANCE_FW_RPROC_COMMAND@|$(GUIDANCE_FW_RPROC_COMMAND)|' \
+		"$(GUIDANCE_FW_RELEASE_IN)" > \
+		"$(ROOTFS)/etc/systemd/system/guidance-release.service"
+	@grep -q "^ExecStart=.*rtos-mode $(GUIDANCE_FW_RPROC_COMMAND)$$" \
+		"$(ROOTFS)/etc/systemd/system/guidance-release.service"
 	@awk -v c='$(GUIDANCE_FW_RPROC_COMMAND)' '$$0 == "\t" c ")" { found = 1 } \
 		END { exit !found }' "$(GUIDANCE_FW_COMPONENT)/tools/rtos-mode" || \
 		{ echo "rtos-mode has no '$(GUIDANCE_FW_RPROC_COMMAND)' subcommand" >&2; exit 1; }
+	@install -D -m 0644 "$(GUIDANCE_FW_LOAD_SYSTEMKO_NOOP)" \
+		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/50-guidance-fw.conf"
 	@install -D -m 0644 \
 		"$(GUIDANCE_FW_COMPONENT)/linux/modprobe.d/guidance-uio.conf" \
 		"$(ROOTFS)/etc/modprobe.d/guidance-uio.conf"
@@ -52,4 +54,6 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 	@install -D -m 0644 \
 		"$(GUIDANCE_FW_COMPONENT)/linux/udev/60-guidance-uio.rules" \
 		"$(ROOTFS)/etc/udev/rules.d/60-guidance-uio.rules"
+	@mkdir -p "$(ROOTFS)/tmp/install"
+	@echo " guidance-release.service" >> "$(ROOTFS)/tmp/install/systemd-enable"
 	@touch $@

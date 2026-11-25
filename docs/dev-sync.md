@@ -35,7 +35,8 @@ differs, then reloads systemd and restarts only what can be restarted safely.
 | `scripts/addons/bootlog/bootlog-snap.service` | `/etc/systemd/system/` |
 | `components/guidance-fw/tools/rtos-mode` | `/usr/bin/rtos-mode` |
 | `components/guidance-fw/tools/cop` | `/usr/bin/cop` |
-| `components/guidance-fw/linux/systemd/…/20-guidance-fw.conf.in` | `/etc/systemd/system/load-systemko.service.d/`（按板级设置渲染） |
+| `components/guidance-fw/linux/systemd/guidance-release.service.in` | `/etc/systemd/system/guidance-release.service`（按板级设置渲染，下次上电生效） |
+| `components/guidance-fw/linux/systemd/load-systemko-none.conf` | `/etc/systemd/system/load-systemko.service.d/50-guidance-fw.conf` |
 | `components/guidance-fw/firmware/guidance_contract.json` | `/lib/firmware/`（下次调用就生效） |
 | `components/guidance-fw/firmware/c906-mcu.elf` | `/lib/firmware/`（**下次上电**才生效） |
 

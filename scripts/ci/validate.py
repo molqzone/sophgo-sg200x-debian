@@ -54,9 +54,11 @@ GUIDANCE_DOORBELL_OWNERS = ("rtos_cmdqu", "uio")
 BOOTLOG_DAEMON = "scripts/addons/bootlog/bootlogd"
 BOOTLOG_ADDON = "scripts/addons/bootlog/addon.mk"
 BOOTLOG_SERVICE = "scripts/addons/bootlog/bootlog-snap.service"
-GUIDANCE_DROPIN_TEMPLATE = (
-    "components/guidance-fw/linux/systemd/load-systemko.service.d/"
-    "20-guidance-fw.conf.in"
+GUIDANCE_RELEASE_TEMPLATE = (
+    "components/guidance-fw/linux/systemd/guidance-release.service.in"
+)
+GUIDANCE_VISION_SERVICE = (
+    "scripts/addons/guidance-autostart/guidance-vision.service"
 )
 RESERVED_MEM_OWNED_NAME = re.compile(
     r"^\+\s*char\s+name\[(?P<size>\d+)\];", re.MULTILINE
@@ -753,7 +755,8 @@ def validate_component() -> None:
         "ports/osdrv/patches/0001-cmdqu-allow-user-commands.patch",
         "tools/rtos-mode",
         "tools/cop",
-        "linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in",
+        "linux/systemd/guidance-release.service.in",
+        "linux/systemd/load-systemko-none.conf",
         "README.md",
     )
     for name in required:
@@ -807,14 +810,24 @@ def check_guidance_boot_policy(settings: dict[str, str], dts_text: str) -> None:
 def validate_guidance_boot_policy(
     config_root: Path, entries: list[dict[str, object]]
 ) -> None:
-    template = REPO_ROOT / GUIDANCE_DROPIN_TEMPLATE
+    template = REPO_ROOT / GUIDANCE_RELEASE_TEMPLATE
     if not template.is_file():
-        fail(f"guidance drop-in template is missing: {template}")
-    if "@GUIDANCE_FW_RPROC_COMMAND@" not in template.read_text(encoding="utf-8"):
+        fail(f"guidance release template is missing: {template}")
+    text = template.read_text(encoding="utf-8")
+    if "@GUIDANCE_FW_RPROC_COMMAND@" not in text:
         fail(
-            "the guidance drop-in template must leave the rtos-mode argument to the "
+            "the guidance release template must leave the rtos-mode argument to the "
             "board's boot policy"
         )
+    if "After=multi-user.target" not in text:
+        fail("guidance-release must run after multi-user.target")
+    if "Before=network-pre.target" in text:
+        fail("guidance-release must not gate network-pre.target")
+    vision = REPO_ROOT / GUIDANCE_VISION_SERVICE
+    if not vision.is_file():
+        fail(f"guidance vision unit is missing: {vision}")
+    if "After=guidance-release.service" not in vision.read_text(encoding="utf-8"):
+        fail("guidance-vision must start after guidance-release")
     for entry in entries:
         board = str(entry["board"])
         settings = effective_assignments(config_root, board)
