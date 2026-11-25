@@ -29,8 +29,11 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 		"$(ROOTFS)/usr/bin/"
 	@install -m 0644 "$(GUIDANCE_FW_CONTRACT)" \
 		"$(ROOTFS)/lib/firmware/guidance_contract.json"
-	# 唯一的放核路径：load-systemko 的 ExecStart 被这个 drop-in 换成 rtos-mode。
-	# The single release path: this drop-in replaces load-systemko's ExecStart with rtos-mode.
+	# 20- 是策略模板；guidance-autostart 的 50- 把它变成空操作，实际放核在
+	# multi-user 之后的 guidance-release。保留 20- 只为让 boot-policy 测试仍能
+	# 对着模板检查 rtos-mode 参数。
+	# 20- is the policy template; guidance-autostart's 50- neutralises it and the
+	# actual release runs in guidance-release after multi-user.
 	@install -D -m 0644 "$(GUIDANCE_FW_DROPIN_IN)" \
 		"$(ROOTFS)/etc/systemd/system/load-systemko.service.d/20-guidance-fw.conf"
 	@sed -i 's/@GUIDANCE_FW_RPROC_COMMAND@/$(GUIDANCE_FW_RPROC_COMMAND)/' \

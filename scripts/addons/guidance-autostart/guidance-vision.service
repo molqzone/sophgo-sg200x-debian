@@ -1,8 +1,8 @@
 [Unit]
 Description=Guidance vision app (camera + detector + RTSP + recording)
-# 排在放核之后（放核由 guidance-fw 的 load-systemko drop-in 完成）。
-# Ordered after the release, which guidance-fw's load-systemko drop-in performs.
-After=load-systemko.service
+# 排在放核之后（放核由 multi-user 之后的 guidance-release 完成）。
+# Ordered after the release, which guidance-release performs after multi-user.
+After=guidance-release.service
 # `loadmedia.sh` 从 /mnt/system 里 insmod；挂载还没就位时它只会加载到一两个模块，
 # 相机随后在 `CVI_SYS_Init` 里失败（实测开机只加载到 1 个模块，手动跑则是 13 个）。
 # `RequiresMountsFor` 让 systemd 先把这个挂载点准备好。
@@ -10,7 +10,7 @@ After=load-systemko.service
 # or two and the camera then fails in `CVI_SYS_Init` (measured: 1 module at boot, 13 when run
 # by hand).  `RequiresMountsFor` makes systemd prepare the mount first.
 RequiresMountsFor=/mnt/system
-Wants=load-systemko.service
+Wants=guidance-release.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

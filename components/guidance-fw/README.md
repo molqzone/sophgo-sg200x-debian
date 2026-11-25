@@ -54,8 +54,8 @@ tools/board-100boot.sh, board-bootloop.{sh,service}
                              whole-board cold-boot stress
 tools/acceptance.sh          delivery acceptance: rate/guidance/doorbell x 4 boots
 linux/systemd/load-systemko.service.d/20-guidance-fw.conf.in
-                             boot drop-in template: start the rproc in the mode
-                             the board's boot policy picks
+                             policy template kept for validate.py; the image does
+                             not install it (release runs after multi-user)
 linux/modprobe.d/guidance-uio.conf   uio_pdrv_genirq of_id=generic-uio
 linux/modules-load.d/guidance-uio.conf  load that module at boot
 ```
@@ -74,8 +74,8 @@ the vendor reference implementation.
 
 `firmware/` is the product firmware, not an inert sample: it builds the page,
 publishes telemetry and answers the doorbell.  `guidance-fw` owns the artifact,
-contract, `cop`, `rtos-mode` and the single `load-systemko` drop-in;
-`guidance-autostart` owns only the vision application and camera setup.
+contract, `cop` and `rtos-mode`; `guidance-autostart` owns the single release
+unit (`guidance-release.service`, after multi-user) and the vision application.
 
 The page base is the one fact the two sides hand over: build the firmware with the
 same value this image declares in `configs/maixcam/memmap.py`, and the ELF, the
@@ -183,18 +183,20 @@ through `/dev/uioN`.
 
 ## Boot order
 
-The drop-in `20-guidance-fw.conf` runs `rtos-mode <mode>`, which loads
+`guidance-release.service` runs after `multi-user.target` (all mounts and
+services are up), calls `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
-media chain without stopping the remote processor. It does **not** format the
-page: the core that writes the page builds it at bring-up, and `cop status` reports
-the state instead of inventing one.
+media chain without stopping the remote processor.  The vendor `load-systemko`
+hook is installed as a no-op so it cannot release a second time.  It does
+**not** format the page: the core that writes the page builds it at bring-up,
+and `cop status` reports the state instead of inventing one.
 
 ### Boot policy is a board setting, not a build accident
 
 Three settings in `configs/<board>/settings.mk` decide how the C906L starts; both
-`scripts/Makefile` and `scripts/ci/validate.py` check them, and the drop-in's last
-line is generated from them (the committed file is `20-guidance-fw.conf.in`):
+`scripts/Makefile` and `scripts/ci/validate.py` check them against the board
+settings and DTS; the release unit runs the production `remoteproc` command:
 
 ```make
 GUIDANCE_FW_LOADER=remoteproc        # remoteproc | fsbl
@@ -219,6 +221,5 @@ FIP; `bl2_opt.c`'s `load_blcp_2nd()` reads a zero run address as "No C906L image
 and returns without calling `reset_c906l()`. That is deliberate: the core is
 started only after Linux has finished booting, because U-Boot and the early
 kernel read the SD card over the same shared AXI DMA controller the firmware's
-SPI driver uses. Setting `GUIDANCE_FW_LOADER=fsbl` selects the other path (the BIN
-is handed to the FSBL and the drop-in runs `rtos-mode attach`); it is retained for
-comparison and is known to hang the board after a few minutes.
+SPI driver uses. The `fsbl` path (BIN handed to the FSBL, Linux attaches) is retained for debug
+comparison only and is known to hang the board after a few minutes.
