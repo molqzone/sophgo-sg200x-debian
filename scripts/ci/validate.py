@@ -963,6 +963,29 @@ def _load_cop_module():
     return module
 
 
+def validate_firmware_view(config_root: Path) -> None:
+    """The firmware JSON is a projection of memmap.py; keep the two identical."""
+    view_path = resolve_file(config_root, "maixcam", "firmware-view.json")
+    tool_path = REPO_ROOT / "scripts/board/firmware_view.py"
+    spec = importlib.util.spec_from_file_location("firmware_view", tool_path)
+    if spec is None or spec.loader is None:
+        fail(f"cannot load firmware-view generator: {tool_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    expected = module.build_view(
+        module.load_memmap(resolve_file(config_root, "maixcam", "memmap.py"))
+    )
+    try:
+        actual = json.loads(view_path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        fail(f"invalid firmware-view JSON {view_path}: {error}")
+    if actual != expected:
+        fail(
+            "maixcam: firmware-view.json is stale; regenerate it with "
+            "scripts/board/firmware_view.py --board-dir configs/maixcam"
+        )
+
+
 def validate_guidance_contract(config_root: Path) -> None:
     """The page layout has one owner: enforce that everything else agrees with it.
 
@@ -1188,6 +1211,7 @@ def main() -> int:
         )
         validate_pins((args.output, *args.exclude_path))
         validate_component()
+        validate_firmware_view(config_root)
         validate_guidance_contract(config_root)
         validate_bootlog_ring()
         validate_entropy_seed()

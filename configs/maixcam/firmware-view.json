@@ -1,0 +1,23 @@
+{
+  "board": "maixcam",
+  "dram": {
+    "base": 2147483648,
+    "size": 268435456
+  },
+  "freertos": {
+    "addr": 2413821952,
+    "size": 2097152
+  },
+  "ipc_shared": {
+    "addr": 2415779840,
+    "size": 135168
+  },
+  "pages": {
+    "console": 2415767552,
+    "host_sentinel": 2415915008,
+    "host_sentinel_size": 4096,
+    "page_size": 4096,
+    "shared": 2415771648
+  },
+  "schema": 1
+}
