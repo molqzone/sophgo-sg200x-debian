@@ -1,5 +1,4 @@
-# Local fork of molqzone/cop: the page header no longer carries an abi word.
-# Upstream: https://github.com/molqzone/cop
-repo=local
-commit=worktree
-sha256=1b63e305b3022150f180755fbfdc37c2f316fb3fca163cf0ad66b6dd49308264
+# Built from molqzone/cop at this commit; generic C++ CLI, no Python fallback.
+repo=https://github.com/molqzone/cop
+commit=a876e1ce286b512ee0d36bb949c65ed1afdd5ed3
+sha256=399b532166b9fdf0fc9f16b5d9dc2005dacbddf45e5c4d602a1e2328fb03304d
