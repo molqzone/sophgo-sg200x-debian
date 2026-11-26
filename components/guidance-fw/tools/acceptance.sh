@@ -13,7 +13,6 @@
 set -u
 BOARD=${1:-10.42.0.1}
 SSH="sshpass -p rv ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 debian@${BOARD}"
-CONTRACT=/lib/firmware/guidance_contract.json
 PAYLOAD=0000803f000000000000003f0000003f
 
 fail=0
@@ -60,7 +59,7 @@ run_checks() {
   fi
 
   # 3) 门铃
-  if $SSH "echo rv | sudo -S sh -c 'echo dummy; cop send --contract ${CONTRACT} --type 4 --payload ${PAYLOAD}'" 2>/dev/null | grep -qE 'reply=0x[0-9a-f]+'; then
+  if $SSH "echo rv | sudo -S sh -c 'echo dummy; cop send --type 4 --payload ${PAYLOAD}'" 2>/dev/null | grep -qE 'reply=0x[0-9a-f]+'; then
     say "  [${tag}] 3. 门铃 reply=seq             PASS"; ok=$((ok+1))
   else
     say "  [${tag}] 3. 门铃 reply=seq             FAIL"; fail=$((fail+1))

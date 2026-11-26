@@ -4,7 +4,6 @@ GUIDANCE_FW_LOAD_SYSTEMKO_NOOP := $(GUIDANCE_FW_COMPONENT)/linux/systemd/load-sy
 GUIDANCE_FW_FIRMWARE_DIR := $(GUIDANCE_FW_COMPONENT)/firmware
 GUIDANCE_FW_FIRMWARE_ELF := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.elf
 GUIDANCE_FW_FIRMWARE_BIN := $(GUIDANCE_FW_FIRMWARE_DIR)/c906-mcu.bin
-GUIDANCE_FW_CONTRACT := $(GUIDANCE_FW_FIRMWARE_DIR)/guidance_contract.json
 # 由 scripts/Makefile 的启动策略决定；单独使用本文件时退回默认值。
 # Set by scripts/Makefile's boot policy; a default keeps this file usable on its own.
 # load 与 attach 是策略的取值，不是 rtos-mode 的子命令。映射放在这里，只有一个地方。
@@ -16,7 +15,7 @@ $(BUILDDIR)/guidance-fw-build-stamp:
 	@echo "$(COLOUR_GREEN)Checking guidance-fw firmware for $(BOARD)$(END_COLOUR)"
 	@test -s $(GUIDANCE_FW_FIRMWARE_ELF)
 	@test -s $(GUIDANCE_FW_FIRMWARE_BIN)
-	@test -s $(GUIDANCE_FW_CONTRACT)
+	@test -x $(GUIDANCE_FW_COMPONENT)/tools/cop
 	@cd $(GUIDANCE_FW_FIRMWARE_DIR) && sha256sum -c sha256sums.txt
 	@touch $@
 
@@ -29,8 +28,6 @@ $(BUILDDIR)/guidance-fw-stamp: $(BUILDDIR)/guidance-fw-build-stamp
 	@install -m 0755 "$(GUIDANCE_FW_COMPONENT)/tools/rtos-mode" \
 		"$(GUIDANCE_FW_COMPONENT)/tools/cop" \
 		"$(ROOTFS)/usr/bin/"
-	@install -m 0644 "$(GUIDANCE_FW_CONTRACT)" \
-		"$(ROOTFS)/lib/firmware/guidance_contract.json"
 	# 唯一的放核单元：after multi-user，参数由 GUIDANCE_FW_LOADER 映射；
 	# 厂商 load-systemko 由 50- 空操作，避免第二次放核。
 	# The single release unit: after multi-user, with the rtos-mode argument mapped

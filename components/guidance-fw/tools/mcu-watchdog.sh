@@ -19,13 +19,12 @@ CONF=${MCU_WATCHDOG_FAILS:-3}
 PERIOD=${MCU_WATCHDOG_PERIOD:-2}
 COOLDOWN=${MCU_WATCHDOG_COOLDOWN:-15}
 RECOVER=${MCU_WATCHDOG_RECOVER:-0}
-CONTRACT=/usr/lib/firmware/guidance_contract.json
 PAYLOAD=0000803f000000000000003f0000003f
 
 seen_ok=0
 fails=0
 while true; do
-  if cop send --contract "$CONTRACT" --type 4 --payload "$PAYLOAD" 2>/dev/null | grep -q 'reply='; then
+  if cop send --type 4 --payload "$PAYLOAD" 2>/dev/null | grep -q 'reply='; then
     seen_ok=1
     fails=0
   else

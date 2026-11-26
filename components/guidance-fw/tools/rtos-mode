@@ -46,25 +46,21 @@ start_cmdqu() {
 wait_firmware_console() {
 	# `running` only means the core was released.  Wait until the S-mode app has
 	# published the console descriptor before loading modules that reprogram clocks.
-	# The magic/address come from the image-installed contract, not a second copy.
-	contract=/lib/firmware/guidance_contract.json
-	magic=$(python3 -c 'import json,sys; print("0x%08X" % json.load(open(sys.argv[1]))["console"]["magic"])' "$contract" 2>/dev/null || echo 0x474F4C43)
-	addr=$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(hex(c["console"]["phys"] + c["console"]["descriptor_offset"]))' "$contract" 2>/dev/null || echo 0x8FFDB004)
-	for _ in $(seq 1 300); do
-		value=$(busybox devmem "$addr" 32 2>/dev/null | tr 'a-f' 'A-F' || true)
-		[ "$value" = "$(printf '%s' "$magic" | tr 'a-f' 'A-F')" ] && return 0
-		sleep 0.1
-	done
-	echo "C906L console page did not appear" >&2
-	return 1
+	# The descriptor is self-describing: `cop` reads it from the uio map, so there is
+	# no contract file and no second copy of the magic/offset.
+	cop wait-console --timeout 30 || {
+		echo "C906L console page did not appear" >&2
+		return 1
+	}
 }
 
 wipe_shared_page() {
 	# The C906L may reuse a page whose magic is still valid even if a previous
 	# Linux writer corrupted its geometry.  A reboot does not clear DRAM; wipe the
 	# page before releasing the core so the firmware's Format() always starts from
-	# a cold page.  The UIO map exists from the DTS, before the core runs.
-	python3 -c 'import mmap,os; f=os.open("/dev/uio0", os.O_RDWR|os.O_SYNC); m=mmap.mmap(f,4096,offset=4096); m[:]=b"\0"*4096; m.flush(); m.close(); os.close(f)' 2>/dev/null || true
+	# a cold page.  `cop` maps the "shared" uio entry by its DT name; the page is
+	# still cold, so this is the boot path, not a live-page verb.
+	cop wipe-shared --confirm >/dev/null 2>&1 || true
 }
 
 start_remoteproc() {
