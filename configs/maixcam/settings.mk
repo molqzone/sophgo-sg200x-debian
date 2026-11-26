@@ -45,7 +45,9 @@ FSBL_COMMIT=$(MAIXCAM_FSBL_COMMIT)
 # PACKAGES_DEV and are installed only when ENABLE_DEV_TOOLS=1.  The toolchain was about
 # 40% of the rootfs, and the rootfs size decides both the image size and the flash time.
 ENABLE_DEV_TOOLS ?= 0
-PACKAGES="busybox-static ca-certificates debian-archive-keyring dosfstools sudo bash-completion u-boot-menu openssh-server network-manager dnsmasq-base libpam-systemd iptables usbutils parted exfatprogs systemd-sysv i2c-tools net-tools ethtool gnupg gpiod u-boot-tools libubootenv-tool curl xz-utils nano libcap2-bin python3 fake-hwclock wireless-regdb wpasupplicant"
+ENABLE_WIFI ?= 0
+PACKAGES="busybox-static ca-certificates debian-archive-keyring dosfstools sudo bash-completion u-boot-menu openssh-server dnsmasq-base libpam-systemd iptables usbutils parted exfatprogs systemd-sysv i2c-tools net-tools ethtool gnupg gpiod u-boot-tools libubootenv-tool curl xz-utils nano libcap2-bin python3 fake-hwclock"
+PACKAGES_WIFI="network-manager wireless-regdb wpasupplicant"
 
 
 PACKAGES_DEV="binutils file tree vim rsync git gcc g++ wget zip unzip make gdb cmake \
@@ -56,4 +58,5 @@ PACKAGES_DEV="binutils file tree vim rsync git gcc g++ wget zip unzip make gdb c
  libopencv-core-dev libopencv-imgproc-dev libopencv-imgcodecs-dev libopencv-videoio-dev \
  libopencv-highgui-dev"
 
-IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko rtos-fw sysctl-compat journald-compact systemd-lean wifi-connect time-sync network-services bootlog entropy maixcam-pinmux guidance-autostart"
+IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko rtos-fw sysctl-compat journald-compact systemd-lean time-sync bootlog entropy maixcam-pinmux guidance-autostart"
+IMAGE_ADDITIONS_WIFI="wifi-connect network-services"

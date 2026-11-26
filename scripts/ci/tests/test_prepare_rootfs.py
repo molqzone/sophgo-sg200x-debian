@@ -256,7 +256,7 @@ class RootfsCacheTests(unittest.TestCase):
         rootfs = self.root / "rootfs-target"
         build.mkdir()
         rootfs.mkdir()
-        prepare = self.dry_run("duo256", "sd", build, rootfs,
+        prepare = self.dry_run("licheervnano", "sd", build, rootfs,
                                "%s/image-prepare-stamp" % build)
         self.assertEqual(prepare.returncode, 0, prepare.stderr)
         cache_dir = self.argument(prepare.stdout, "--cache-dir")
@@ -268,7 +268,7 @@ class RootfsCacheTests(unittest.TestCase):
         # `-o` keeps make from descending into the components the stamps stand for, so the
         # dry run prints the customize recipe alone.
         customize = self.dry_run(
-            "duo256", "sd", build, rootfs, "%s/image-customize-stamp" % build,
+            "licheervnano", "sd", build, rootfs, "%s/image-customize-stamp" % build,
             "-o", "%s/image-addons-stamp" % build,
             "-o", "%s/linux-compile-stamp" % build,
             "-o", "%s/fsbl-package-stamp" % build,

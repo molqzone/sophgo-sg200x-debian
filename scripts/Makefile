@@ -51,6 +51,7 @@ VALIDATE_TOOL ?= /workspace/scripts/ci/validate.py
 ENABLE_MEDIA_STACK ?= 0
 ENABLE_GUIDANCE_FW ?= 0
 ENABLE_LOCAL_PINMUX ?= 0
+ENABLE_WIFI ?= 0
 USE_VENDOR_APT ?= 1
 
 BOARD_CHAIN := $(shell python3 $(PLAN_TOOL) --config-root $(CONFIG_ROOT) board-chain --board $(BOARD) --order precedence 2>/dev/null)
@@ -151,13 +152,18 @@ net/wireless
 include $(wildcard /builder/addons/*/addon.mk)
 
 strip-quotes = $(subst ",,$(1))
-addon-targets = $(addprefix $(BUILDDIR)/,$(addsuffix -stamp,$(call strip-quotes,$(IMAGE_ADDITIONS))))
-# 运行时包 + （可选）开发工具链。ENABLE_DEV_TOOLS=1 只是把编译器和 -dev 包装回来，
-# 平时不装：它们约占 rootfs 的 40%，而镜像大小直接决定每次刷写的时间。
-# Runtime packages plus, optionally, the toolchain.  ENABLE_DEV_TOOLS=1 puts the
-# compiler and -dev packages back; they were about 40% of the rootfs.
+_IMAGE_ADDITIONS = $(call strip-quotes,$(IMAGE_ADDITIONS)) \
+	$(if $(filter 1,$(ENABLE_WIFI)),$(call strip-quotes,$(IMAGE_ADDITIONS_WIFI)))
+addon-targets = $(addprefix $(BUILDDIR)/,$(addsuffix -stamp,$(_IMAGE_ADDITIONS)))
+# 运行时包 + （可选）开发工具链 / WiFi 栈。ENABLE_DEV_TOOLS=1 只是把编译器和 -dev 包装回来，
+# 平时不装：它们约占 rootfs 的 40%，而镜像大小直接决定每次刷写的时间；ENABLE_WIFI=1
+# 时才装 NetworkManager/wpa_supplicant 及相关 addon，避免无 WiFi 开发板先装再 mask。
+# Runtime packages plus, optionally, the toolchain or WiFi stack.  ENABLE_DEV_TOOLS=1
+# puts the compiler and -dev packages back; ENABLE_WIFI=1 includes NetworkManager,
+# wpa_supplicant and the WiFi addons instead of installing and masking them later.
 _PACKAGES = $(call strip-quotes,$(PACKAGES)) \
-	$(if $(filter 1,$(ENABLE_DEV_TOOLS)),$(call strip-quotes,$(PACKAGES_DEV)))
+	$(if $(filter 1,$(ENABLE_DEV_TOOLS)),$(call strip-quotes,$(PACKAGES_DEV))) \
+	$(if $(filter 1,$(ENABLE_WIFI)),$(call strip-quotes,$(PACKAGES_WIFI)))
 
 # C906L 启动策略：三件事在构建期定死，不再由“IMAGE_ADDITIONS 里有没有 rtos-fw”
 # 反推 FSBL 输入，也不由 drop-in 里的 ExecStart 在运行时选。变量来自板级 settings.mk
