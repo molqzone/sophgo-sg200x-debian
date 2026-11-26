@@ -17,7 +17,7 @@ ENABLE_GUIDANCE_FW=1
 ENABLE_LOCAL_PINMUX=1
 
 # C906L 启动策略（构建期定死，不在运行时选）：**只剩一个旋钮**——谁放核。
-# scripts/Makefile 据此选 FSBL 输入，addons/guidance-fw/addon.mk 据此生成 systemd
+# scripts/Makefile 据此选 FSBL 输入，addons/rtos-fw/addon.mk 据此生成 systemd
 # drop-in（rtos-mode 的参数由它推导，不是第二个变量），validate.py 再按设备树核对一遍。
 # fsbl 只作 debug 变体（README 记着它会挂），生产用默认值。
 #
@@ -56,4 +56,4 @@ PACKAGES_DEV="binutils file tree vim rsync git gcc g++ wget zip unzip make gdb c
  libopencv-core-dev libopencv-imgproc-dev libopencv-imgcodecs-dev libopencv-videoio-dev \
  libopencv-highgui-dev"
 
-IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko guidance-fw sysctl-compat journald-compact systemd-lean wifi-connect time-sync network-services bootlog entropy maixcam-pinmux guidance-autostart"
+IMAGE_ADDITIONS="maixcam-runtime maixcam-usb maixcam-sensor-config load-systemko rtos-fw sysctl-compat journald-compact systemd-lean wifi-connect time-sync network-services bootlog entropy maixcam-pinmux guidance-autostart"

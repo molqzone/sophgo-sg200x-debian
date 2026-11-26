@@ -1,0 +1,4 @@
+# Built from molqzone/cop at this commit; generic C++ CLI, no Python fallback.
+repo=https://github.com/molqzone/cop
+commit=226c659ccf1bfce7000aaa2cb08c68782fa3ecb2
+sha256=a94fa39ad9f6b5385803697a1a936593686e52262365323ee9f5b5bd133e4363

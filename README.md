@@ -47,12 +47,12 @@ downstream consumers. See [`docs/local-build.md`](docs/local-build.md).
 
 ## Repository layers
 
-- `components/guidance-fw`: product C906L firmware artifacts, CMDQU
+- `components/rtos-fw`: product C906L firmware artifacts, CMDQU
   doorbell kernel patch, and board tools.
 - `configs/common`: settings and patches shared by every board.
 - `configs/<upstream-board>`: the original board configuration.
 - `configs/maixcam`: an exact board layer derived from `licheervnano`.
-- `scripts/addons/guidance-fw`: image integration that installs the firmware, tools, and boot drop-in.
+- `scripts/addons/rtos-fw`: image integration that installs the firmware, tools, and boot drop-in.
 - `scripts/ci`: commands shared by local builds and GitHub Actions.
 
 Board files resolve in exact-board, base-board, then common precedence. Patches

@@ -14,7 +14,7 @@ on the board; the measurements are in the tag message of the respective reposito
 | libxr | submodule of both apps | `9193bd2` |
 | Shared page | submodule `shared-page-xr` | `2b3db3b` |
 | Image | `sophgo-sg200x-debian` @ `main` | `3de8796` |
-| Vendor firmware (baseline.elf) | `components/guidance-fw/firmware/c906-mcu.elf` | `02f36c3a` |
+| Vendor firmware (baseline.elf) | `components/rtos-fw/firmware/c906-mcu.elf` | `02f36c3a` |
 
 ## What this baseline is known to do
 
@@ -61,7 +61,7 @@ on the board; the measurements are in the tag message of the respective reposito
 | `/usr/local/bin/loadmedia.sh` | 相机内核模块加载 |
 | `/usr/local/bin/guidance-core-{guard,health}.sh` | 放核守卫与健康标记 |
 | `/etc/systemd/system/guidance-{core,vision,health}.*` | 三个单元 |
-| `/etc/systemd/system/load-systemko.service.d/50-guidance-fw.conf` | 把厂商放核变成空操作（归 guidance-fw） |
+| `/etc/systemd/system/load-systemko.service.d/50-rtos-fw.conf` | 把厂商放核变成空操作（归 rtos-fw） |
 
 放核顺序（**只有一个放核入口，且发生在相机启动之前**）：
 

@@ -27,8 +27,8 @@ sys.path.insert(0, str(REPO_ROOT / "scripts/ci"))
 import validate  # noqa: E402
 from plan import PlanError  # noqa: E402
 
-ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
-TOOL = REPO_ROOT / "components/guidance-fw/tools/rtos-mode"
+ADDON = REPO_ROOT / "scripts/addons/rtos-fw/addon.mk"
+TOOL = REPO_ROOT / "components/rtos-fw/tools/rtos-mode"
 TEMPLATE = REPO_ROOT / validate.GUIDANCE_RELEASE_TEMPLATE
 SCRIPTS = REPO_ROOT / "scripts"
 
@@ -52,10 +52,10 @@ def render(loader: str) -> str:
         )
         subprocess.run(
             ["make", "--no-print-directory", "-f", str(makefile),
-             str(build / "guidance-fw-stamp")],
+             str(build / "rtos-fw-stamp")],
             cwd=SCRIPTS, check=True, capture_output=True, text=True,
         )
-        return (rootfs / "etc/systemd/system/guidance-release.service").read_text(
+        return (rootfs / "etc/systemd/system/rtos-release.service").read_text(
             encoding="utf-8")
 
 

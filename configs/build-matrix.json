@@ -4,7 +4,7 @@
       "board": "maixcam-sc035hgs",
       "storage": "sd",
       "format": "img",
-      "components": ["guidance-fw"]
+      "components": ["rtos-fw"]
     }
   ]
 }

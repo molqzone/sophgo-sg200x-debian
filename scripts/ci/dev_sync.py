@@ -61,16 +61,16 @@ TARGETS = (
     Target("scripts/addons/bootlog/boot-time", "/usr/local/sbin/boot-time", 0o755),
     Target("scripts/addons/bootlog/boot-time.service",
            "/etc/systemd/system/boot-time.service", 0o644, enable=True),
-    Target("components/guidance-fw/tools/rtos-mode", "/usr/bin/rtos-mode", 0o755),
-    Target("components/guidance-fw/tools/cop", "/usr/bin/cop", 0o755),
-    Target("components/guidance-fw/linux/systemd/guidance-release.service.in",
-           "/etc/systemd/system/guidance-release.service",
+    Target("components/rtos-fw/tools/rtos-mode", "/usr/bin/rtos-mode", 0o755),
+    Target("components/rtos-fw/tools/cop", "/usr/bin/cop", 0o755),
+    Target("components/rtos-fw/linux/systemd/rtos-release.service.in",
+           "/etc/systemd/system/rtos-release.service",
            0o644, render=True,
            note="takes effect on the next power cycle (there is no stop path)"),
-    Target("components/guidance-fw/linux/systemd/load-systemko-none.conf",
-           "/etc/systemd/system/load-systemko.service.d/50-guidance-fw.conf",
+    Target("components/rtos-fw/linux/systemd/load-systemko-none.conf",
+           "/etc/systemd/system/load-systemko.service.d/50-rtos-fw.conf",
            0o644, note="vendor release stays a no-op"),
-    Target("components/guidance-fw/firmware/c906-mcu.elf",
+    Target("components/rtos-fw/firmware/c906-mcu.elf",
            "/lib/firmware/c906-mcu.elf", 0o644,
            note="takes effect on the next power cycle (there is no stop path)"),
 )
@@ -94,7 +94,7 @@ def remote_command(mode: str) -> str:
     """The rtos-mode subcommand the drop-in must run.
 
     `load` means "Linux writes the firmware and starts the core", which rtos-mode spells
-    `remoteproc`; `attach` is its own name.  addons/guidance-fw/addon.mk holds the same
+    `remoteproc`; `attach` is its own name.  addons/rtos-fw/addon.mk holds the same
     mapping for the image build, and a test keeps the two honest.
     """
     return "attach" if mode == "attach" else "remoteproc"

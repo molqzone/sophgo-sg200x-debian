@@ -198,13 +198,13 @@ def console_ring() -> str:
         for entry in sorted(glob.glob("/sys/class/uio/uio*")):
             try:
                 with open(os.path.join(entry, "name")) as handle:
-                    if handle.read().strip() == "guidance-pages":
+                    if handle.read().strip() == "rtos-pages":
                         path = "/dev/" + os.path.basename(entry)
                         break
             except OSError:
                 continue
         if path is None:
-            return "guidance-pages uio device not found"
+            return "rtos-pages uio device not found"
         fd = os.open(path, os.O_RDWR)
         try:
             view = mmap.mmap(fd, 4096, offset=0)  # map 0 = console page

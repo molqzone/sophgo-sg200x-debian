@@ -62,13 +62,13 @@ class MemoryMap:
     )
 
     # 两个页的物理地址是与固件握手的那一个事实：镜像侧在这里声明一次，固件构建用
-    # SG200X_GUIDANCE_PAGE_BASE 把它拿走（同一个值生成链接脚本、C++ 编译定义与发布的
+    # SG200X_SHARED_PAGE_BASE 把它拿走（同一个值生成链接脚本、C++ 编译定义与发布的
     # guidance_contract.json），固件自己不推导。scripts/ci/validate.py 强制三处相等：
-    # 这两个数、DTS `guidance-pages` 的 reg、以及 guidance-fw 发布的契约 JSON。
+    # 这两个数、DTS `rtos-pages` 的 reg、以及 rtos-fw 发布的契约 JSON。
     # The two page addresses are the single fact shared with the firmware.  The image
     # declares them here; the firmware build is handed the value
-    # (SG200X_GUIDANCE_PAGE_BASE) and derives nothing itself, and validate.py fails the
-    # build unless these numbers, the DTS `guidance-pages` reg and the published
+    # (SG200X_SHARED_PAGE_BASE) and derives nothing itself, and validate.py fails the
+    # build unless these numbers, the DTS `rtos-pages` reg and the published
     # guidance_contract.json all agree.
     GUIDANCE_PAGE_SIZE = 4 * SIZE_1K
     GUIDANCE_SHARED_PAGE_ADDR = 0x8FFDC000

@@ -259,12 +259,12 @@
 	 * 这里只提供 UIO 映射和一个稳定的名字。不带中断：mailbox 的 IRQ 101 归
 	 * cv181x_rtos_cmdqu 独占，固件通知走它的 RTOS_CMDQU_WAIT_EVENT。
 	 */
-	guidance_pages: guidance-pages@8ffdb000 {
+	rtos_pages: rtos-pages@8ffdb000 {
 		compatible = "generic-uio";
 		reg = <0x0 0x8FFDB000 0x0 0x1000>,
 		      <0x0 0x8FFDC000 0x0 0x1000>;
 		reg-names = "console", "shared";
-		linux,uio-name = "guidance-pages";
+		linux,uio-name = "rtos-pages";
 	};
 
 	rtos_cmdqu {

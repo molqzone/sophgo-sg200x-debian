@@ -259,7 +259,7 @@ class PlanTests(unittest.TestCase):
                 "board": "child",
                 "storage": "sd",
                 "format": "img",
-                "components": ["guidance-fw"],
+                "components": ["rtos-fw"],
             }
         ]
         (output / "child_sd.img").write_bytes(b"image")
@@ -493,7 +493,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 "board": board,
                 "storage": "sd",
                 "format": "img",
-                "components": ["guidance-fw"],
+                "components": ["rtos-fw"],
             },
             matrix,
         )

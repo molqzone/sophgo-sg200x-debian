@@ -159,18 +159,18 @@ addon-targets = $(addprefix $(BUILDDIR)/,$(addsuffix -stamp,$(call strip-quotes,
 _PACKAGES = $(call strip-quotes,$(PACKAGES)) \
 	$(if $(filter 1,$(ENABLE_DEV_TOOLS)),$(call strip-quotes,$(PACKAGES_DEV)))
 
-# C906L 启动策略：三件事在构建期定死，不再由“IMAGE_ADDITIONS 里有没有 guidance-fw”
+# C906L 启动策略：三件事在构建期定死，不再由“IMAGE_ADDITIONS 里有没有 rtos-fw”
 # 反推 FSBL 输入，也不由 drop-in 里的 ExecStart 在运行时选。变量来自板级 settings.mk
 # （configs/*/settings.mk），validate.py 再按设备树核对一遍。
 # C906L boot policy, fixed at build time.  It used to be implicit in two places: adding
-# the guidance-fw addon silently flipped the FSBL input, and the drop-in hardcoded which
+# the rtos-fw addon silently flipped the FSBL input, and the drop-in hardcoded which
 # rtos-mode argument ran.  The values come from the board settings; validate.py re-checks
 # them against the device tree.
 GUIDANCE_FW_LOADER ?= remoteproc
-GUIDANCE_FW_ENABLED := $(if $(filter $(BUILDDIR)/guidance-fw-stamp,$(addon-targets)),1,0)
+RTOS_FW_ENABLED := $(if $(filter $(BUILDDIR)/rtos-fw-stamp,$(addon-targets)),1,0)
 
 FSBL_BLCP_2ND_PATH := $(BUILDDIR)/fsbl/blank.bin
-ifeq ($(GUIDANCE_FW_ENABLED),1)
+ifeq ($(RTOS_FW_ENABLED),1)
 ifeq ($(filter $(GUIDANCE_FW_LOADER),remoteproc fsbl),)
 $(error GUIDANCE_FW_LOADER='$(GUIDANCE_FW_LOADER)' must be one of remoteproc|fsbl)
 endif
@@ -179,15 +179,15 @@ ifeq ($(GUIDANCE_FW_LOADER),fsbl)
 # start it again -- rtos-mode attach brings up the vendor stack around a running core.
 # 逃生门：FSBL 已经放核，Linux 只接上厂商栈；已知长时间运行会挂（见 README），
 # 生产镜像不要用。
-FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
-FSBL_BLCP_2ND_PATH := $(COMPONENTS_ROOT)/guidance-fw/firmware/c906-mcu.bin
+FSBL_RTOS_TARGET := $(BUILDDIR)/rtos-fw-build-stamp
+FSBL_BLCP_2ND_PATH := $(COMPONENTS_ROOT)/rtos-fw/firmware/c906-mcu.bin
 else
 # The firmware artifact is still pinned and verified, but it is never handed to
 # the FSBL: embedding it makes the FSBL release the C906L before U-Boot, and
 # U-Boot plus the early kernel then race the firmware over the shared AXI DMA
 # controller they both need.  cvitek_remoteproc loads the ELF and starts the
 # core once Linux has finished booting instead.
-FSBL_RTOS_TARGET := $(BUILDDIR)/guidance-fw-build-stamp
+FSBL_RTOS_TARGET := $(BUILDDIR)/rtos-fw-build-stamp
 # An empty input leaves BLCP_2ND_RUNADDR at zero, and bl2_opt.c's
 # load_blcp_2nd() reads a zero run address as "No C906L image" and returns
 # without calling reset_c906l().  That is the point: the FSBL must not release
@@ -215,7 +215,7 @@ endif
 $(info $(blue)Board: $(BOARD)$(reset))
 $(info $(blue)Storage: $(STORAGE_TYPE)$(reset))
 $(info $(blue)Image Addons: $(IMAGE_ADDITIONS)$(reset))
-ifeq ($(GUIDANCE_FW_ENABLED),1)
+ifeq ($(RTOS_FW_ENABLED),1)
 $(info $(blue)C906L boot: loader $(GUIDANCE_FW_LOADER), doorbell rtos_cmdqu (IRQ 101)$(reset))
 endif
 $(info $(blue)Packages: $(_PACKAGES)$(reset))
@@ -320,7 +320,7 @@ $(BUILDDIR)/osdrv-prepare-patch-stamp: $(BUILDDIR)/osdrv-prepare-checkout-stamp 
 	$(call copy_ko_action, $(BUILDDIR)/kernel/modules)
 	@$(foreach file,$(OSDRV_PATCHES),cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace $(file);)
 	@if [ "$(ENABLE_GUIDANCE_FW)" = "1" ]; then \
-		for file in $(GUIDANCE_FW_COMPONENT)/ports/osdrv/patches/*.patch; do \
+		for file in $(RTOS_FW_COMPONENT)/ports/osdrv/patches/*.patch; do \
 			cd $(BUILDDIR)/osdrv && git apply --ignore-whitespace "$$file"; \
 		done; \
 		grep -Fq '(cmdq->cmd_id >= SYS_CMD_INFO_LIMIT && cmdq->ip_id != IP_SYSTEM)' $(BUILDDIR)/osdrv/interdrv/rtos_cmdqu/rtos_cmdqu.c; \
@@ -875,7 +875,7 @@ cache-status:
 	@printf '  stamps: %s\n' "$$(ls -1 $(BUILDDIR) 2>/dev/null | grep -c 'stamp$$')"
 	@for s in linux-compile-stamp uboot-compile-stamp opensbi-compile-stamp \
 		fsbl-compile-stamp osdrv-compile-stamp middleware-compile-stamp \
-		image-prepare-stamp image-compile-stamp guidance-fw-stamp; do \
+		image-prepare-stamp image-compile-stamp rtos-fw-stamp; do \
 		if [ -e "$(BUILDDIR)/$$s" ]; then echo "  present  $$s"; \
 		else echo "  MISSING  $$s"; fi; done
 

@@ -37,9 +37,9 @@ class CacheInvalidationTests(unittest.TestCase):
         self.assertTrue((self.root / "u-boot").exists())
 
     def test_firmware_invalidates_fsbl_and_rootfs(self) -> None:
-        self.create("guidance-fw-build-stamp", "fsbl", "rootfs", "kernel")
+        self.create("rtos-fw-build-stamp", "fsbl", "rootfs", "kernel")
         cache.invalidate(self.root, "firmware")
-        for name in ("guidance-fw-build-stamp", "fsbl", "rootfs"):
+        for name in ("rtos-fw-build-stamp", "fsbl", "rootfs"):
             self.assertFalse((self.root / name).exists())
         self.assertTrue((self.root / "kernel").exists())
 
@@ -93,7 +93,7 @@ class CacheInvalidationTests(unittest.TestCase):
             "fsbl-prepare-checkout-stamp",
             "fsbl-package-stamp",
             "cvi-pinmux-package-stamp",
-            "guidance-fw-build-stamp",
+            "rtos-fw-build-stamp",
         )
         rootfs_dependent = (
             "image-prepare-stamp",
@@ -102,7 +102,7 @@ class CacheInvalidationTests(unittest.TestCase):
             "image-compile-stamp",
             "maixcam-sensor-config-package-stamp",
             "maixcam-sensor-config-stamp",
-            "guidance-fw-stamp",
+            "rtos-fw-stamp",
         )
         self.create("rootfs", *reusable, *rootfs_dependent)
 
@@ -141,7 +141,7 @@ class CacheInvalidationTests(unittest.TestCase):
     def test_component_inputs_are_split_by_build_layer(self) -> None:
         repo = self.root / "repo"
         config = repo / "configs"
-        component = repo / "components/guidance-fw"
+        component = repo / "components/rtos-fw"
         (config / "common").mkdir(parents=True)
         (config / "board").mkdir(parents=True)
 

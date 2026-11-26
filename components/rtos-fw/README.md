@@ -1,4 +1,4 @@
-# guidance-fw component
+# rtos-fw component
 
 This component ships the product C906L firmware for the SG2002 SBC image. It
 replaces the retired `sg2002-ipc` component: the vendor shared-memory IPC
@@ -25,7 +25,7 @@ cop send --contract FILE --type N --payload HEX
 So **no `pages.json` is installed into the rootfs, and nothing parses one**:
 the runtime source of the addresses is the DT (read through sysfs), the
 build-time source is `configs/<board>/memmap.py` (exported as
-`SG200X_GUIDANCE_PAGE_BASE` for the firmware build), and the only extra file
+`SG200X_SHARED_PAGE_BASE` for the firmware build), and the only extra file
 `cop` may take is the *product's* contract (`--contract`), which carries what
 the header cannot: frame layout, checksum, channel names and command values.
 An out-of-tree product build that needs the addresses pins this repository and
@@ -53,13 +53,13 @@ tools/mcu-watchdog.{sh,service}, install-mcu-watchdog.sh
 tools/board-100boot.sh, board-bootloop.{sh,service}
                              whole-board cold-boot stress
 tools/acceptance.sh          delivery acceptance: rate/guidance/doorbell x 4 boots
-linux/systemd/guidance-release.service.in
+linux/systemd/rtos-release.service.in
                              the only release unit; after multi-user, rendered
                              from GUIDANCE_FW_LOADER
 linux/systemd/load-systemko-none.conf
                              the only load-systemko override: ExecStart=/bin/true
-linux/modprobe.d/guidance-uio.conf   uio_pdrv_genirq of_id=generic-uio
-linux/modules-load.d/guidance-uio.conf  load that module at boot
+linux/modprobe.d/rtos-uio.conf   uio_pdrv_genirq of_id=generic-uio
+linux/modules-load.d/rtos-uio.conf  load that module at boot
 ```
 
 ## Firmware provenance
@@ -75,9 +75,9 @@ contract at `0x8FFDC000` and answers the Linux doorbell
 the vendor reference implementation.
 
 `firmware/` is the product firmware, not an inert sample: it builds the page,
-publishes telemetry and answers the doorbell.  `guidance-fw` owns the artifact,
+publishes telemetry and answers the doorbell.  `rtos-fw` owns the artifact,
 contract, `cop`, `rtos-mode`, the single release unit
-(`guidance-release.service`, after multi-user) and the load-systemko no-op;
+(`rtos-release.service`, after multi-user) and the load-systemko no-op;
 `guidance-autostart` owns only the vision application.
 
 The page base is the one fact the two sides hand over: build the firmware with the
@@ -86,9 +86,9 @@ linker script and the published contract all follow it.
 
 ```sh
 # product build: the page base is the image's input
-cmake --preset c906-release \
+cmake --preset rtos-release \
   -DSG200X_FIRMWARE_VIEW=/path/to/sophgo-sg200x-debian/configs/maixcam/firmware-view.json \
-  -DSG200X_GUIDANCE_PAGE_BASE=0x8FFDC000
+  -DSG200X_SHARED_PAGE_BASE=0x8FFDC000
 cmake --build build/release --target firmware
 # then copy build/firmware/{c906-mcu.elf,c906-mcu.bin,guidance_contract.json} here
 # and re-pin: (cd firmware && sha256sum c906-mcu.elf c906-mcu.bin \
@@ -139,9 +139,9 @@ ring geometry. This component pins it next to the ELF and installs it to
 The image side keeps the single declaration of the two page addresses in
 `configs/maixcam/memmap.py`, because those addresses are the one fact the two
 sides must shake hands on. The firmware build is told the same value
-(`SG200X_GUIDANCE_PAGE_BASE`) and derives nothing itself: that one number feeds its
+(`SG200X_SHARED_PAGE_BASE`) and derives nothing itself: that one number feeds its
 linker script, its C++ compile definition and this JSON. `scripts/ci/validate.py`
-fails the build unless the declaration, the DTS `guidance-pages` reg, and this
+fails the build unless the declaration, the DTS `rtos-pages` reg, and this
 JSON all agree.
 
 ## Kernel patches
@@ -172,7 +172,7 @@ IRQ 101 has exactly one owner and the notification has to ride on it.
 ## Userspace mapping (UIO, not /dev/mem)
 
 The board DTS declares both pages as one `generic-uio` node
-(`guidance-pages@8ffdb000`, `linux,uio-name = "guidance-pages"`): map 0 is the
+(`rtos-pages@8ffdb000`, `linux,uio-name = "rtos-pages"`): map 0 is the
 console page, map 1 the shared page.  `uio_pdrv_genirq` is built as a module and
 matched through `of_id=generic-uio`; `modules-load.d` loads it at boot so
 `/dev/uioN` exists before anything reads the pages.  The node carries **no
@@ -186,7 +186,7 @@ through `/dev/uioN`.
 
 ## Boot order
 
-`guidance-release.service` runs synchronously after `multi-user.target` (all mounts
+`rtos-release.service` runs synchronously after `multi-user.target` (all mounts
 and services are up), calls `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the

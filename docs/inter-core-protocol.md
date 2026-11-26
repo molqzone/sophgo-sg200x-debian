@@ -9,8 +9,8 @@
 ```
 
 地址只声明一次，在镜像侧是 [configs/maixcam/memmap.py](../configs/maixcam/memmap.py)；DTS 的
-`guidance-pages` 节点（`reg-names = "console","shared"`）把它暴露成 uio 映射；固件构建通过
-`SG200X_GUIDANCE_PAGE_BASE` 拿到同一个值。`scripts/ci/validate.py` 强制三处相等。
+`rtos-pages` 节点（`reg-names = "console","shared"`）把它暴露成 uio 映射；固件构建通过
+`SG200X_SHARED_PAGE_BASE` 拿到同一个值。`scripts/ci/validate.py` 强制三处相等。
 `cop` 从不硬编码 map 序号：它读 `/sys/class/uio/*/maps/mapN/name`，按 `reg-names` 找页。
 
 Two 4 KiB pages, nothing else.  The addresses are declared once (memmap.py on the image
@@ -31,7 +31,7 @@ to the firmware build as one value.  `cop` finds the maps by name, never by inde
 | 28 | `wire_tag` | 6 | 线上协议的代号，两端必须一致 |
 
 页头是**自描述**的：`cop status`、`cop dump`、`cop watch` 不需要任何配置文件就能读懂它。
-从页头推导出来的还有三处（见 [cop](../components/guidance-fw/tools/cop) 的 `geometry()`）：
+从页头推导出来的还有三处（见 [cop](../components/rtos-fw/tools/cop) 的 `geometry()`）：
 遥测环 @64、`head` @3776、`write_state` @3780、名字服务 @3840。
 
 The header is self-describing, so the page can be inspected with no configuration at all.
@@ -90,7 +90,7 @@ carry no interrupt and readers poll.
 
 | 事实 | 唯一声明处 |
 |---|---|
-| 页地址 | [memmap.py](../configs/maixcam/memmap.py)，DTS `guidance-pages`，契约 JSON |
+| 页地址 | [memmap.py](../configs/maixcam/memmap.py)，DTS `rtos-pages`，契约 JSON |
 | 页布局（魔数/偏移/槽数） | 固件（页头），契约 JSON 是它的副本 |
 | 谁格式化页 | **固件**：它在 bring-up 里 `Format()` 并证明自己写进去了 |
 | 谁写遥测/名字服务 | 固件 |

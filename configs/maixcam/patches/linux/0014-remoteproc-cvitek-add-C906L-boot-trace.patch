@@ -1,0 +1,443 @@
+From aec5950bf44e74eb26ddb8a23b65e4d0a1d2739f Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Sat, 1 Aug 2026 02:21:52 +0800
+Subject: [PATCH] remoteproc: cvitek: add the C906L boot-trace region
+
+Track the C906L's staged boot, its mailbox events and the recovery diagnostics in
+one reserved-memory page, selected by the `cvitek,boot-trace` property the board
+DTS declares.  The region check and the event counters are one unit: the page
+the DTS hands over is the page the parser requires.
+
+---
+--- a/drivers/remoteproc/cvitek_remoteproc.c
++++ b/drivers/remoteproc/cvitek_remoteproc.c
+@@ -12,6 +12,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/err.h>
+ #include <linux/interrupt.h>
++#include <linux/io.h>
+ #include <linux/kernel.h>
+ #include <linux/mailbox_client.h>
+ #include <linux/mfd/syscon.h>
+@@ -37,6 +38,46 @@
+ #define MBOX_TX 1
+ #define MBOX_MAX 2
+ 
++#define CVITEK_BOOT_TRACE_PAGE_SIZE 0x1000
++#define CVITEK_BOOT_TRACE_MAGIC 0x43565452
++#define CVITEK_BOOT_TRACE_VERSION 3
++#define CVITEK_BOOT_TRACE_HOST_COOKIE 0x48535431
++
++struct cvitek_boot_trace {
++	u32 magic;
++	u32 version;
++	u32 host_cookie;
++	u32 host_cookie_inverse;
++	u32 stage;
++	u32 stage_inverse;
++	u32 hart_id;
++	u32 hart_id_inverse;
++	u32 event_sequence;
++	u32 event_sequence_inverse;
++	u32 event;
++	u32 event_inverse;
++	u32 event_arg;
++	u32 event_arg_inverse;
++	u32 event_seen;
++	u32 event_seen_inverse;
++	u32 diag_sequence;
++	u32 diag_sequence_inverse;
++	u32 diag_reason;
++	u32 diag_reason_inverse;
++	u32 mailbox_initial;
++	u32 mailbox_initial_inverse;
++	u32 mailbox_state;
++	u32 mailbox_state_inverse;
++	u32 plic_state;
++	u32 plic_state_inverse;
++	u32 csr_state;
++	u32 csr_state_inverse;
++	u32 irq_count;
++	u32 irq_count_inverse;
++	u32 recovery_count;
++	u32 recovery_count_inverse;
++};
++
+ struct cvitek_rproc_config {};
+ 
+ struct cvitek_rproc {
+@@ -48,8 +89,284 @@
+ 	struct workqueue_struct *workqueue;
+ 	struct work_struct vq_work;
+ 	uint32_t vq_msg;
++	u64 boot_trace_da;
+ };
+ 
++static const char *cvitek_boot_trace_stage_name(u32 stage)
++{
++	switch (stage) {
++	case 0:
++		return "host_ready";
++	case 1:
++		return "boot0_entry";
++	case 2:
++		return "boot1_bss_ready";
++	case 3:
++		return "boot2_main";
++	case 4:
++		return "boot3_irq_ready";
++	case 5:
++		return "boot4_cmdqu_task";
++	default:
++		return "unknown";
++	}
++}
++
++static const char *cvitek_boot_trace_event_name(u32 event)
++{
++	switch (event) {
++	case 0:
++		return "none";
++	case 1:
++		return "irq_result";
++	case 2:
++		return "task_ready";
++	case 3:
++		return "isr_entry";
++	case 4:
++		return "isr_set";
++	case 5:
++		return "linux_valid";
++	case 6:
++		return "queue_sent";
++	case 7:
++		return "dequeue";
++	case 8:
++		return "ping_handled";
++	case 9:
++		return "reply_slot";
++	case 10:
++		return "reply_posted";
++	case 11:
++		return "spinlock_fail";
++	case 12:
++		return "reply_no_slot";
++	case 13:
++		return "mailbox_poll";
++	default:
++		return "unknown";
++	}
++}
++
++static const char *cvitek_boot_trace_diag_reason_name(u32 reason)
++{
++	switch (reason) {
++	case 0:
++		return "none";
++	case 1:
++		return "init";
++	case 2:
++		return "isr";
++	case 3:
++		return "recovery";
++	default:
++		return "unknown";
++	}
++}
++
++static struct cvitek_boot_trace __iomem *
++cvitek_boot_trace_ptr(struct rproc *rproc)
++{
++	struct cvitek_rproc *ddata = rproc->priv;
++
++	if (!ddata->boot_trace_da)
++		return NULL;
++
++	return rproc_da_to_va(rproc, ddata->boot_trace_da,
++				   sizeof(struct cvitek_boot_trace));
++}
++
++static int cvitek_boot_trace_init(struct rproc *rproc)
++{
++	struct cvitek_rproc *ddata = rproc->priv;
++	struct cvitek_boot_trace __iomem *trace;
++
++	trace = cvitek_boot_trace_ptr(rproc);
++	if (!trace)
++		return -ENXIO;
++
++	writel(CVITEK_BOOT_TRACE_MAGIC, &trace->magic);
++	writel(CVITEK_BOOT_TRACE_VERSION, &trace->version);
++	writel(CVITEK_BOOT_TRACE_HOST_COOKIE, &trace->host_cookie);
++	writel(~CVITEK_BOOT_TRACE_HOST_COOKIE, &trace->host_cookie_inverse);
++	writel(0, &trace->stage);
++	writel(~0U, &trace->stage_inverse);
++	writel(~0U, &trace->hart_id);
++	writel(0, &trace->hart_id_inverse);
++	writel(0, &trace->event_sequence);
++	writel(~0U, &trace->event_sequence_inverse);
++	writel(0, &trace->event);
++	writel(~0U, &trace->event_inverse);
++	writel(0, &trace->event_arg);
++	writel(~0U, &trace->event_arg_inverse);
++	writel(0, &trace->event_seen);
++	writel(~0U, &trace->event_seen_inverse);
++	writel(0, &trace->diag_sequence);
++	writel(~0U, &trace->diag_sequence_inverse);
++	writel(0, &trace->diag_reason);
++	writel(~0U, &trace->diag_reason_inverse);
++	writel(0, &trace->mailbox_initial);
++	writel(~0U, &trace->mailbox_initial_inverse);
++	writel(0, &trace->mailbox_state);
++	writel(~0U, &trace->mailbox_state_inverse);
++	writel(0, &trace->plic_state);
++	writel(~0U, &trace->plic_state_inverse);
++	writel(0, &trace->csr_state);
++	writel(~0U, &trace->csr_state_inverse);
++	writel(0, &trace->irq_count);
++	writel(~0U, &trace->irq_count_inverse);
++	writel(0, &trace->recovery_count);
++	writel(~0U, &trace->recovery_count_inverse);
++	wmb();
++
++	if (readl(&trace->magic) != CVITEK_BOOT_TRACE_MAGIC ||
++	    readl(&trace->host_cookie) != CVITEK_BOOT_TRACE_HOST_COOKIE)
++		return -EIO;
++
++	dev_info(&rproc->dev, "boot trace host sentinel at 0x%llx\n",
++		 ddata->boot_trace_da);
++	return 0;
++}
++
++static ssize_t boot_trace_show(struct device *dev,
++			       struct device_attribute *attr, char *buf)
++{
++	struct platform_device *pdev = to_platform_device(dev);
++	struct rproc *rproc = platform_get_drvdata(pdev);
++	struct cvitek_rproc *ddata;
++	struct cvitek_boot_trace __iomem *trace;
++	u32 magic, version, cookie, cookie_inverse;
++	u32 stage, stage_inverse, hart_id, hart_id_inverse;
++	u32 event_sequence, event_sequence_inverse, event, event_inverse;
++	u32 event_arg, event_arg_inverse, event_seen, event_seen_inverse;
++	u32 diag_sequence, diag_sequence_inverse, diag_reason;
++	u32 diag_reason_inverse, mailbox_initial, mailbox_initial_inverse;
++	u32 mailbox_state, mailbox_state_inverse, plic_state;
++	u32 plic_state_inverse, csr_state, csr_state_inverse;
++	u32 irq_count, irq_count_inverse, recovery_count;
++	u32 recovery_count_inverse;
++	ssize_t ret;
++	bool valid;
++
++	if (!rproc)
++		return scnprintf(buf, PAGE_SIZE, "available=0 reason=no_rproc\n");
++
++	ddata = rproc->priv;
++	mutex_lock(&rproc->lock);
++	if (rproc->state != RPROC_RUNNING) {
++		ret = scnprintf(buf, PAGE_SIZE,
++				 "available=0 state=%u trace_da=0x%llx\n",
++				 rproc->state, ddata->boot_trace_da);
++		goto out_unlock;
++	}
++
++	trace = cvitek_boot_trace_ptr(rproc);
++	if (!trace) {
++		ret = scnprintf(buf, PAGE_SIZE,
++				 "available=0 reason=unmapped trace_da=0x%llx\n",
++				 ddata->boot_trace_da);
++		goto out_unlock;
++	}
++
++	rmb();
++	magic = readl(&trace->magic);
++	version = readl(&trace->version);
++	cookie = readl(&trace->host_cookie);
++	cookie_inverse = readl(&trace->host_cookie_inverse);
++	stage = readl(&trace->stage);
++	stage_inverse = readl(&trace->stage_inverse);
++	hart_id = readl(&trace->hart_id);
++	hart_id_inverse = readl(&trace->hart_id_inverse);
++	event_sequence = readl(&trace->event_sequence);
++	event_sequence_inverse = readl(&trace->event_sequence_inverse);
++	event = readl(&trace->event);
++	event_inverse = readl(&trace->event_inverse);
++	event_arg = readl(&trace->event_arg);
++	event_arg_inverse = readl(&trace->event_arg_inverse);
++	event_seen = readl(&trace->event_seen);
++	event_seen_inverse = readl(&trace->event_seen_inverse);
++	diag_sequence = readl(&trace->diag_sequence);
++	diag_sequence_inverse = readl(&trace->diag_sequence_inverse);
++	diag_reason = readl(&trace->diag_reason);
++	diag_reason_inverse = readl(&trace->diag_reason_inverse);
++	mailbox_initial = readl(&trace->mailbox_initial);
++	mailbox_initial_inverse = readl(&trace->mailbox_initial_inverse);
++	mailbox_state = readl(&trace->mailbox_state);
++	mailbox_state_inverse = readl(&trace->mailbox_state_inverse);
++	plic_state = readl(&trace->plic_state);
++	plic_state_inverse = readl(&trace->plic_state_inverse);
++	csr_state = readl(&trace->csr_state);
++	csr_state_inverse = readl(&trace->csr_state_inverse);
++	irq_count = readl(&trace->irq_count);
++	irq_count_inverse = readl(&trace->irq_count_inverse);
++	recovery_count = readl(&trace->recovery_count);
++	recovery_count_inverse = readl(&trace->recovery_count_inverse);
++	rmb();
++
++	valid = magic == CVITEK_BOOT_TRACE_MAGIC &&
++		version == CVITEK_BOOT_TRACE_VERSION &&
++		(cookie ^ cookie_inverse) == ~0U &&
++		(stage ^ stage_inverse) == ~0U &&
++		(hart_id ^ hart_id_inverse) == ~0U &&
++		(event_sequence ^ event_sequence_inverse) == ~0U &&
++		(event ^ event_inverse) == ~0U &&
++		(event_arg ^ event_arg_inverse) == ~0U &&
++		(event_seen ^ event_seen_inverse) == ~0U &&
++		(diag_sequence ^ diag_sequence_inverse) == ~0U &&
++		(diag_reason ^ diag_reason_inverse) == ~0U &&
++		(mailbox_initial ^ mailbox_initial_inverse) == ~0U &&
++		(mailbox_state ^ mailbox_state_inverse) == ~0U &&
++		(plic_state ^ plic_state_inverse) == ~0U &&
++		(csr_state ^ csr_state_inverse) == ~0U &&
++		(irq_count ^ irq_count_inverse) == ~0U &&
++		(recovery_count ^ recovery_count_inverse) == ~0U;
++
++	ret = scnprintf(buf, PAGE_SIZE,
++		"available=1 valid=%u trace_da=0x%llx magic=0x%08x "
++		"version=%u host_cookie=0x%08x host_cookie_inverse=0x%08x "
++		"stage=%u stage_inverse=0x%08x stage_name=%s "
++		"hart_id=%u hart_id_inverse=0x%08x "
++		"event_sequence=%u event_sequence_inverse=0x%08x "
++		"event=%u event_inverse=0x%08x event_name=%s "
++		"event_arg=0x%08x event_arg_inverse=0x%08x "
++		"event_seen=0x%08x event_seen_inverse=0x%08x "
++		"diag_sequence=%u diag_sequence_inverse=0x%08x "
++		"diag_reason=%u diag_reason_name=%s "
++		"mailbox_initial=0x%08x mailbox_initial_en=0x%02x "
++		"mailbox_initial_raw=0x%02x mailbox_initial_mask=0x%02x "
++		"mailbox_initial_int=0x%02x "
++		"mailbox_state=0x%08x mailbox_en=0x%02x "
++		"mailbox_raw=0x%02x mailbox_mask=0x%02x mailbox_int=0x%02x "
++		"plic_state=0x%08x plic_pending=%u plic_enabled=%u "
++		"plic_priority=%u plic_threshold=%u "
++		"csr_state=0x%08x mstatus_mie=%u mie_meie=%u mip_meip=%u "
++		"irq_count=%u recovery_count=%u\n",
++		valid, ddata->boot_trace_da, magic, version, cookie,
++		cookie_inverse, stage, stage_inverse,
++		cvitek_boot_trace_stage_name(stage), hart_id, hart_id_inverse,
++		event_sequence, event_sequence_inverse, event, event_inverse,
++		cvitek_boot_trace_event_name(event), event_arg, event_arg_inverse,
++		event_seen, event_seen_inverse, diag_sequence,
++		diag_sequence_inverse, diag_reason,
++		cvitek_boot_trace_diag_reason_name(diag_reason), mailbox_initial,
++		mailbox_initial & 0xffU, (mailbox_initial >> 8) & 0xffU,
++		(mailbox_initial >> 16) & 0xffU,
++		(mailbox_initial >> 24) & 0xffU, mailbox_state,
++		mailbox_state & 0xffU, (mailbox_state >> 8) & 0xffU,
++		(mailbox_state >> 16) & 0xffU,
++		(mailbox_state >> 24) & 0xffU, plic_state,
++		plic_state & 1U, (plic_state >> 1) & 1U,
++		(plic_state >> 8) & 0xffU, (plic_state >> 16) & 0xffU,
++		csr_state, csr_state & 1U, (csr_state >> 1) & 1U,
++		(csr_state >> 2) & 1U, irq_count, recovery_count);
++
++out_unlock:
++	mutex_unlock(&rproc->lock);
++	return ret;
++}
++
++static DEVICE_ATTR_RO(boot_trace);
++
+ static int cvitek_rproc_set_reset(struct rproc *rproc, bool assert)
+ {
+ #ifdef CONFIG_RISCV
+@@ -182,6 +499,7 @@
+ 
+ static int cvitek_rproc_parse_fw(struct rproc *rproc, const struct firmware *fw)
+ {
++	struct cvitek_rproc *ddata = rproc->priv;
+ 	struct device *dev = rproc->dev.parent;
+ 	struct device_node *np = dev->of_node;
+ 	struct rproc_mem_entry *mem;
+@@ -191,6 +509,7 @@
+ 	int ret;
+ 
+ 	dev_dbg(dev, "Parsing firmware\n");
++	ddata->boot_trace_da = 0;
+ 
+ 	of_phandle_iterator_init(&it, np, "memory-region", NULL, 0);
+ 	while (of_phandle_iterator_next(&it) == 0) {
+@@ -207,6 +526,22 @@
+ 			continue;
+ 		}
+ 
++		if (of_property_read_bool(it.node, "cvitek,boot-trace")) {
++			if (rmem->size < CVITEK_BOOT_TRACE_PAGE_SIZE) {
++				dev_err(dev, "boot trace region is too small\n");
++				return -EINVAL;
++			}
++			ddata->boot_trace_da = rmem->base;
++			dev_info(dev, "boot trace region: 0x%llx\n",
++				 ddata->boot_trace_da);
++		} else if (!strcmp(it.node->name, "rproc") &&
++			   rmem->size >= CVITEK_BOOT_TRACE_PAGE_SIZE) {
++			ddata->boot_trace_da = rmem->base + rmem->size -
++				CVITEK_BOOT_TRACE_PAGE_SIZE;
++			dev_info(dev, "boot trace page: 0x%llx\n",
++				 ddata->boot_trace_da);
++		}
++
+ 		/*  No need to map vdev buffer */
+ 		if (strcmp(it.node->name, "vdev0buffer")) {
+ 			/* Register memory region */
+@@ -235,6 +570,11 @@
+ 		index++;
+ 	}
+ 
++	if (!ddata->boot_trace_da) {
++		dev_err(dev, "missing rproc boot trace page\n");
++		return -EINVAL;
++	}
++
+ 	ret = rproc_elf_load_rsc_table(rproc, fw);
+ 	if (ret == -EINVAL) {
+ 		dev_info(dev,
+@@ -284,6 +624,13 @@
+ 		return err;
+ 	}
+ 
++	err = cvitek_boot_trace_init(rproc);
++	if (err) {
++		dev_err(&rproc->dev, "Failed to initialize boot trace: %d\n",
++			err);
++		goto sw_reset_fail;
++	}
++
+ 	/*
+ 	 * The ELF loader writes through an ioremap_wc carveout. Ensure all
+ 	 * firmware stores reach DRAM before C906L leaves reset.
+@@ -454,8 +801,16 @@
+ 		goto free_clk;
+ 	}
+ 
++	ret = device_create_file(dev, &dev_attr_boot_trace);
++	if (ret) {
++		dev_err(dev, "failed to create boot_trace attribute: %d\n", ret);
++		goto del_rproc;
++	}
++
+ 	return 0;
+ 
++del_rproc:
++	rproc_del(rproc);
+ free_clk:
+ 	clk_unprepare(ddata->clk);
+ free_wkq:
+@@ -471,6 +826,7 @@
+ 	struct rproc *rproc = platform_get_drvdata(pdev);
+ 	struct cvitek_rproc *ddata = rproc->priv;
+ 
++	device_remove_file(&pdev->dev, &dev_attr_boot_trace);
+ 	rproc_del(rproc);
+ 
+ 	clk_disable_unprepare(ddata->clk);

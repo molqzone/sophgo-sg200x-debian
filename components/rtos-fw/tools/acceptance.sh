@@ -8,8 +8,8 @@
 #   3. 门铃一问一答：`cop send --type 4` → `reply=<seq>`，rc=0
 #   4. 连续 3 次重启，每次都满足 1–3
 #
-# 用法：components/guidance-fw/tools/acceptance.sh [board-ip]
-# Usage: components/guidance-fw/tools/acceptance.sh [board-ip]
+# 用法：components/c906-fw/tools/acceptance.sh [board-ip]
+# Usage: components/c906-fw/tools/acceptance.sh [board-ip]
 set -u
 BOARD=${1:-10.42.0.1}
 SSH="sshpass -p rv ssh -o StrictHostKeyChecking=no -o ConnectTimeout=8 debian@${BOARD}"

@@ -35,7 +35,7 @@ MEMORY_REGION = re.compile(r"\bmemory-region\s*=\s*<(?P<value>.*?)>;", re.DOTALL
 PHANDLE = re.compile(r"&([A-Za-z_][A-Za-z0-9_]*)")
 LEGACY_RPMSG_REGIONS = ("vdev0vring0", "vdev0vring1", "vdev0buffer")
 GUIDANCE_PAGES_NODE = re.compile(
-    r"\bguidance-pages@[0-9a-fA-F]+\s*\{(?P<body>.*?)\};", re.DOTALL
+    r"\brtos-pages@[0-9a-fA-F]+\s*\{(?P<body>.*?)\};", re.DOTALL
 )
 GUIDANCE_PAGES_REG = re.compile(r"\breg\s*=\s*(?P<value>.*?);", re.DOTALL)
 GUIDANCE_PAGES_REG_NAMES = re.compile(
@@ -45,7 +45,7 @@ GUIDANCE_FIRMWARE_FILES = (
     "c906-mcu.elf",
     "c906-mcu.bin",
 )
-GUIDANCE_FW_ADDON = "guidance-fw"
+RTOS_FW_ADDON = "rtos-fw"
 GUIDANCE_LOADERS = ("remoteproc", "fsbl")
 GUIDANCE_RETIRED_SETTINGS = ("GUIDANCE_FW_RPROC_MODE", "GUIDANCE_FW_DOORBELL_OWNER")
 GUIDANCE_RPROC_MODES = ("load", "attach")
@@ -54,7 +54,7 @@ BOOTLOG_DAEMON = "scripts/addons/bootlog/bootlogd"
 BOOTLOG_ADDON = "scripts/addons/bootlog/addon.mk"
 BOOTLOG_SERVICE = "scripts/addons/bootlog/bootlog-snap.service"
 GUIDANCE_RELEASE_TEMPLATE = (
-    "components/guidance-fw/linux/systemd/guidance-release.service.in"
+    "components/rtos-fw/linux/systemd/rtos-release.service.in"
 )
 GUIDANCE_VISION_SERVICE = (
     "scripts/addons/guidance-autostart/guidance-vision.service"
@@ -725,8 +725,8 @@ def check_vendored_cop() -> None:
     （commit + sha256）。两者一旦不一致，板子上装的就是一个没有出处的东西，所以构建期就
     比对，而不是靠谁记得同步。
     """
-    tool = REPO_ROOT / "components/guidance-fw/tools/cop"
-    pin_path = REPO_ROOT / "components/guidance-fw/tools/cop.upstream"
+    tool = REPO_ROOT / "components/rtos-fw/tools/cop"
+    pin_path = REPO_ROOT / "components/rtos-fw/tools/cop.upstream"
     if not tool.is_file() or not pin_path.is_file():
         fail("the vendored cop tool or its provenance file is missing")
     pin = {}
@@ -747,7 +747,7 @@ def check_vendored_cop() -> None:
 
 
 def validate_component() -> None:
-    component = REPO_ROOT / "components/guidance-fw"
+    component = REPO_ROOT / "components/rtos-fw"
     required = (
         "firmware/c906-mcu.elf",
         "firmware/c906-mcu.bin",
@@ -755,7 +755,7 @@ def validate_component() -> None:
         "ports/osdrv/patches/0001-cmdqu-allow-user-commands.patch",
         "tools/rtos-mode",
         "tools/cop",
-        "linux/systemd/guidance-release.service.in",
+        "linux/systemd/rtos-release.service.in",
         "linux/systemd/load-systemko-none.conf",
         "README.md",
     )
@@ -820,18 +820,18 @@ def validate_guidance_boot_policy(
             "board's boot policy"
         )
     if "After=multi-user.target" not in text:
-        fail("guidance-release must run after multi-user.target")
+        fail("rtos-release must run after multi-user.target")
     if "Before=network-pre.target" in text:
-        fail("guidance-release must not gate network-pre.target")
+        fail("rtos-release must not gate network-pre.target")
     vision = REPO_ROOT / GUIDANCE_VISION_SERVICE
     if not vision.is_file():
         fail(f"guidance vision unit is missing: {vision}")
-    if "After=guidance-release.service" not in vision.read_text(encoding="utf-8"):
-        fail("guidance-vision must start after guidance-release")
+    if "After=rtos-release.service" not in vision.read_text(encoding="utf-8"):
+        fail("guidance-vision must start after rtos-release")
     for entry in entries:
         board = str(entry["board"])
         settings = effective_assignments(config_root, board)
-        if GUIDANCE_FW_ADDON not in assignment_words(settings.get("IMAGE_ADDITIONS", "")):
+        if RTOS_FW_ADDON not in assignment_words(settings.get("IMAGE_ADDITIONS", "")):
             continue
         dts_directory = resolve_directory(config_root, board, "dts")
         candidates = sorted(dts_directory.glob("*.dts"))
@@ -881,7 +881,7 @@ def validate_guidance_pages(config_root: Path) -> None:
 
     The firmware build reads `firmware-view.json` for the page base/size and pins them
     with `static_assert`.  The image side checks its own three statements of the same
-    two pages -- `firmware-view.json`, `memmap.py` and the DTS `guidance-pages` node --
+    two pages -- `firmware-view.json`, `memmap.py` and the DTS `rtos-pages` node --
     and no longer reads a firmware contract JSON.
     """
     memory_map = load_memmap(resolve_file(config_root, "maixcam", "memmap.py"))
@@ -897,30 +897,30 @@ def validate_guidance_pages(config_root: Path) -> None:
         fail(f"maixcam: expected one DTS source, got {candidates}")
     node = GUIDANCE_PAGES_NODE.search(candidates[0].read_text(encoding="utf-8"))
     if not node:
-        fail("maixcam: the DTS has no guidance-pages node")
+        fail("maixcam: the DTS has no rtos-pages node")
     body = node.group("body")
     reg = GUIDANCE_PAGES_REG.search(body)
     names = GUIDANCE_PAGES_REG_NAMES.search(body)
     if not reg or not names:
-        fail("maixcam: guidance-pages needs reg and reg-names")
+        fail("maixcam: rtos-pages needs reg and reg-names")
     cells = dts_cells(reg.group("value"))
     if len(cells) != 8:
-        fail(f"maixcam: guidance-pages needs two <addr size> pairs, got {cells}")
+        fail(f"maixcam: rtos-pages needs two <addr size> pairs, got {cells}")
     regions = [
         ((cells[0] << 32) | cells[1], (cells[2] << 32) | cells[3]),
         ((cells[4] << 32) | cells[5], (cells[6] << 32) | cells[7]),
     ]
     reg_names = re.findall(r'"([^"]+)"', names.group("value"))
     if reg_names != ["console", "shared"]:
-        fail(f"maixcam: guidance-pages reg-names must be console/shared, got {reg_names}")
+        fail(f"maixcam: rtos-pages reg-names must be console/shared, got {reg_names}")
     expected = [
         (memory_map.GUIDANCE_CONSOLE_PAGE_ADDR, memory_map.GUIDANCE_PAGE_SIZE),
         (memory_map.GUIDANCE_SHARED_PAGE_ADDR, memory_map.GUIDANCE_PAGE_SIZE),
     ]
     if regions != expected:
-        fail(f"maixcam: guidance-pages reg {regions} disagrees with memmap {expected}")
+        fail(f"maixcam: rtos-pages reg {regions} disagrees with memmap {expected}")
 
-    component = REPO_ROOT / "components/guidance-fw"
+    component = REPO_ROOT / "components/rtos-fw"
     pins = {}
     for line in (component / "firmware/sha256sums.txt").read_text(
         encoding="utf-8"

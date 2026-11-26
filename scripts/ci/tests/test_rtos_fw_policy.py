@@ -15,8 +15,8 @@ import validate  # noqa: E402
 from plan import PlanError, assignment_words, effective_assignments  # noqa: E402
 
 CONFIGS = REPO_ROOT / "configs"
-COMPONENT = REPO_ROOT / "components/guidance-fw"
-ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
+COMPONENT = REPO_ROOT / "components/rtos-fw"
+ADDON = REPO_ROOT / "scripts/addons/rtos-fw/addon.mk"
 DTS = next((CONFIGS / "maixcam/dts").glob("*.dts")).read_text(encoding="utf-8")
 PRODUCTION = {"GUIDANCE_FW_LOADER": "remoteproc"}
 
@@ -46,10 +46,10 @@ def generate_release(loader: str) -> str:
         )
         subprocess.run(
             ["make", "--no-print-directory", "-f", str(makefile),
-             str(build / "guidance-fw-stamp")],
+             str(build / "rtos-fw-stamp")],
             check=True, capture_output=True, text=True,
         )
-        return (rootfs / "etc/systemd/system/guidance-release.service").read_text(
+        return (rootfs / "etc/systemd/system/rtos-release.service").read_text(
             encoding="utf-8")
 
 
@@ -171,8 +171,8 @@ class ReleaseUnitTests(unittest.TestCase):
         self.assertIn("@GUIDANCE_FW_RPROC_COMMAND@", text)
         self.assertNotIn("@GUIDANCE_FW_RPROC_MODE@", text)
         self.assertFalse(
-            (REPO_ROOT / "components/guidance-fw/linux/systemd/"
-             "load-systemko.service.d/20-guidance-fw.conf.in").exists(),
+            (REPO_ROOT / "components/rtos-fw/linux/systemd/"
+             "load-systemko.service.d/20-rtos-fw.conf.in").exists(),
             "the early-release drop-in must not come back")
 
     def test_rtos_mode_implements_the_mode_the_policy_can_pick(self) -> None:
@@ -186,7 +186,7 @@ class SettingsSurfaceTests(unittest.TestCase):
     def test_guidance_boards_declare_the_policy(self) -> None:
         settings = effective_assignments(CONFIGS, "maixcam")
         additions = assignment_words(settings.get("IMAGE_ADDITIONS", ""))
-        self.assertIn("guidance-fw", additions)
+        self.assertIn("rtos-fw", additions)
         for key in PRODUCTION:
             self.assertIn(key, settings)
 

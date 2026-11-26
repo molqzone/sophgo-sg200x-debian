@@ -14,8 +14,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 ref=${1:-main}
 repo=molqzone/cop
-tool="$repo_root/components/guidance-fw/tools/cop"
-pin="$repo_root/components/guidance-fw/tools/cop.upstream"
+tool="$repo_root/components/rtos-fw/tools/cop"
+pin="$repo_root/components/rtos-fw/tools/cop.upstream"
 action_dir=${SG200X_ACTION_DIR:-"$repo_root/../bsp-guidance-action"}
 cop_cxx=${SG200X_COP_CXX:-riscv64-linux-gnu-g++}
 

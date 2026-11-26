@@ -1,6 +1,6 @@
 # Vision application and camera setup.  This addon installs no firmware, no
-# release unit and no load-systemko override: guidance-fw owns all of those.
-# It only starts the vision app after guidance-release has released the core.
+# release unit and no load-systemko override: rtos-fw owns all of those.
+# It only starts the vision app after rtos-release has released the core.
 $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-vision.service \
                                       addons/guidance-autostart/loadmedia.sh \
                                       addons/guidance-autostart/files/guidance_vision_app \
@@ -29,8 +29,8 @@ $(BUILDDIR)/guidance-autostart-stamp: addons/guidance-autostart/guidance-vision.
 	# with "fail to find pstSnsObj" and the camera never delivers a frame.
 	@install -D -m0644 addons/guidance-autostart/files/libsns_sc035hgs.so /rootfs/mnt/system/usr/lib/libsns_sc035hgs.so
 	@install -D -m0644 addons/guidance-autostart/files/libsns_full.so /rootfs/mnt/system/usr/lib/libsns_full.so
-	# 放核、固件和 load-systemko 空操作都归 guidance-fw；这里只起视觉应用。
-	# Release, firmware and the load-systemko no-op belong to guidance-fw; this addon
+	# 放核、固件和 load-systemko 空操作都归 rtos-fw；这里只起视觉应用。
+	# Release, firmware and the load-systemko no-op belong to rtos-fw; this addon
 	# only starts the vision application.
 	# 这块板只走 USB NCM（`ifup@usb0` 静态 10.42.0.1 + dnsmasq），NetworkManager 与
 	# wpa_supplicant 对产品路径没有贡献，却卡在 `multi-user.target` 前面：实测 NM 占

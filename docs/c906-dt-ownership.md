@@ -21,7 +21,7 @@
   DMAMUX 路由与中断清位。
 - **RPMsg 残留**：`vdev0vring0/1`、`vdev0buffer` 已经从这块板的 DT 删除——固件没有
   resource table，走的是 mailbox-only。
-- **启动顺序**：`components/guidance-fw` 的 `rtos-mode` 在 systemd 里启动 C906L，
+- **启动顺序**：`components/rtos-fw` 的 `rtos-mode` 在 systemd 里启动 C906L，
   也就是在内核驱动 probe 之后。这正是固件可以不再等「Linux 释放 DMA」的原因。
 
 ## 仍然缺的一处：SPI2

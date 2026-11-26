@@ -1,6 +1,6 @@
 # UIO 联调交接 / UIO bring-up handoff
 
-这份文档记录 2026-11-06/07 两天里把 `guidance-pages`（uio + 共享页）在真机上跑通到
+这份文档记录 2026-11-06/07 两天里把 `rtos-pages`（uio + 共享页）在真机上跑通到
 "第 1 层通过、第 2 层定位到根因"的过程。**结论比过程重要**，所以先给结论，再给证据。
 
 ## 一、当前状态
@@ -60,7 +60,7 @@ Starting kernel ...
 ### 3.3 L1：uio 管道
 
 ```
-cop list     guidance-pages (/sys/class/uio/uio0)
+cop list     rtos-pages (/sys/class/uio/uio0)
              map 0  console  addr=0x8ffdb000 size=4096
              map 1  shared   addr=0x8ffdc000 size=4096
 cop status   page : FOREIGN magic=0x08004400     ← 惰性固件不建页，工具如实报告
@@ -186,7 +186,7 @@ int init_comm_info(int ret)
 ```sh
 SG200X_SDK_DIR=$PWD/build/sdk-worktree \
 SG200X_CROSS_COMPILE=/home/keruth/Development/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf- \
-SG200X_GUIDANCE_PAGE_BASE=0x8FFDC000 \
+SG200X_SHARED_PAGE_BASE=0x8FFDC000 \
   bash scripts/sg200x-sdk/build.sh
 ```
 
@@ -222,7 +222,7 @@ SG200X_GUIDANCE_PAGE_BASE=0x8FFDC000 \
 
 ### 5.4 板子/固件
 
-- 惰性固件：`components/guidance-fw/firmware/c906-mcu.elf`（`02f36c3a…`）——**板子能稳定跑**，
+- 惰性固件：`components/rtos-fw/firmware/c906-mcu.elf`（`02f36c3a…`）——**板子能稳定跑**，
   但页永远是 `FOREIGN`/`UNFORMATTED`；
 - 产品固件：`bsp-guidance-action/build/firmware/c906-mcu.elf`（`cb9016d…`）——建页、公告通道、
   但在当前 FSBL 下会把整板拖死（§3.5）；

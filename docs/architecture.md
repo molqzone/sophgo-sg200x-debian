@@ -35,7 +35,7 @@ not in workflow conditionals.
 
 ## C906L firmware ownership
 
-`components/guidance-fw` owns the product firmware for the small core:
+`components/rtos-fw` owns the product firmware for the small core:
 
 - `firmware`: versioned `c906-mcu.{elf,bin}` artifacts, the page layout they
   were built against (`guidance_contract.json`), and sha256 pins for all three.
@@ -65,7 +65,7 @@ against the device tree.
 The page layout itself is not re-derived here: `guidance_contract.json` is the
 owner's statement of it, `cop` and `bootlogd` read it directly, and
 `scripts/ci/validate.py` fails the build unless
-the DTS `guidance-pages` reg and `configs/maixcam/memmap.py` agree with it. The
+the DTS `rtos-pages` reg and `configs/maixcam/memmap.py` agree with it. The
 one fact the two sides must agree on -- the two page addresses -- is declared
 once on each side and checked, never copied again.
 
@@ -75,7 +75,7 @@ Version sources are deliberately separate:
 
 - `toolchain.env`: Docker base snapshot and host cross-toolchain commit.
 - `versions.env`: Linux, boot, multimedia, firmware, and package source pins.
-- `components/guidance-fw/firmware/sha256sums.txt`: C906L firmware artifact pins.
+- `components/rtos-fw/firmware/sha256sums.txt`: C906L firmware artifact pins.
 
 The Docker image contains tools only. The active checkout mounts as
 `/workspace`, `scripts` as `/builder`, and `configs` as `/configs`. Therefore a

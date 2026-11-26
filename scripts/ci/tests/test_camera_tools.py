@@ -14,7 +14,7 @@ VIEWER_ROOT = REPO_ROOT / "tools/maixcam-camera"
 
 class CameraToolTests(unittest.TestCase):
     def test_failed_remoteproc_start_preserves_boot_blacklist(self) -> None:
-        source = (REPO_ROOT / "components/guidance-fw/tools/rtos-mode").read_text(
+        source = (REPO_ROOT / "components/rtos-fw/tools/rtos-mode").read_text(
             encoding="utf-8"
         )
         definitions = source.split('\n[ $# -eq 1 ] || usage', 1)[0]
@@ -45,7 +45,7 @@ class CameraToolTests(unittest.TestCase):
 
     def test_camera_startup_scripts_have_linux_line_endings(self) -> None:
         for relative_path in (
-            "components/guidance-fw/tools/rtos-mode",
+            "components/rtos-fw/tools/rtos-mode",
             "scripts/addons/load-systemko/load-systemko.sh",
             "scripts/addons/maixcam-sensor-config/sensor-config.sh",
         ):

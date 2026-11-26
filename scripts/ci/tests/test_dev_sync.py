@@ -29,7 +29,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts/ci"))
 
 import dev_sync  # noqa: E402
 
-ADDON = REPO_ROOT / "scripts/addons/guidance-fw/addon.mk"
+ADDON = REPO_ROOT / "scripts/addons/rtos-fw/addon.mk"
 # 按目标路径找，别按下标：manifest 会增删条目，下标会让测试悄悄测错文件。
 # Look up by destination, never by index: the manifest grows, and an index would make
 # these tests quietly check the wrong file.
@@ -68,7 +68,7 @@ class ManifestTests(unittest.TestCase):
         # stop path, so they need a power cycle.
         by_destination = {t.destination: t for t in dev_sync.TARGETS}
         for destination in ("/lib/firmware/c906-mcu.elf",
-                            "/etc/systemd/system/guidance-release.service"):
+                            "/etc/systemd/system/rtos-release.service"):
             with self.subTest(destination=destination):
                 self.assertIn("power cycle", by_destination[destination].note)
 
@@ -105,10 +105,10 @@ class RenderTests(unittest.TestCase):
             )
             subprocess.run(
                 ["make", "--no-print-directory", "-f", str(makefile),
-                 str(build / "guidance-fw-stamp")],
+                 str(build / "rtos-fw-stamp")],
                 cwd=SCRIPTS, check=True, capture_output=True, text=True,
             )
-            installed = (rootfs / "etc/systemd/system/guidance-release.service").read_bytes()
+            installed = (rootfs / "etc/systemd/system/rtos-release.service").read_bytes()
         rendered = dev_sync.render(RELEASE.source,
                                    {"GUIDANCE_FW_RPROC_MODE": "load"})
         self.assertEqual(rendered, installed)
@@ -142,10 +142,10 @@ class CardRootTests(unittest.TestCase):
         cop = self.root / "usr/bin/cop"
         self.assertTrue(cop.is_file())
         self.assertTrue(cop.stat().st_mode & 0o111)
-        release = self.root / "etc/systemd/system/guidance-release.service"
+        release = self.root / "etc/systemd/system/rtos-release.service"
         self.assertIn("rtos-mode remoteproc\n", release.read_text(encoding="utf-8"))
         self.assertFalse((self.root / "etc/systemd/system/load-systemko.service.d/"
-                          "20-guidance-fw.conf").exists())
+                          "20-rtos-fw.conf").exists())
 
     def test_a_new_unit_is_enabled_not_just_copied(self) -> None:
         # boot-time.service 只有被 enable 过才会在下次启动跑；把文件拷过去而不 enable，

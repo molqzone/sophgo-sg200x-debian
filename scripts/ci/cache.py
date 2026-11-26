@@ -22,7 +22,7 @@ from plan import (
 
 LAYERS = ("firmware", "linux", "osdrv", "middleware", "boot", "rootfs")
 LAYER_COMPLETION_PATHS = {
-    "firmware": ("guidance-fw-build-stamp",),
+    "firmware": ("rtos-fw-build-stamp",),
     "linux": ("linux-compile-stamp", "kernel/.git/HEAD"),
     "osdrv": ("osdrv-package-stamp", "osdrv/.git/HEAD"),
     "middleware": ("middleware-package-stamp", "middleware/.git/HEAD"),
@@ -50,7 +50,7 @@ ROOTFS_REUSABLE_STAMP_PREFIXES = (
 )
 ROOTFS_REUSABLE_STAMPS = {
     "cvi-pinmux-package-stamp",
-    "guidance-fw-build-stamp",
+    "rtos-fw-build-stamp",
 }
 
 
@@ -82,7 +82,7 @@ def layer_inputs(
         *board_settings(config_root, board),
     ]
     if layer == "firmware":
-        component = repo / "components" / "guidance-fw"
+        component = repo / "components" / "rtos-fw"
         return common + [
             component / "firmware",
             component / "ports" / "osdrv" / "patches",
@@ -99,7 +99,7 @@ def layer_inputs(
         return paths
     if layer == "osdrv":
         return common + patch_files(config_root, board, "osdrv") + [
-            repo / "components" / "guidance-fw" / "ports" / "osdrv"
+            repo / "components" / "rtos-fw" / "ports" / "osdrv"
         ]
     if layer == "middleware":
         return common + patch_files(config_root, board, "middleware") + patch_files(
@@ -130,7 +130,7 @@ def layer_inputs(
             paths.extend(patch_files(config_root, board, component))
         return paths
     if layer == "rootfs":
-        component = repo / "components" / "guidance-fw"
+        component = repo / "components" / "rtos-fw"
         paths = common + [
             repo / "scripts" / "addons",
             repo / "scripts" / "deb",
@@ -167,7 +167,7 @@ def remove_path(build_root: Path, relative: str) -> None:
 
 def invalidate(build_root: Path, layer: str) -> None:
     mappings = {
-        "firmware": ["guidance-fw-build-stamp", "guidance-fw-stamp"],
+        "firmware": ["rtos-fw-build-stamp", "rtos-fw-stamp"],
         "fsbl": ["fsbl", "fsbl-prepare-checkout-stamp", "fsbl-prepare-patch-stamp", "fsbl-compile-stamp", "fsbl-package-stamp"],
         "linux": ["kernel", "linux-prepare-checkout-stamp", "linux-prepare-patch-stamp", "linux-prepare-configure-stamp", "linux-compile-stamp"],
         "osdrv": ["osdrv", "osdrv-prepare-checkout-stamp", "osdrv-prepare-patch-stamp", "osdrv-prepare-configure-stamp", "osdrv-compile-stamp", "osdrv-package-stamp"],
