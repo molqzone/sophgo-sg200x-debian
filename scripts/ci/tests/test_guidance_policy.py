@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import tempfile
@@ -148,16 +147,17 @@ class ReleaseUnitTests(unittest.TestCase):
         self.assertIn("After=multi-user.target", directives)
 
     def test_there_is_no_park_command_left(self) -> None:
-        # 停机路径不需要固件配合（见 docs/shutdown-behaviour.md），所以契约与工具里
-        # 都不该再出现一条停机命令。
-        contract = json.loads(
-            (COMPONENT / "firmware/guidance_contract.json").read_text(encoding="utf-8"))
-        # The command set belongs to the firmware's contract (it moved from the test
-        # commands led/ping to the product's vision command); what this test pins is
-        # that no stop/park command survives, not the exact vocabulary.
-        self.assertNotIn("park", contract["command"])
-        self.assertIn("magic", contract["command"])
+        # 停机路径不需要固件配合（见 docs/shutdown-behaviour.md），所以工具里不该再有
+        # 一条停机命令，也不该再靠 JSON 找 console/命令。
+        # The shutdown path does not ask the firmware for anything, so no stop/park
+        # command survives and no tool looks up the console/command in JSON.
         self.assertFalse((COMPONENT / "tools/guidance-cmd.py").exists())
+        rtos_mode = (COMPONENT / "tools/rtos-mode").read_text(encoding="utf-8")
+        self.assertNotIn("guidance_contract", rtos_mode)
+        self.assertNotIn("python3", rtos_mode)
+        for name in ("mcu-watchdog.sh", "acceptance.sh"):
+            text = (COMPONENT / "tools" / name).read_text(encoding="utf-8")
+            self.assertNotIn("--contract", text)
 
     def test_template_is_the_committed_artifact(self) -> None:
         # 模板留的是**命令**占位符：策略里的 load/attach 不是 rtos-mode 的子命令，直接

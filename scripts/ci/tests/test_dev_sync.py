@@ -64,17 +64,13 @@ class ManifestTests(unittest.TestCase):
 
     def test_only_what_needs_a_power_cycle_says_so(self) -> None:
         # ELF 与 release unit 只在放核时被读，而这个镜像没有 stop 路径 → 只能下次上电生效。
-        # 契约 JSON 相反：cop/bootlogd 每次调用都重新读，改完立刻生效。
-        # The ELF and the release unit are read when the core is released, and there is no stop
-        # path, so they need a power cycle; the contract JSON is read per invocation, so it
-        # takes effect immediately.
+        # The ELF and the release unit are read when the core is released, and there is no
+        # stop path, so they need a power cycle.
         by_destination = {t.destination: t for t in dev_sync.TARGETS}
         for destination in ("/lib/firmware/c906-mcu.elf",
                             "/etc/systemd/system/guidance-release.service"):
             with self.subTest(destination=destination):
                 self.assertIn("power cycle", by_destination[destination].note)
-        self.assertIn("already in effect",
-                      by_destination["/lib/firmware/guidance_contract.json"].note)
 
 
 class RenderTests(unittest.TestCase):
@@ -143,8 +139,9 @@ class CardRootTests(unittest.TestCase):
         self.assertTrue(daemon.stat().st_mode & 0o111)
         tool = self.root / "usr/bin/rtos-mode"
         self.assertTrue(tool.stat().st_mode & 0o111)
-        contract = self.root / "lib/firmware/guidance_contract.json"
-        self.assertTrue(contract.is_file())
+        cop = self.root / "usr/bin/cop"
+        self.assertTrue(cop.is_file())
+        self.assertTrue(cop.stat().st_mode & 0o111)
         release = self.root / "etc/systemd/system/guidance-release.service"
         self.assertIn("rtos-mode remoteproc\n", release.read_text(encoding="utf-8"))
         self.assertFalse((self.root / "etc/systemd/system/load-systemko.service.d/"
