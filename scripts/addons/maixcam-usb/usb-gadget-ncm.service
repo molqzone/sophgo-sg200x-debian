@@ -1,7 +1,12 @@
 [Unit]
 Description=NCM USB Gadget Support
 Before=usb-gadget.service
+# NCM is the persistent management mode.  If an older image (or a manual
+# experiment) left ACM/RNDIS enabled as well, start NCM last so it wins the
+# conflict and the board does not come back as a COM port.
+After=usb-gadget-acm.service usb-gadget-rndis.service
 Conflicts=usb-gadget-acm.service
+Conflicts=usb-gadget-rndis.service
 Conflicts=usb-switch.service
 StartLimitIntervalSec=0
 

@@ -441,7 +441,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
         sensor_patches = plan.patch_files(config_root, board, "sensorsupportlist")
         self.assertEqual(
             sensor_patches[-1].name,
-            "0008-configure-sc035hgs-for-maixcam-adapter.patch",
+            "0010-configure-sc035hgs-dphy-hs-settle.patch",
         )
         middleware_patches = plan.patch_files(config_root, board, "middleware")
         middleware_by_name = {patch.name: patch for patch in middleware_patches}
