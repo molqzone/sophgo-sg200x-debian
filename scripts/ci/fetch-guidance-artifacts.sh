@@ -47,6 +47,10 @@ verify_sha256() {
   fi
 }
 
+file_matches() {
+  [ -f "$1" ] && [ -n "$2" ] && [ "$(sha256sum "$1" | awk '{print $1}')" = "$2" ]
+}
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
@@ -54,17 +58,22 @@ if [ "${DO_ACTION}" = "1" ]; then
   if [ -z "${GUIDANCE_ACTION_RELEASE}" ]; then
     echo "GUIDANCE_ACTION_RELEASE is unset in versions.env; skipping action artifacts."
   else
-    download_asset "${GUIDANCE_ACTION_REPO}" "${GUIDANCE_ACTION_RELEASE}" "c906-mcu.elf" "${TMP_DIR}/c906-mcu.elf"
-    download_asset "${GUIDANCE_ACTION_REPO}" "${GUIDANCE_ACTION_RELEASE}" "c906-mcu.bin" "${TMP_DIR}/c906-mcu.bin"
-    verify_sha256 "${TMP_DIR}/c906-mcu.elf" "${GUIDANCE_ACTION_ELF_SHA256}"
-    verify_sha256 "${TMP_DIR}/c906-mcu.bin" "${GUIDANCE_ACTION_BIN_SHA256}"
-
     FW_DIR="${REPO_ROOT}/components/rtos-fw/firmware"
-    mkdir -p "${FW_DIR}"
-    install -m 0644 "${TMP_DIR}/c906-mcu.elf" "${FW_DIR}/c906-mcu.elf"
-    install -m 0644 "${TMP_DIR}/c906-mcu.bin" "${FW_DIR}/c906-mcu.bin"
-    (cd "${FW_DIR}" && sha256sum c906-mcu.elf c906-mcu.bin > sha256sums.txt)
-    echo "Updated ${FW_DIR} from ${GUIDANCE_ACTION_REPO}@${GUIDANCE_ACTION_RELEASE}"
+    if file_matches "${FW_DIR}/c906-mcu.elf" "${GUIDANCE_ACTION_ELF_SHA256}" && \
+       file_matches "${FW_DIR}/c906-mcu.bin" "${GUIDANCE_ACTION_BIN_SHA256}"; then
+      echo "Already pinned ${FW_DIR} from ${GUIDANCE_ACTION_REPO}@${GUIDANCE_ACTION_RELEASE}"
+    else
+      download_asset "${GUIDANCE_ACTION_REPO}" "${GUIDANCE_ACTION_RELEASE}" "c906-mcu.elf" "${TMP_DIR}/c906-mcu.elf"
+      download_asset "${GUIDANCE_ACTION_REPO}" "${GUIDANCE_ACTION_RELEASE}" "c906-mcu.bin" "${TMP_DIR}/c906-mcu.bin"
+      verify_sha256 "${TMP_DIR}/c906-mcu.elf" "${GUIDANCE_ACTION_ELF_SHA256}"
+      verify_sha256 "${TMP_DIR}/c906-mcu.bin" "${GUIDANCE_ACTION_BIN_SHA256}"
+
+      mkdir -p "${FW_DIR}"
+      install -m 0644 "${TMP_DIR}/c906-mcu.elf" "${FW_DIR}/c906-mcu.elf"
+      install -m 0644 "${TMP_DIR}/c906-mcu.bin" "${FW_DIR}/c906-mcu.bin"
+      (cd "${FW_DIR}" && sha256sum c906-mcu.elf c906-mcu.bin > sha256sums.txt)
+      echo "Updated ${FW_DIR} from ${GUIDANCE_ACTION_REPO}@${GUIDANCE_ACTION_RELEASE}"
+    fi
   fi
 fi
 
@@ -72,12 +81,16 @@ if [ "${DO_VISION}" = "1" ]; then
   if [ -z "${GUIDANCE_VISION_RELEASE}" ]; then
     echo "GUIDANCE_VISION_RELEASE is unset in versions.env; skipping vision artifacts."
   else
-    download_asset "${GUIDANCE_VISION_REPO}" "${GUIDANCE_VISION_RELEASE}" "guidance_vision_app" "${TMP_DIR}/guidance_vision_app"
-    verify_sha256 "${TMP_DIR}/guidance_vision_app" "${GUIDANCE_VISION_APP_SHA256}"
-
     VISION_BIN="${REPO_ROOT}/scripts/addons/guidance-autostart/files/guidance_vision_app"
-    mkdir -p "$(dirname "${VISION_BIN}")"
-    install -m 0755 "${TMP_DIR}/guidance_vision_app" "${VISION_BIN}"
-    echo "Updated ${VISION_BIN} from ${GUIDANCE_VISION_REPO}@${GUIDANCE_VISION_RELEASE}"
+    if file_matches "${VISION_BIN}" "${GUIDANCE_VISION_APP_SHA256}"; then
+      echo "Already pinned ${VISION_BIN} from ${GUIDANCE_VISION_REPO}@${GUIDANCE_VISION_RELEASE}"
+    else
+      download_asset "${GUIDANCE_VISION_REPO}" "${GUIDANCE_VISION_RELEASE}" "guidance_vision_app" "${TMP_DIR}/guidance_vision_app"
+      verify_sha256 "${TMP_DIR}/guidance_vision_app" "${GUIDANCE_VISION_APP_SHA256}"
+
+      mkdir -p "$(dirname "${VISION_BIN}")"
+      install -m 0755 "${TMP_DIR}/guidance_vision_app" "${VISION_BIN}"
+      echo "Updated ${VISION_BIN} from ${GUIDANCE_VISION_REPO}@${GUIDANCE_VISION_RELEASE}"
+    fi
   fi
 fi

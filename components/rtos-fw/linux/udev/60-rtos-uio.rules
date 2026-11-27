@@ -6,3 +6,10 @@
 # 共享页通过 generic-uio 暴露，udev 默认给 root 独占；这会让 `cop` 和 `bootlogd --show`
 # 在普通登录下直接抛 PermissionError。交给 plugdev 组读写，看板子不需要 root。
 SUBSYSTEM=="uio", KERNEL=="uio*", MODE="0660", GROUP="plugdev"
+
+# The command queue is the other half of the link: the UIO page carries the command
+# slot, but `cop send` also opens this misc device.  Without the rule a normal user can
+# read the page and still cannot send, which looks like a broken command path.
+# 命令队列是链路的另一半：UIO 页只装命令槽，`cop send` 还要打开这个 misc 设备；
+# 没有这条规则时普通用户能读页却发不出命令，看起来像命令链路坏了。
+SUBSYSTEM=="misc", KERNEL=="cvi-rtos-cmdqu", MODE="0660", GROUP="plugdev"

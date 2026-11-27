@@ -46,7 +46,7 @@ FSBL_COMMIT=$(MAIXCAM_FSBL_COMMIT)
 # 40% of the rootfs, and the rootfs size decides both the image size and the flash time.
 ENABLE_DEV_TOOLS ?= 0
 ENABLE_WIFI ?= 0
-PACKAGES="busybox-static ca-certificates debian-archive-keyring dosfstools sudo bash-completion u-boot-menu openssh-server dnsmasq-base libpam-systemd iptables usbutils parted exfatprogs systemd-sysv i2c-tools net-tools ethtool gnupg gpiod u-boot-tools libubootenv-tool curl xz-utils nano libcap2-bin python3 fake-hwclock"
+PACKAGES="busybox-static ca-certificates debian-archive-keyring dosfstools sudo bash-completion u-boot-menu openssh-server dnsmasq-base libpam-systemd iptables usbutils parted exfatprogs systemd-sysv i2c-tools net-tools ethtool gnupg gpiod u-boot-tools libubootenv-tool curl xz-utils nano libcap2-bin python3 fake-hwclock libatomic1"
 PACKAGES_WIFI="network-manager wireless-regdb wpasupplicant"
 
 
