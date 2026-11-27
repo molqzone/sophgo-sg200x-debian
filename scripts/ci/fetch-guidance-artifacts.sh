@@ -60,6 +60,7 @@ if [ "${DO_ACTION}" = "1" ]; then
     verify_sha256 "${TMP_DIR}/c906-mcu.bin" "${GUIDANCE_ACTION_BIN_SHA256}"
 
     FW_DIR="${REPO_ROOT}/components/rtos-fw/firmware"
+    mkdir -p "${FW_DIR}"
     install -m 0644 "${TMP_DIR}/c906-mcu.elf" "${FW_DIR}/c906-mcu.elf"
     install -m 0644 "${TMP_DIR}/c906-mcu.bin" "${FW_DIR}/c906-mcu.bin"
     (cd "${FW_DIR}" && sha256sum c906-mcu.elf c906-mcu.bin > sha256sums.txt)
@@ -75,6 +76,7 @@ if [ "${DO_VISION}" = "1" ]; then
     verify_sha256 "${TMP_DIR}/guidance_vision_app" "${GUIDANCE_VISION_APP_SHA256}"
 
     VISION_BIN="${REPO_ROOT}/scripts/addons/guidance-autostart/files/guidance_vision_app"
+    mkdir -p "$(dirname "${VISION_BIN}")"
     install -m 0755 "${TMP_DIR}/guidance_vision_app" "${VISION_BIN}"
     echo "Updated ${VISION_BIN} from ${GUIDANCE_VISION_REPO}@${GUIDANCE_VISION_RELEASE}"
   fi

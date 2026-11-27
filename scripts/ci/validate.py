@@ -746,12 +746,9 @@ def check_vendored_cop() -> None:
         )
 
 
-def validate_component() -> None:
+def validate_component(allow_missing_artifacts: bool = False) -> None:
     component = REPO_ROOT / "components/rtos-fw"
     required = (
-        "firmware/c906-mcu.elf",
-        "firmware/c906-mcu.bin",
-        "firmware/sha256sums.txt",
         "ports/osdrv/patches/0001-cmdqu-allow-user-commands.patch",
         "tools/rtos-mode",
         "tools/cop",
@@ -762,6 +759,13 @@ def validate_component() -> None:
     for name in required:
         if not (component / name).is_file():
             fail(f"component path is missing: {component / name}")
+    if not allow_missing_artifacts:
+        for name in ("firmware/c906-mcu.elf", "firmware/c906-mcu.bin", "firmware/sha256sums.txt"):
+            if not (component / name).is_file():
+                fail(f"fetched firmware artifact is missing: {component / name}")
+        vision_app = REPO_ROOT / "scripts/addons/guidance-autostart/files/guidance_vision_app"
+        if not vision_app.is_file():
+            fail(f"fetched vision artifact is missing: {vision_app}")
     for name in ("tools/rtos-mode", "tools/cop"):
         if not (component / name).stat().st_mode & 0o111:
             fail(f"component tool is not executable: {component / name}")
@@ -876,7 +880,7 @@ def validate_firmware_view(config_root: Path) -> None:
         )
 
 
-def validate_guidance_pages(config_root: Path) -> None:
+def validate_guidance_pages(config_root: Path, allow_missing_artifacts: bool = False) -> None:
     """The page layout has one owner: the firmware headers; the image checks its inputs.
 
     The firmware build reads `firmware-view.json` for the page base/size and pins them
@@ -920,6 +924,8 @@ def validate_guidance_pages(config_root: Path) -> None:
     if regions != expected:
         fail(f"maixcam: rtos-pages reg {regions} disagrees with memmap {expected}")
 
+    if allow_missing_artifacts:
+        return
     component = REPO_ROOT / "components/rtos-fw"
     pins = {}
     for line in (component / "firmware/sha256sums.txt").read_text(
@@ -1073,9 +1079,9 @@ def main() -> int:
             / "configs/common/patches/linux/0002-Add-Reset-for-C906L-ignore-clock-status-for-C906L-an.patch"
         )
         validate_pins((args.output, *args.exclude_path))
-        validate_component()
+        validate_component(args.allow_missing_image)
         validate_firmware_view(config_root)
-        validate_guidance_pages(config_root)
+        validate_guidance_pages(config_root, args.allow_missing_image)
         validate_bootlog_ring()
         validate_entropy_seed()
         validate_workflows()

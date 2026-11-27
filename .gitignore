@@ -11,3 +11,9 @@ offline-cache/
 # Camera test clips: 2.9 GB of captures, kept outside the repository.
 tools/maixcam-camera/recordings/
 .tmp-flash/
+
+# Fetched release artifacts (populated by scripts/ci/fetch-guidance-artifacts.sh).
+components/rtos-fw/firmware/c906-mcu.elf
+components/rtos-fw/firmware/c906-mcu.bin
+components/rtos-fw/firmware/sha256sums.txt
+scripts/addons/guidance-autostart/files/guidance_vision_app

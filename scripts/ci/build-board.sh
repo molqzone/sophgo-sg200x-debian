@@ -14,6 +14,7 @@ output_dir=$(mkdir -p "$3" && cd "$3" && pwd)
 image=${BUILDER_IMAGE:?BUILDER_IMAGE is required}
 
 python3 "$script_dir/plan.py" artifact --board "$board" --storage "$storage" >/dev/null
+bash "$script_dir/fetch-guidance-artifacts.sh"
 docker pull "$image"
 docker run --rm --privileged --entrypoint /bin/bash \
 	-e IN_CONTAINER=1 \

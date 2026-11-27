@@ -43,6 +43,9 @@ done
 
 if [[ ${IN_CONTAINER:-0} != 1 && $inside != 1 ]]; then
 	command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
+	if [[ $offline != 1 ]]; then
+		bash "$script_dir/fetch-guidance-artifacts.sh"
+	fi
 	# shellcheck disable=SC1091
 	source "$repo_root/toolchain.env"
 	image=${BUILDER_IMAGE:-$(bash "$script_dir/toolchain-ref.sh")}

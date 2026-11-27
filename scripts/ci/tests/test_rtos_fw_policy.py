@@ -44,9 +44,20 @@ def generate_release(loader: str) -> str:
             f"include {ADDON}\n",
             encoding="utf-8",
         )
+        make_args = ["make", "--no-print-directory", "-f", str(makefile)]
+        if not (COMPONENT / "firmware/c906-mcu.elf").is_file():
+            fw = root / "fw"
+            fw.mkdir()
+            (fw / "c906-mcu.elf").write_bytes(b"stub-elf")
+            (fw / "c906-mcu.bin").write_bytes(b"stub-bin")
+            subprocess.run(
+                ["sha256sum", "c906-mcu.elf", "c906-mcu.bin"],
+                cwd=fw, check=True, stdout=(fw / "sha256sums.txt").open("wb"),
+            )
+            make_args.append(f"GUIDANCE_FW_FIRMWARE_DIR={fw}")
+        make_args.append(str(build / "rtos-fw-stamp"))
         subprocess.run(
-            ["make", "--no-print-directory", "-f", str(makefile),
-             str(build / "rtos-fw-stamp")],
+            make_args,
             check=True, capture_output=True, text=True,
         )
         return (rootfs / "etc/systemd/system/rtos-release.service").read_text(
