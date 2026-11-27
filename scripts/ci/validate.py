@@ -184,6 +184,14 @@ def file_occurrences(path: Path, needles: dict[str, bytes]) -> set[str]:
     return found
 
 
+def looks_binary(path: Path) -> bool:
+    # The pin scan covers tracked source.  A release binary can contain the same
+    # seven hex digits by accident (the vision app does), and treating that as a
+    # source reference makes a clean build fail for no reason.
+    with path.open("rb") as stream:
+        return b"\0" in stream.read(SCAN_CHUNK_SIZE)
+
+
 def tracked_occurrences(
     values: set[str], excluded_paths: tuple[Path, ...] = ()
 ) -> dict[str, list[str]]:
@@ -191,6 +199,8 @@ def tracked_occurrences(
     locations = {value: [] for value in values}
     for path in maintained_files(excluded_paths):
         try:
+            if looks_binary(path):
+                continue
             found = file_occurrences(path, needles)
         except OSError as exc:
             fail(f"cannot scan {path}: {exc}")

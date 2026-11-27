@@ -156,6 +156,21 @@ class PlanTests(unittest.TestCase):
                 {"abc123": ["versions.env"]},
             )
 
+    def test_pin_scan_skips_tracked_binaries(self) -> None:
+        # Release binaries can contain a pinned short hash by chance.  The scan
+        # is about source references, not bytes inside an ELF.
+        root = self.config / "repository"
+        root.mkdir()
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        (root / "versions.env").write_text("PIN_COMMIT=abc123\n", encoding="utf-8")
+        (root / "app.bin").write_bytes(b"\x7fELF\x00abc123")
+        subprocess.run(["git", "-C", str(root), "add", "versions.env", "app.bin"], check=True)
+        with mock.patch.object(validation, "REPO_ROOT", root):
+            self.assertEqual(
+                validation.tracked_occurrences({"abc123"}),
+                {"abc123": ["versions.env"]},
+            )
+
     def test_pin_scan_includes_tracked_files_in_excluded_named_directories(self) -> None:
         root = self.config / "repository"
         root.mkdir()
