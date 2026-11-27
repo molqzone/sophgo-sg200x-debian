@@ -109,21 +109,25 @@ overwrite from the other side.  The image has no "format before releasing the co
 at all; a core that never formatted leaves `UNFORMATTED`, and the boot log's console
 index freezing is the freeze signature.
 
-## 契约 JSON / The contract file
+## 页头自描述 / The self-describing page
 
-`/lib/firmware/guidance_contract.json`（与 ELF 同目录，由镜像 pin 住）携带页头**装不下**的
-东西：帧几何与校验、通道名、命令取值、console 环几何。`cop send` 需要它；`cop status`
-不需要。
+没有 `/lib/firmware/guidance_contract.json`。`cop` 从页上的 `PageHeader` 取
+`page_size` / `slot_count` / `sample_size` / `payload_size` / `region_offset` /
+`tag` / `command_magic` / `header_bytes`，推导环、通道表和命令区；console 页从偏移 4 的
+`ConsoleDescriptor` 取索引/环布局。`cop send` 的命令魔数来自 `PageLayout.command_magic`，
+8B 头是 `CommandHeader`（magic/type/seq），其余是不透明 payload。
 
-构建期三方对账（[validate.py](../scripts/ci/validate.py)）：DTS `reg` = `memmap.py` =
-契约的地址；契约声明的偏移必须等于 `cop` 从页头推导出的偏移；名字服务/命令区必须整段落在
-页内且不重叠；通道条目的名字、键、端点必须自洽。任何一项不一致都是红构建——因为这类漂移在
-板子上的表现是"页错位"，而在代码里看不出来。
+构建期的布局校验在 C++ 里：`GuidanceContract.hpp` / `make_page_layout` 的
+`static_assert` 钉住偏移与页尾等式，`PageView::Check()` 在运行时逐项互验，任何漂移报
+`MISMATCH`。镜像侧的 `validate.py` 只对账 `firmware-view.json`、`memmap.py` 与 DTS；
+它不再读固件契约。
 
-The contract carries only what the header cannot.  The build re-derives the layout with
-the tool and compares, checks that every region fits and that entries are self-consistent;
-drift here shows up on a board as a misaligned page, which no amount of reading the code
-would reveal.
+There is no `guidance_contract.json`.  `cop` derives the ring/channel/command offsets
+from the page's own `PageHeader`, and the console ring from the `ConsoleDescriptor` at
+offset 4.  The command magic comes from `PageLayout.command_magic`; the 8-byte
+`CommandHeader` and the rest of the payload are opaque to the tool.  The layout
+arithmetic is checked by C++ `static_assert` and `PageView::Check()`; the image's
+`validate.py` only reconciles `firmware-view.json`, `memmap.py` and the DTS.
 
 ## 怎么读 / Reading it
 
@@ -133,5 +137,5 @@ cop status               # 页头、布局、通道、head/seq
 cop dump --offset 3776 --bytes 8
 cop log --new            # console 环（无中断，轮询）
 cop watch                # 新遥测槽，按裸字节打印
-cop send --contract /lib/firmware/guidance_contract.json --type 1 --payload ''
+cop send --type 4 --payload ''
 ```

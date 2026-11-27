@@ -61,15 +61,16 @@ class MemoryMap:
         FREERTOS_ADDR + FREERTOS_SIZE
     )
 
-    # 两个页的物理地址是与固件握手的那一个事实：镜像侧在这里声明一次，固件构建用
-    # SG200X_SHARED_PAGE_BASE 把它拿走（同一个值生成链接脚本、C++ 编译定义与发布的
-    # guidance_contract.json），固件自己不推导。scripts/ci/validate.py 强制三处相等：
-    # 这两个数、DTS `rtos-pages` 的 reg、以及 rtos-fw 发布的契约 JSON。
-    # The two page addresses are the single fact shared with the firmware.  The image
-    # declares them here; the firmware build is handed the value
-    # (SG200X_SHARED_PAGE_BASE) and derives nothing itself, and validate.py fails the
-    # build unless these numbers, the DTS `rtos-pages` reg and the published
-    # guidance_contract.json all agree.
+    # 两个页的物理地址与页大小是与固件握手的那一个事实：镜像侧在这里声明一次，并发布
+    # 为 firmware-view.json 的 `pages`；固件构建读取 SG200X_GUIDANCE_PAGE_BASE /
+    # SG200X_GUIDANCE_PAGE_BYTES（同一组数生成链接脚本与 C++ 编译定义），自己不推导。
+    # scripts/ci/validate.py 强制三处相等：这两个数、DTS `rtos-pages` 的 reg、以及
+    # firmware-view.json。
+    # The two page addresses and the page size are the single fact shared with the
+    # firmware.  The image declares them here and publishes `pages` in
+    # firmware-view.json; the firmware build reads SG200X_GUIDANCE_PAGE_BASE /
+    # SG200X_GUIDANCE_PAGE_BYTES and derives nothing itself.  validate.py fails the
+    # build unless these numbers, the DTS `rtos-pages` reg and firmware-view.json agree.
     GUIDANCE_PAGE_SIZE = 4 * SIZE_1K
     GUIDANCE_SHARED_PAGE_ADDR = 0x8FFDC000
     GUIDANCE_CONSOLE_PAGE_ADDR = GUIDANCE_SHARED_PAGE_ADDR - GUIDANCE_PAGE_SIZE

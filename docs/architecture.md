@@ -37,16 +37,15 @@ not in workflow conditionals.
 
 `components/rtos-fw` owns the product firmware for the small core:
 
-- `firmware`: versioned `c906-mcu.{elf,bin}` artifacts, the page layout they
-  were built against (`guidance_contract.json`), and sha256 pins for all three.
-- `lib`: gone. The contract JSON is the only copy of the layout; it is installed
-  to `/lib/firmware/guidance_contract.json` (next to the ELF it describes) and read
-directly by `cop` and
-  `bootlogd` (no separate loader module).
+- `firmware`: versioned `c906-mcu.{elf,bin}` artifacts and sha256 pins for both.
+- `lib`: gone, and so is the contract JSON. The page layout is owned by the
+  firmware's C++ headers and is self-described on the page; `cop` reads the
+  `PageHeader`/`ConsoleDescriptor` directly and `bootlogd` reads the console
+  descriptor (no separate loader module and no side file).
 - `ports/osdrv/patches`: the CMDQU `IP_SYSTEM` doorbell kernel patch.
 - `tools`: `rtos-mode` (boot the C906L remoteproc) and `cop` (the generic page
-  tool: status/dump/log/watch/format/send, driven by the contract or by the
-  page's own header).
+  tool: status/dump/log/watch/send/wait-console/wipe-shared, driven only by the
+  page's own header and console descriptor).
 - `linux/systemd`: the `load-systemko` drop-in that starts the C906L before
   the media chain.
 
@@ -62,12 +61,12 @@ derives the FSBL input and generates the systemd drop-in from it, and
 `scripts/ci/validate.py` refuses unsupported combinations and checks the policy
 against the device tree.
 
-The page layout itself is not re-derived here: `guidance_contract.json` is the
-owner's statement of it, `cop` and `bootlogd` read it directly, and
-`scripts/ci/validate.py` fails the build unless
-the DTS `rtos-pages` reg and `configs/maixcam/memmap.py` agree with it. The
-one fact the two sides must agree on -- the two page addresses -- is declared
-once on each side and checked, never copied again.
+The page layout itself is not re-derived here: the firmware's C++ headers own it,
+the page header and console descriptor carry it at runtime, and `cop`/`bootlogd`
+read it directly. `scripts/ci/validate.py` fails the build unless the DTS
+`rtos-pages` reg, `configs/maixcam/memmap.py` and `firmware-view.json` agree. The
+one fact the two sides must agree on -- the page base/size -- is declared once on
+each side and checked, never copied again.
 
 ## Build ownership
 

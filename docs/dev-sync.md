@@ -37,7 +37,6 @@ differs, then reloads systemd and restarts only what can be restarted safely.
 | `components/rtos-fw/tools/cop` | `/usr/bin/cop` |
 | `components/rtos-fw/linux/systemd/rtos-release.service.in` | `/etc/systemd/system/rtos-release.service`（按板级设置渲染，下次上电生效） |
 | `components/rtos-fw/linux/systemd/load-systemko-none.conf` | `/etc/systemd/system/load-systemko.service.d/50-rtos-fw.conf` |
-| `components/rtos-fw/firmware/guidance_contract.json` | `/lib/firmware/`（下次调用就生效） |
 | `components/rtos-fw/firmware/c906-mcu.elf` | `/lib/firmware/`（**下次上电**才生效） |
 
 不管的，以及为什么：

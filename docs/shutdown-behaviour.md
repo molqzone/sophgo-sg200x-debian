@@ -96,7 +96,7 @@ image offers no shutdown hook and the contract has no stop command.
 sudo journalctl -b -1 -k --no-pager | grep -iE 'remoteproc|c906'
 # 现在这次
 cat /sys/class/remoteproc/remoteproc*/state    # running / offline
-cop send --contract /lib/firmware/guidance_contract.json --type 1   # 有回执 = 固件活着
+cop send --type 4 --payload ''   # 有回执 = 固件活着
 ```
 
 如果哪天确实需要「优雅停机」，正确的位置在**固件**（例如按大核的存活信号自停），而不是

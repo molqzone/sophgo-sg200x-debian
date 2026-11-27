@@ -1,5 +1,8 @@
 # UIO 联调交接 / UIO bring-up handoff
 
+> Historical (superseded 2026-11-27): `cop --contract` and `guidance_contract.json`
+> were removed; the page and console descriptor self-describe.
+
 这份文档记录 2026-11-06/07 两天里把 `rtos-pages`（uio + 共享页）在真机上跑通到
 "第 1 层通过、第 2 层定位到根因"的过程。**结论比过程重要**，所以先给结论，再给证据。
 

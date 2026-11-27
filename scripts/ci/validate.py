@@ -158,7 +158,11 @@ def maintained_files(excluded_paths: tuple[Path, ...] = ()) -> list[Path]:
         for relative in result.stdout.split("\0")
         if relative
         and (REPO_ROOT / relative).is_file()
-        and not is_excluded(REPO_ROOT / relative, excluded_roots)
+        and not any(
+            (REPO_ROOT / relative).resolve(strict=False) == root
+            or root in (REPO_ROOT / relative).resolve(strict=False).parents
+            for root in excluded_roots
+        )
     ]
 
 

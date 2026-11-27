@@ -15,37 +15,37 @@ page header for the geometry:
 
 ```
 cop list                       # pages, maps, addresses, sizes - DT only
-cop status [--contract FILE]   # decode the header; optional contract cross-check
+cop status                     # decode the header: state, layout, channels
 cop dump --offset 0 --bytes 64 # forensics
-cop log [--contract FILE]      # console ring
-cop watch [--contract FILE]    # new telemetry slots, opaque bytes
-cop send --contract FILE --type N --payload HEX
+cop log [--new]                # console ring, via ConsoleDescriptor
+cop watch                      # new telemetry slots, opaque bytes
+cop send --type N --payload HEX
+cop wait-console               # wait for the console descriptor (boot path)
+cop wipe-shared --confirm      # cold-page wipe before releasing the core
 ```
 
-So **no `pages.json` is installed into the rootfs, and nothing parses one**:
-the runtime source of the addresses is the DT (read through sysfs), the
-build-time source is `configs/<board>/memmap.py` (exported as
-`SG200X_SHARED_PAGE_BASE` for the firmware build), and the only extra file
-`cop` may take is the *product's* contract (`--contract`), which carries what
-the header cannot: frame layout, checksum, channel names and command values.
-An out-of-tree product build that needs the addresses pins this repository and
-imports `memmap.py`; it does not read a copy shipped in the image.
+So **no `pages.json` and no `guidance_contract.json` are installed into the
+rootfs, and nothing parses one**: the runtime source of the addresses is the DT
+(read through sysfs), and the layout comes from the page's own `PageHeader` /
+`ConsoleDescriptor`. `cop` has no `--contract` and never includes a product
+header; `send --type N` is the transport-level escape hatch, and "what the page
+means" lives in the product's own tooling.
 
-`cop` knows no product names: `send --type N` is the transport-level escape
-hatch, and "what the page means" lives in the product's own tooling.
+The build-time source of the page addresses and size is
+`configs/<board>/firmware-view.json` (published from `memmap.py`); the firmware
+build reads `SG200X_GUIDANCE_PAGE_BASE` / `SG200X_GUIDANCE_PAGE_BYTES` from it.
 
 ## Contents
 
 ```text
 firmware/c906-mcu.elf        product firmware artifact (remoteproc)
 firmware/c906-mcu.bin        same build, raw image, only for an opt-in FSBL/FIP build
-firmware/guidance_contract.json  the page geometry this image declares; `cop` and
-                             `validate.py` consume it
-firmware/sha256sums.txt      integrity pins for all three artifacts
+firmware/sha256sums.txt      integrity pins for both artifacts
 ports/osdrv/patches/        0001-cmdqu-allow-user-commands.patch (doorbell)
                             0002-cmdqu-notify-event.patch (notification wait)
 tools/rtos-mode              board tool: start the C906L remoteproc at boot
-tools/cop                    board tool: page status/dump/log/format, typed commands
+tools/cop                    generic board tool: page status/dump/log/watch/send,
+                             driven only by the page header/console descriptor
 tools/deploy_rtos_fw.sh      board tool: install an ELF and reboot into it
 tools/deploy.conf            board ownership applied before the core starts
 tools/mcu-watchdog.{sh,service}, install-mcu-watchdog.sh
@@ -67,39 +67,36 @@ linux/modules-load.d/rtos-uio.conf  load that module at boot
 The **product** artifacts come from the product firmware repository
 [molqzone/bsp-guidance-action](https://github.com/molqzone/bsp-guidance-action)
 (private; the `xrobot-org/bsp-guidance-action` link this file used to carry never
-resolved). They are refreshed by copying `build/firmware/c906-mcu.{elf,bin}` and
-`build/firmware/guidance_contract.json` here, then recording new hashes in
-`firmware/sha256sums.txt`. The product firmware carries the shared-page guidance
-contract at `0x8FFDC000` and answers the Linux doorbell
+resolved). They are refreshed by copying `build/firmware/c906-mcu.{elf,bin}` here,
+then recording new hashes in `firmware/sha256sums.txt`. The product firmware
+carries the shared-page layout at `0x8FFDC000` and answers the Linux doorbell
 (`ip_id=IP_SYSTEM, cmd_id=0x7f`) with the mailbox reply sequence mirrored from
 the vendor reference implementation.
 
 `firmware/` is the product firmware, not an inert sample: it builds the page,
-publishes telemetry and answers the doorbell.  `rtos-fw` owns the artifact,
-contract, `cop`, `rtos-mode`, the single release unit
-(`rtos-release.service`, after multi-user) and the load-systemko no-op;
-`guidance-autostart` owns only the vision application.
+publishes telemetry and answers the doorbell.  `rtos-fw` owns the artifact, `cop`,
+`rtos-mode`, the single release unit (`rtos-release.service`, after multi-user)
+and the load-systemko no-op; `guidance-autostart` owns only the vision
+application.
 
-The page base is the one fact the two sides hand over: build the firmware with the
-same value this image declares in `configs/maixcam/memmap.py`, and the ELF, the
-linker script and the published contract all follow it.
+The page base/size are the one fact the two sides hand over: build the firmware
+with the image's `firmware-view.json`, and the ELF, the linker script and the
+runtime page header all follow it.
 
 ```sh
-# product build: the page base is the image's input
-cmake --preset rtos-release \
-  -DSG200X_FIRMWARE_VIEW=/path/to/sophgo-sg200x-debian/configs/maixcam/firmware-view.json \
-  -DSG200X_SHARED_PAGE_BASE=0x8FFDC000
+# product build: the firmware view is the image's input
+cmake --preset c906-release \
+  -DSG200X_FIRMWARE_VIEW=/path/to/sophgo-sg200x-debian/configs/maixcam/firmware-view.json
 cmake --build build/release --target firmware
-# then copy build/firmware/{c906-mcu.elf,c906-mcu.bin,guidance_contract.json} here
-# and re-pin: (cd firmware && sha256sum c906-mcu.elf c906-mcu.bin \
-#   guidance_contract.json > sha256sums.txt)
+# then copy build/firmware/{c906-mcu.elf,c906-mcu.bin} here
+# and re-pin: (cd firmware && sha256sum c906-mcu.elf c906-mcu.bin > sha256sums.txt)
 ```
 
 Board usage:
 
 ```sh
-sudo cop status                           # self-describing: no contract needed
-sudo cop send --contract /lib/firmware/guidance_contract.json --type 1
+sudo cop status                 # self-describing: no side file
+sudo cop send --type 4 --payload ''
 sudo cop log
 ```
 
@@ -120,29 +117,24 @@ The normative specification is the firmware repo's
 side implements the Linux half of it and consumes the numbers, never re-derives
 them.
 
-`firmware/guidance_contract.json` is emitted by the firmware build from the same
-`User/guidance_contract.hpp` the firmware compiles (`tools/guidance-contract` in
-that repository). It carries the page size, every offset, the magic numbers,
-the frame geometry, the name-service area, the command values and the console
-ring geometry. This component pins it next to the ELF and installs it to
-`/lib/firmware/` next to the ELF it describes; the board tools read it there:
+The layout is owned by the firmware's C++ headers (`GuidanceContract.hpp` and
+`shared-page-xr`), and is written into the page itself. This component installs
+no side file:
 
-* `cop send` takes the command magic and region offsets from the contract
-  (`--contract`); `cop status` / `cop dump` need no contract at all because the page
-  is self-describing.
-* `bootlogd` reads the console ring geometry from it too, so its snapshots cannot
-  be silently wrong about where the frozen coprocessor's output is.
-* missing or invalid contract = hard error with the path in the message. There is
-  no built-in fallback copy: a fallback would hide exactly the drift the contract
-  exists to prevent.
+* `cop status` / `dump` / `watch` read the `PageHeader`; `cop send` takes the
+  command magic from `PageLayout.command_magic` and writes the generic 8-byte
+  `CommandHeader` plus an opaque payload; `cop log` reads the
+  `ConsoleDescriptor`.
+* `bootlogd` reads the same `ConsoleDescriptor`, so its snapshots cannot be
+  silently wrong about where the frozen coprocessor's output is.
+* a page that is `UNFORMATTED` / `FOREIGN` / `MISMATCH` is reported and
+  refused; there is no fallback layout to hide the drift.
 
-The image side keeps the single declaration of the two page addresses in
-`configs/maixcam/memmap.py`, because those addresses are the one fact the two
-sides must shake hands on. The firmware build is told the same value
-(`SG200X_SHARED_PAGE_BASE`) and derives nothing itself: that one number feeds its
-linker script, its C++ compile definition and this JSON. `scripts/ci/validate.py`
-fails the build unless the declaration, the DTS `rtos-pages` reg, and this
-JSON all agree.
+The image side keeps the single declaration of the page base/size in
+`configs/maixcam/memmap.py`, published as `firmware-view.json`. The firmware build
+is told the same values (`SG200X_GUIDANCE_PAGE_BASE` / `SG200X_GUIDANCE_PAGE_BYTES`)
+and derives nothing itself. `scripts/ci/validate.py` fails the build unless the
+view, `memmap.py` and the DTS `rtos-pages` reg all agree.
 
 ## Kernel patches
 
@@ -191,8 +183,8 @@ and services are up), calls `rtos-mode remoteproc`, which loads
 `cvitek_mailbox` + `cvitek_remoteproc`, starts the C906L from
 `/lib/firmware/c906-mcu.elf`, releases the mailbox IRQ, and then restores the
 media chain without stopping the remote processor.  Before that media load it
-waits for the firmware console descriptor (magic from
-`guidance_contract.json`): `remoteproc running` is not "firmware ready", and
+waits for the firmware console descriptor (its magic/offsets are read from the
+page by `cop wait-console`): `remoteproc running` is not "firmware ready", and
 loading `cv181x_base` while the S-mode bring-up is still configuring clocks can
 wedge the SoC.  The vendor `load-systemko` hook is installed as a no-op so it
 cannot release a second time.  It does
