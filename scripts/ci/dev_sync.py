@@ -141,12 +141,13 @@ def install_local(target: Target, data: bytes, root: Path, dry_run: bool) -> boo
     return True
 
 
-def ssh(command: list[str], password: str) -> subprocess.CompletedProcess:
+def ssh(command: list[str], password: str,
+        input_text: str | None = None) -> subprocess.CompletedProcess:
     if shutil.which("sshpass") is None:
         raise SystemExit("sshpass is required to sync over ssh without a prompt")
     return subprocess.run(
         ["sshpass", "-p", password, *command],
-        capture_output=True, text=True, check=False,
+        input=input_text, capture_output=True, text=True, check=False,
     )
 
 
@@ -187,7 +188,8 @@ def install_remote(board: str, password: str, changes: list[tuple[Target, bytes]
         for unit in restarts:
             script.append("systemctl restart %s" % unit)
             print("  restarted %s" % unit)
-        done = ssh(["ssh", board, "sudo -S sh -c '%s'" % "; ".join(script)], password)
+        done = ssh(["ssh", board, "sudo -S sh -c '%s'" % "; ".join(script)], password,
+                   input_text=password + "\n")
         if done.returncode != 0:
             raise SystemExit("remote install failed: %s" % done.stderr.strip())
     finally:
